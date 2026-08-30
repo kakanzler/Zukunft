@@ -1,0 +1,16 @@
+query ItemUpdatedAt($itemId: ID!) {
+  node(id: $itemId) {
+    ... on ProjectV2Item {
+      id
+      fieldValues(first: 20) { ...FieldValues }
+      content {
+        __typename
+        ... on Issue {
+          number title url body updatedAt
+          assignees(first: 5) { nodes { login avatarUrl } }
+          milestone { title dueOn }
+        }
+      }
+    }
+  }
+}

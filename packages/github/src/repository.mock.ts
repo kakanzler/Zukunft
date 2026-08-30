@@ -1,0 +1,302 @@
+import {
+  type DateChange,
+  type Label,
+  type NewTaskInput,
+  type ProjectSchema,
+  type ProjectSummary,
+  type RepositorySummary,
+  type ScheduleTask,
+  type TaskContent,
+  addDays,
+  today,
+} from "@zukunft/domain"
+import { GitHubError, type GitHubScheduleRepository } from "./repository"
+
+/**
+ * GitHub に接続せずに UI を動かすための実装。
+ *
+ * ブラウザでの開発（Tauri の外）と、同期まわりの手動確認に使う。
+ * 遅延と失敗を注入できるので、Syncing / Failed / Conflict の
+ * 表示を実際に GitHub を壊さずに確認できる。
+ */
+
+export type MockOptions = {
+  /** 応答を遅らせる ms。同期状態の表示確認に使う */
+  latencyMs?: number
+  /** 書き込みを失敗させる確率 (0-1) */
+  failureRate?: number
+  /** 書き込みを競合させる確率 (0-1) */
+  conflictRate?: number
+  /**
+   * Start Date / Target Date が無い Project を再現する。
+   * "once" は「最初の取得だけ欠けている」= GitHub 側で後からフィールドを
+   * 追加した状況で、再読み込みがスキーマを取り直すかの確認に使う。
+   */
+  withoutDateFields?: boolean | "once"
+  /** item が 0 件の Project を再現する */
+  empty?: boolean
+  /** フィールドはあるが、どの Issue にも日付が入っていない状態を再現する */
+  undated?: boolean
+}
+
+const PROJECT_ID = "mock-project"
+
+const STATUSES = ["Planning", "In Progress", "Review", "Complete"]
+
+const SEED: [string, number, number, number, number, number | null][] = [
+  // title, statusIndex, milestone, startOffset, durationDays, progress
+  ["Project Kickoff", 0, 0, 0, 3, 100],
+  ["Define Objectives", 0, 0, 2, 5, 100],
+  ["Resource Planning", 0, 0, 5, 6, 80],
+  ["Risk Assessment", 0, 0, 8, 5, 40],
+  ["Wireframes", 1, 1, 10, 7, 90],
+  ["UI/UX Design", 1, 1, 14, 9, 60],
+  ["Design Review", 2, 1, 21, 4, 30],
+  ["Frontend Development", 1, 2, 24, 14, 45],
+  ["Backend Development", 1, 2, 26, 16, 35],
+  ["Integration", 1, 2, 38, 8, 10],
+  ["Testing", 2, 2, 44, 9, 0],
+  ["User Acceptance", 2, 3, 52, 6, 0],
+  ["Deployment", 3, 3, 57, 3, 0],
+  ["Go Live", 3, 3, 60, 2, 0],
+  ["Post Launch Review", 3, 3, 62, 5, null],
+]
+
+const MILESTONES = ["Kickoff", "Design Review", "Integration Complete", "Go Live"]
+
+/** Category 表示の確認用。1 つの Issue に複数付くこともある。 */
+const LABELS: Label[] = [
+  { id: "lbl-planning", name: "planning", color: "1d76db" },
+  { id: "lbl-design", name: "design", color: "a855f7" },
+  { id: "lbl-backend", name: "backend", color: "0e8a16" },
+  { id: "lbl-frontend", name: "frontend", color: "22d3ee" },
+  { id: "lbl-release", name: "release", color: "d93f0b" },
+]
+
+function buildTasks(origin: string): ScheduleTask[] {
+  return SEED.map(([title, statusIndex, milestoneIndex, offset, duration, progress], i) => ({
+    id: `mock-item-${i + 1}`,
+    issueId: `mock-issue-${i + 1}`,
+    repositoryId: "mock-repo-1",
+    issueNumber: 101 + i,
+    title,
+    body: `${title} の作業内容をここに書く。
+
+- [ ] 実装
+- [ ] 動作確認`,
+    url: `https://github.com/example/zukunft/issues/${101 + i}`,
+    startDate: addDays(origin, offset),
+    endDate: addDays(origin, offset + duration - 1),
+    status: STATUSES[statusIndex] ?? null,
+    priority: i % 3 === 0 ? "High" : "Medium",
+    assignees:
+      i % 4 === 3
+        ? []
+        : [{ login: `dev${(i % 3) + 1}`, avatarUrl: "" }],
+    // 一部はラベル無し、一部は複数ラベルにして Category 表示を試せるようにする
+    labels:
+      i % 5 === 4
+        ? []
+        : i % 3 === 0
+          ? [LABELS[i % LABELS.length]!, LABELS[(i + 2) % LABELS.length]!]
+          : [LABELS[i % LABELS.length]!],
+    milestone: {
+      title: MILESTONES[milestoneIndex] ?? "v1",
+      dueOn: addDays(origin, offset + duration + 2),
+    },
+    progress,
+    updatedAt: new Date().toISOString(),
+    syncState: "synced" as const,
+  }))
+}
+
+export class MockScheduleRepository implements GitHubScheduleRepository {
+  #tasks: ScheduleTask[]
+  #labels: Label[] = [...LABELS]
+  #schemaFetches = 0
+  readonly #options: Required<MockOptions>
+
+  constructor(options: MockOptions = {}) {
+    this.#options = {
+      latencyMs: options.latencyMs ?? 220,
+      failureRate: options.failureRate ?? 0,
+      conflictRate: options.conflictRate ?? 0,
+      withoutDateFields: options.withoutDateFields ?? false,
+      empty: options.empty ?? false,
+      undated: options.undated ?? false,
+    }
+    const seeded = buildTasks(addDays(today(), -14))
+    this.#tasks = (options.undated ?? false)
+      ? seeded.map((t) => ({ ...t, startDate: null, endDate: null }))
+      : seeded
+  }
+
+  async #delay(): Promise<void> {
+    if (this.#options.latencyMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.#options.latencyMs))
+    }
+  }
+
+  async listProjects(owner: string): Promise<ProjectSummary[]> {
+    await this.#delay()
+    return [
+      {
+        id: PROJECT_ID,
+        number: 1,
+        title: "Zukunft Roadmap (mock)",
+        url: "https://github.com/orgs/example/projects/1",
+        ownerType: "organization",
+        ownerLogin: owner || "example",
+      },
+    ]
+  }
+
+  #dateFieldsMissing(): boolean {
+    const mode = this.#options.withoutDateFields
+    if (mode === "once") return this.#schemaFetches <= 1
+    return mode === true
+  }
+
+  async getProjectSchema(projectId: string): Promise<ProjectSchema> {
+    await this.#delay()
+    this.#schemaFetches += 1
+    if (this.#dateFieldsMissing()) {
+      return {
+        projectId,
+        fields: [
+          { id: "f-status", name: "Status", dataType: "SINGLE_SELECT",
+            options: STATUSES.map((name, i) => ({ id: `o${i}`, name })) },
+        ],
+      }
+    }
+    return {
+      projectId,
+      fields: [
+        { id: "f-status", name: "Status", dataType: "SINGLE_SELECT",
+          options: STATUSES.map((name, i) => ({ id: `o${i}`, name })) },
+        { id: "f-start", name: "Start Date", dataType: "DATE", options: [] },
+        { id: "f-end", name: "Target Date", dataType: "DATE", options: [] },
+        { id: "f-priority", name: "Priority", dataType: "SINGLE_SELECT",
+          options: [{ id: "p0", name: "High" }, { id: "p1", name: "Medium" }] },
+        { id: "f-progress", name: "Progress", dataType: "NUMBER", options: [] },
+      ],
+    }
+  }
+
+  async getTasks(_projectId: string): Promise<ScheduleTask[]> {
+    await this.#delay()
+    if (this.#options.empty) return []
+    if (this.#dateFieldsMissing()) {
+      // 日付フィールドが無い Project では、どの item にも日付が付かない。
+      return this.#tasks.map((t) => ({ ...t, startDate: null, endDate: null }))
+    }
+    return this.#tasks.map((t) => ({ ...t }))
+  }
+
+  async listLabels(_repositoryId: string): Promise<Label[]> {
+    await this.#delay()
+    return this.#labels.map((l) => ({ ...l }))
+  }
+
+  async createLabel(_repositoryId: string, name: string, color: string): Promise<Label> {
+    await this.#delay()
+    const trimmed = name.trim()
+    if (this.#labels.some((l) => l.name.toLowerCase() === trimmed.toLowerCase())) {
+      throw new GitHubError("unknown", `ラベル「${trimmed}」は既に存在します`)
+    }
+    const created: Label = { id: `lbl-${trimmed}-${Date.now()}`, name: trimmed, color }
+    this.#labels = [...this.#labels, created]
+    return { ...created }
+  }
+
+  async updateTaskContent(
+    taskId: string,
+    _issueId: string,
+    content: TaskContent,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+    const updated: ScheduleTask = {
+      ...current,
+      title: content.title,
+      body: content.body,
+      labels: content.labelIds
+        .map((id) => this.#labels.find((l) => l.id === id))
+        .filter((l): l is Label => Boolean(l)),
+      updatedAt: new Date().toISOString(),
+    }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
+  }
+
+  async listRepositories(_projectId: string): Promise<RepositorySummary[]> {
+    await this.#delay()
+    return [{ id: "mock-repo-1", nameWithOwner: "example/zukunft" }]
+  }
+
+  async createTask(_projectId: string, input: NewTaskInput): Promise<ScheduleTask> {
+    await this.#delay()
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+    const issueNumber =
+      this.#tasks.reduce((max, t) => Math.max(max, t.issueNumber), 100) + 1
+    const created: ScheduleTask = {
+      id: `mock-item-${issueNumber}`,
+      issueId: `mock-issue-${issueNumber}`,
+      repositoryId: "mock-repo-1",
+      issueNumber,
+      title: input.title,
+      body: input.body ?? "",
+      url: `https://github.com/example/zukunft/issues/${issueNumber}`,
+      startDate: input.startDate ?? null,
+      endDate: input.endDate ?? null,
+      status: STATUSES[0] ?? null,
+      priority: null,
+      assignees: [],
+      labels: [],
+      milestone: null,
+      progress: null,
+      updatedAt: new Date().toISOString(),
+      syncState: "synced",
+    }
+    this.#tasks = [...this.#tasks, created]
+    return { ...created }
+  }
+
+  async updateTaskDates(
+    _projectId: string,
+    taskId: string,
+    change: DateChange,
+    expectedUpdatedAt: string,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+
+    if (Math.random() < this.#options.conflictRate) {
+      const remote = { ...current, updatedAt: new Date().toISOString() }
+      throw new GitHubError("conflict", "GitHub 側が更新されています", remote)
+    }
+    if (current.updatedAt !== expectedUpdatedAt) {
+      throw new GitHubError("conflict", "GitHub 側が更新されています", { ...current })
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+
+    const updated: ScheduleTask = {
+      ...current,
+      startDate: change.startDate ?? current.startDate,
+      endDate: change.endDate ?? current.endDate,
+      updatedAt: new Date().toISOString(),
+      syncState: "synced",
+    }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
+  }
+}

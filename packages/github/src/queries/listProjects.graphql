@@ -1,0 +1,19 @@
+# repositoryOwner は User と Organization の両方に解決する。
+# organization(login:) と user(login:) を並べて問い合わせると、
+# 相手側が必ず NOT_FOUND になり「部分データ + errors」が返るため、
+# 単一の分岐にまとめる。__typename が所有者の種別を教えてくれる。
+query ListProjects($login: String!) {
+  repositoryOwner(login: $login) {
+    __typename
+    ... on Organization {
+      projectsV2(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes { id number title url }
+      }
+    }
+    ... on User {
+      projectsV2(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes { id number title url }
+      }
+    }
+  }
+}

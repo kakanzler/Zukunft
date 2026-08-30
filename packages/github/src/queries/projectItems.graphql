@@ -1,0 +1,24 @@
+query ProjectItems($projectId: ID!, $after: String) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      items(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          fieldValues(first: 20) { ...FieldValues }
+          content {
+            __typename
+            ... on Issue {
+              id number title url body updatedAt
+              assignees(first: 5) { nodes { login avatarUrl } }
+              labels(first: 20) { nodes { id name color } }
+              repository { id }
+              milestone { title dueOn }
+            }
+          }
+        }
+      }
+    }
+  }
+  rateLimit { remaining limit resetAt }
+}

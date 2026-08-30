@@ -1,0 +1,10 @@
+# リポジトリに定義済みのラベル一覧。Issue に付け外しする候補になる。
+query RepositoryLabels($repositoryId: ID!) {
+  node(id: $repositoryId) {
+    ... on Repository {
+      labels(first: 100, orderBy: { field: NAME, direction: ASC }) {
+        nodes { id name color }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+**/gen/schemas/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+.next/
+.test-out/
+dist/
+node_modules/
+out/
+target/

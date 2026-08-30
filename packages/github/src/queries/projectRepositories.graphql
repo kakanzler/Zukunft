@@ -1,0 +1,10 @@
+# Project にリンクされているリポジトリ。Issue の作成先を選ばせるために使う。
+query ProjectRepositories($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      repositories(first: 20) {
+        nodes { id nameWithOwner }
+      }
+    }
+  }
+}

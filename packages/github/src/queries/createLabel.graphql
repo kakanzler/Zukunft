@@ -1,0 +1,8 @@
+# ラベルの新規作成。
+# 注意: このミューテーションは preview 扱いで、
+# Accept: application/vnd.github.bane-preview+json を付けないと失敗する。
+mutation CreateLabel($repositoryId: ID!, $name: String!, $color: String!) {
+  createLabel(input: { repositoryId: $repositoryId, name: $name, color: $color }) {
+    label { id name color }
+  }
+}

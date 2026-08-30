@@ -1,0 +1,11 @@
+@import "@zukunft/gantt/theme.css";
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #060b1a;
+  color-scheme: dark;
+}

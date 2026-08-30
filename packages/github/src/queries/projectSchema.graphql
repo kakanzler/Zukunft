@@ -1,0 +1,15 @@
+query ProjectSchema($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      id
+      fields(first: 50) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon { id name dataType }
+          ... on ProjectV2SingleSelectField { options { id name } }
+        }
+      }
+    }
+  }
+  rateLimit { remaining limit resetAt }
+}

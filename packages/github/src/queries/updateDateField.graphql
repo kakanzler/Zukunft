@@ -1,0 +1,10 @@
+mutation UpdateDateField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $date: Date!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+    value: { date: $date }
+  }) {
+    projectV2Item { id }
+  }
+}

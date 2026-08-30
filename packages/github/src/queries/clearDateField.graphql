@@ -1,0 +1,11 @@
+# 元々値が無かったフィールドを元に戻すには、上書きではなく消す必要がある。
+# 部分適用の取り消し（企画書 §16.2）で使う。
+mutation ClearDateField($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+  clearProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+  }) {
+    projectV2Item { id }
+  }
+}
