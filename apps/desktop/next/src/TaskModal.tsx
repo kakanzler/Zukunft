@@ -11,6 +11,7 @@ import type {
   TaskContent,
 } from "@zukunft/domain"
 import { LabelEditor } from "@/LabelEditor"
+import { Markdown } from "@/Markdown"
 import { inclusiveDays, isISODate } from "@zukunft/domain"
 import { statusVar } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
@@ -323,7 +324,7 @@ export function TaskModal({
               onChange={(e) => setBody(e.target.value)}
             />
           ) : task.body.trim() ? (
-            <div className="zk-body-text zk-body-text--fill">{task.body}</div>
+            <Markdown text={task.body} />
           ) : (
             <div className="zk-body-text zk-body-text--fill zk-body-text--empty">
               本文はありません。

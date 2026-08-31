@@ -493,6 +493,91 @@
 }
 .zk-body-text--empty { color: var(--text-secondary); font-style: italic; font-family: inherit; }
 
+/* Issue 本文を Markdown として描画したもの。枠は .zk-body-text と揃えるが、
+   中身は等幅ではなく本文書体で組む。 */
+.zk-body-md {
+  height: 100%;
+  overflow: auto;
+  padding: calc(var(--space) * 3);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-word;
+  user-select: text;
+}
+.zk-body-md > :first-child { margin-top: 0; }
+.zk-body-md > :last-child { margin-bottom: 0; }
+.zk-body-md p { margin: 0 0 calc(var(--space) * 2); }
+
+.zk-body-md h1, .zk-body-md h2, .zk-body-md h3,
+.zk-body-md h4, .zk-body-md h5, .zk-body-md h6 {
+  margin: calc(var(--space) * 4) 0 calc(var(--space) * 2);
+  line-height: 1.35;
+  font-weight: 600;
+}
+.zk-body-md h1 { font-size: 16px; }
+.zk-body-md h2 { font-size: 15px; }
+.zk-body-md h3 { font-size: 14px; }
+.zk-body-md h4, .zk-body-md h5, .zk-body-md h6 { font-size: 13px; }
+/* GitHub と同じく、上位の見出しには区切り線を敷いて塊を分ける。 */
+.zk-body-md h1, .zk-body-md h2 {
+  padding-bottom: calc(var(--space));
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.zk-body-md ul, .zk-body-md ol { margin: 0 0 calc(var(--space) * 2); padding-left: 20px; }
+.zk-body-md li { margin: calc(var(--space) * 0.5) 0; }
+.zk-body-md li::marker { color: var(--text-secondary); }
+
+/* GFM のタスクリスト。チェックボックスは読み取り専用で、行頭に置く。 */
+.zk-body-md li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+.zk-body-md input[type="checkbox"] {
+  margin-right: calc(var(--space) * 1.5);
+  accent-color: var(--accent);
+  vertical-align: -1px;
+}
+
+.zk-body-md code {
+  padding: 1px 4px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 11px;
+}
+.zk-body-md pre {
+  margin: 0 0 calc(var(--space) * 2);
+  padding: calc(var(--space) * 2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.zk-body-md pre code { padding: 0; background: none; }
+
+.zk-body-md blockquote {
+  margin: 0 0 calc(var(--space) * 2);
+  padding-left: calc(var(--space) * 3);
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.zk-body-md hr { border: 0; border-top: 1px solid var(--border-subtle); margin: calc(var(--space) * 3) 0; }
+
+.zk-body-md table { border-collapse: collapse; margin: 0 0 calc(var(--space) * 2); display: block; overflow-x: auto; }
+.zk-body-md th, .zk-body-md td {
+  padding: calc(var(--space)) calc(var(--space) * 2);
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+}
+.zk-body-md th { background: var(--bg-elevated); font-weight: 600; }
+
+.zk-md-link { color: var(--accent-cyan); text-decoration: underline; cursor: pointer; }
+/* デスクトップでは GitHub 以外のリンクを開けない。押せないことを見せる。 */
+.zk-md-link--inert { color: var(--text-secondary); cursor: default; text-decoration-style: dotted; }
+.zk-md-image { color: var(--text-secondary); font-style: italic; }
+
 /* ---- サイドバー（意匠は Appearance_button.jpg に準拠） ---- */
 .zk-shell { display: flex; flex: 1 1 auto; min-height: 0; }
 .zk-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
