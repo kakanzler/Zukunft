@@ -9,6 +9,8 @@
 #   ./release.ps1 -Install                 rebuild and reinstall the CURRENT version.
 #                                          No git work at all - for "the app does not
 #                                          show my change" after editing code or icons.
+#   ./release.ps1 -Install -SkipBuild      install the binary already built, without
+#                                          rebuilding it. Refused if it looks stale.
 #   ./release.ps1 0.1.2 -DryRun            print what would change and stop.
 #
 # WHY THE STALE-BINARY GUARD EXISTS. Editing a file changes nothing about the
@@ -16,9 +18,9 @@
 # It bit us on 2026-08-31: the app icon was regenerated and committed, `cargo
 # check` passed, the release was tagged and pushed - and the app on screen still
 # showed the old icon, because the last actual build predated the new icon by a
-# day. -Install therefore refuses to install a zukunft.exe that is older than
-# anything baked into it (Rust sources, the icons, tauri.conf.json, the Next UI,
-# the workspace packages). -Force overrides the refusal.
+# day. -Install therefore always rebuilds; -SkipBuild opts out and is refused
+# when the binary is older than anything baked into it (Rust sources, the icons,
+# tauri.conf.json, the Next UI, the workspace packages). -Force overrides that.
 #
 # The install is per-user (Tauri's NSIS default, registered under HKCU), so no
 # elevation and no UAC prompt. Your GitHub token is untouched: it lives in the
@@ -28,10 +30,13 @@ param(
     # Omit to skip all git and version work and only build/install.
     [Parameter(Position = 0)][string]$Version,
     [switch]$Push,
-    # Build the MSI and NSIS bundles. Implied by -Install.
+    # Build the MSI and NSIS bundles without installing them.
     [switch]$Installer,
-    # ... and run the NSIS installer silently, then verify what was installed.
+    # Build, run the NSIS installer silently, then verify what was installed.
     [switch]$Install,
+    # Reuse the binary already under target/release instead of rebuilding.
+    # Refused when anything the binary is built from is newer than it.
+    [switch]$SkipBuild,
     [switch]$DryRun,
     # Overrides the stale-binary refusal. Only when you know the build is current.
     [switch]$Force,
@@ -191,11 +196,11 @@ function Get-NewestSource {
     $files | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 }
 
-# Only meaningful when we are NOT about to rebuild. With -Installer the build
-# below makes the binary current by definition.
-if ($Install -and -not $Installer -and -not $Force) {
+# Only meaningful when we are NOT about to rebuild. Building makes the binary
+# current by definition, so the check exists for -SkipBuild alone.
+if ($SkipBuild -and -not $Force) {
     if (-not (Test-Path $exePath)) {
-        Fail "There is no built zukunft.exe to install. Re-run with -Installer."
+        Fail "There is no built zukunft.exe to reuse. Re-run without -SkipBuild."
     }
     $exe = Get-Item $exePath
     $newest = Get-NewestSource
@@ -203,13 +208,16 @@ if ($Install -and -not $Installer -and -not $Force) {
         Write-Host "`nSTALE BINARY - refusing to install an exe older than its sources." -ForegroundColor Red
         Write-Host "  built  $($exe.LastWriteTime)  zukunft.exe" -ForegroundColor Red
         Write-Host "  newer  $($newest.LastWriteTime)  $($newest.FullName.Substring($root.Length + 1))" -ForegroundColor Red
-        Fail "Re-run with -Installer to rebuild first (or -Force if you are sure)."
+        Fail "Drop -SkipBuild so it gets rebuilt (or pass -Force if you are sure)."
     }
 }
 
 # ------------------------------------------------------------------------ build
 
-if ($Installer) {
+# Building is the default for both -Installer and -Install. A version bump alone
+# makes the previous binary stale (Cargo.toml carries the version), so installing
+# without rebuilding would ship the old app under the new version number.
+if (-not $SkipBuild) {
     # beforeBuildCommand runs the Next production build, so the UI is fresh too.
     Step "yarn tauri:build"
     yarn tauri:build
