@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 import type {
   DateChange,
   Label,
+  Milestone,
   NewTaskInput,
   ProjectSchema,
   ProjectSummary,
@@ -83,8 +84,16 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
     return call<ScheduleTask>("update_task_content", { taskId, issueId, content })
   }
 
+  updateTaskStatus(projectId: string, taskId: string, optionId: string): Promise<ScheduleTask> {
+    return call<ScheduleTask>("update_task_status", { projectId, taskId, optionId })
+  }
+
   listLabels(repositoryId: string): Promise<Label[]> {
     return call<Label[]>("list_labels", { repositoryId })
+  }
+
+  listMilestones(repositoryId: string): Promise<Milestone[]> {
+    return call<Milestone[]>("list_milestones", { repositoryId })
   }
 
   createLabel(repositoryId: string, name: string, color: string): Promise<Label> {

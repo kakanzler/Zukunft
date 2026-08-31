@@ -5,5 +5,5 @@ export {
   type GitHubErrorKind,
   type GitHubScheduleRepository,
 } from "./repository"
-export { mapProjectSchema, mapTask, mapTasks, statusOrder } from "./mapping"
+export { mapMilestones, mapProjectSchema, mapTask, mapTasks, statusOrder } from "./mapping"
 export * as queries from "./queries"

@@ -24,6 +24,8 @@ pub struct Label {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Milestone {
+    /// マイルストーンの node id。Issue への設定・解除に使う
+    pub id: String,
     pub title: String,
     pub due_on: Option<String>,
 }
@@ -111,6 +113,8 @@ pub struct TaskContent {
     pub body: String,
     /// 付け替え後のラベル。指定した集合で置き換える
     pub label_ids: Vec<String>,
+    /// 付け替え後の Milestone の node id。None は「マイルストーンを外す」
+    pub milestone_id: Option<String>,
 }
 
 /// アプリから新しい Issue を起票するときの入力。

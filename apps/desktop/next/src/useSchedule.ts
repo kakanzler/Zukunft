@@ -220,6 +220,31 @@ export function useSchedule(
     [repository],
   )
 
+  const [savingStatus, setSavingStatus] = useState(false)
+
+  /**
+   * Status の変更。編集モードに入らず、その場で GitHub に送る。
+   * ここも楽観的更新はせず GitHub が返した値で置き換える
+   * （選択肢名は Project の定義が正本で、送った id と 1 対 1 とは限らないため）。
+   */
+  const updateStatus = useCallback(
+    async (taskId: string, optionId: string) => {
+      if (!projectId) return null
+      setSavingStatus(true)
+      try {
+        const updated = await repository.updateTaskStatus(projectId, taskId, optionId)
+        setState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+        }))
+        return updated
+      } finally {
+        setSavingStatus(false)
+      }
+    },
+    [repository, projectId],
+  )
+
   return {
     tasks: state.tasks,
     queue: state.queue,
@@ -228,6 +253,8 @@ export function useSchedule(
     createTask,
     savingContent,
     updateContent,
+    savingStatus,
+    updateStatus,
     pending: pendingCount(state),
     canUndo: canUndo(state),
     canRedo: canRedo(state),

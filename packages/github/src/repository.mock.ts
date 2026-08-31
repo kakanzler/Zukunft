@@ -1,6 +1,7 @@
 import {
   type DateChange,
   type Label,
+  type Milestone,
   type NewTaskInput,
   type ProjectSchema,
   type ProjectSummary,
@@ -62,7 +63,18 @@ const SEED: [string, number, number, number, number, number | null][] = [
   ["Post Launch Review", 3, 3, 62, 5, null],
 ]
 
-const MILESTONES = ["Kickoff", "Design Review", "Integration Complete", "Go Live"]
+/** Milestone の候補。id は Issue への設定・解除に使う。 */
+const MILESTONES: { id: string; title: string }[] = [
+  "Kickoff",
+  "Design Review",
+  "Integration Complete",
+  "Go Live",
+].map((title, i) => ({ id: `ms-${i}`, title }))
+
+/** 一覧用の候補。期日は 3 週間おきに置いて、並び順の確認ができるようにする。 */
+function buildMilestones(origin: string): Milestone[] {
+  return MILESTONES.map((m, i) => ({ ...m, dueOn: addDays(origin, 21 * (i + 1)) }))
+}
 
 /** Category 表示の確認用。1 つの Issue に複数付くこともある。 */
 const LABELS: Label[] = [
@@ -101,7 +113,8 @@ function buildTasks(origin: string): ScheduleTask[] {
           ? [LABELS[i % LABELS.length]!, LABELS[(i + 2) % LABELS.length]!]
           : [LABELS[i % LABELS.length]!],
     milestone: {
-      title: MILESTONES[milestoneIndex] ?? "v1",
+      id: MILESTONES[milestoneIndex]?.id ?? "ms-0",
+      title: MILESTONES[milestoneIndex]?.title ?? "v1",
       dueOn: addDays(origin, offset + duration + 2),
     },
     progress,
@@ -113,6 +126,7 @@ function buildTasks(origin: string): ScheduleTask[] {
 export class MockScheduleRepository implements GitHubScheduleRepository {
   #tasks: ScheduleTask[]
   #labels: Label[] = [...LABELS]
+  #milestones: Milestone[]
   #schemaFetches = 0
   readonly #options: Required<MockOptions>
 
@@ -125,7 +139,9 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       empty: options.empty ?? false,
       undated: options.undated ?? false,
     }
-    const seeded = buildTasks(addDays(today(), -14))
+    const origin = addDays(today(), -14)
+    this.#milestones = buildMilestones(origin)
+    const seeded = buildTasks(origin)
     this.#tasks = (options.undated ?? false)
       ? seeded.map((t) => ({ ...t, startDate: null, endDate: null }))
       : seeded
@@ -198,6 +214,11 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     return this.#labels.map((l) => ({ ...l }))
   }
 
+  async listMilestones(_repositoryId: string): Promise<Milestone[]> {
+    await this.#delay()
+    return this.#milestones.map((m) => ({ ...m }))
+  }
+
   async createLabel(_repositoryId: string, name: string, color: string): Promise<Label> {
     await this.#delay()
     const trimmed = name.trim()
@@ -227,6 +248,12 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       labels: content.labelIds
         .map((id) => this.#labels.find((l) => l.id === id))
         .filter((l): l is Label => Boolean(l)),
+      // null は「外す」。知らない id は現状維持にして、
+      // 候補の取得に失敗しただけでマイルストーンを黙って消さないようにする。
+      milestone:
+        content.milestoneId === null
+          ? null
+          : (this.#milestones.find((m) => m.id === content.milestoneId) ?? current.milestone),
       updatedAt: new Date().toISOString(),
     }
     this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
@@ -266,6 +293,36 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     }
     this.#tasks = [...this.#tasks, created]
     return { ...created }
+  }
+
+  /**
+   * Status の変更。
+   *
+   * updatedAt は動かさない。Status は Projects v2 のフィールド値であって
+   * Issue 本体ではないため、実物でも Issue の updatedAt は変わらない。
+   * ここで進めてしまうと、直後の日付更新が偽の競合になる。
+   */
+  async updateTaskStatus(
+    _projectId: string,
+    taskId: string,
+    optionId: string,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+
+    // getProjectSchema が配る `o${i}` と同じ対応表で選択肢の名前に戻す。
+    const name = STATUSES.find((_, i) => `o${i}` === optionId)
+    if (name === undefined) {
+      throw new GitHubError("not-found", `Status の選択肢「${optionId}」が見つかりません`)
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+
+    const updated: ScheduleTask = { ...current, status: name }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
   }
 
   async updateTaskDates(

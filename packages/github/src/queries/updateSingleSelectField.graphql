@@ -1,0 +1,12 @@
+# Status など SINGLE_SELECT フィールドの値を変更する。
+# 渡すのは選択肢の名前ではなく optionId（ProjectSchema の options[].id）。
+mutation UpdateSingleSelectField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+    value: { singleSelectOptionId: $optionId }
+  }) {
+    projectV2Item { id }
+  }
+}

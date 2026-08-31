@@ -58,7 +58,7 @@ eq("diffDates start only", diffDates(
 // --- stats ---
 const mk = (n: number, s: string, start: string, end: string, prog: number | null): ScheduleTask => ({
   id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", startDate: start, endDate: end,
-  status: s, priority: null, assignees: [], labels: [], milestone: { title: "v1", dueOn: "2026-09-30" },
+  status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30" },
   progress: prog, updatedAt: "2026-08-01T00:00:00Z", syncState: "synced",
 })
 const tasks = [mk(1, "Planning", "2026-09-01", "2026-09-07", 100), mk(2, "Review", "2026-09-08", "2026-09-21", 0)]

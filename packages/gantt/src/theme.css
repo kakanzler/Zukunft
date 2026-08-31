@@ -297,6 +297,124 @@
   font-size: 11px;
 }
 
+/* ---- タスク詳細モーダル（意匠は appearnace_modal.png に準拠） ----
+
+   1 行目に status / title / label / 閉じる、2 行目に日付と Milestone、
+   その下に本文、最下段に Parent Issue と操作ボタンを置く。
+   本文だけが伸び、モーダルの高さは画面に収める。 */
+.zk-modal--task {
+  width: min(760px, 100%);
+  /* 本文が主役なので、短い Issue でも枠の高さは変えない（モックと同じ縦長）。 */
+  height: min(620px, 86vh);
+  max-height: 86vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 3);
+  padding: calc(var(--space) * 4);
+  background: var(--bg-elevated);
+}
+
+.zk-task-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: calc(var(--space) * 3);
+}
+.zk-task-status { flex: 0 0 auto; }
+.zk-task-title { min-width: 0; }
+.zk-task-labels { min-width: 0; }
+.zk-task-close { align-self: end; padding: calc(var(--space) * 2) calc(var(--space) * 3); }
+
+/* Status は「編集」に入らず変えられる。ドットが見えたまま select を重ねて、
+   意匠（色の丸）と操作（選択肢）を両立させる。 */
+.zk-status-picker {
+  position: relative;
+  display: grid; place-items: center;
+  width: 56px; height: 40px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.zk-status-picker:focus-within { border-color: var(--border-glow); }
+.zk-status-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+.zk-status-select {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.zk-status-select:disabled { cursor: not-allowed; }
+
+.zk-title-input { width: 100%; font-size: 16px; font-weight: 600; }
+/* 表示だけのときも入力欄と同じ枠にして、行の高さを揃える。 */
+.zk-input--static,
+.zk-title-input--static {
+  display: flex; align-items: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-height: 36px;
+}
+.zk-muted { color: var(--text-secondary); }
+
+.zk-label-row {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  flex-wrap: wrap;
+  min-height: 36px;
+  padding: calc(var(--space)) calc(var(--space) * 2);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+/* ラベルはラベル色で塗る。文字色は JS 側が地の明度から決める。 */
+.zk-chip--label { padding: calc(var(--space)) calc(var(--space) * 3); font-weight: 600; }
+
+.zk-task-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: calc(var(--space) * 3);
+}
+
+.zk-task-labels-edit {
+  padding: calc(var(--space) * 3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+/* 本文だけが余りを取る。モーダル全体はスクロールさせない。 */
+.zk-task-body {
+  flex: 1 1 auto;
+  min-height: 120px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+/* .zk-body-text の max-height をこの場面だけ外す。定義がこの下にあるので、
+   セレクタを 1 段深くして打ち勝たせる。 */
+.zk-task-body .zk-body-text--fill { max-height: none; height: 100%; }
+.zk-body-input {
+  height: 100%;
+  width: 100%;
+  min-height: 120px;
+  resize: none;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.zk-task-notice {
+  display: flex; align-items: baseline; gap: calc(var(--space) * 3);
+  font-size: 11px; color: var(--text-secondary); min-height: 16px;
+}
+.zk-task-meta-inline { flex: 0 0 auto; opacity: 0.85; }
+
+.zk-task-foot {
+  display: flex; align-items: flex-end; gap: calc(var(--space) * 2);
+}
+.zk-task-parent { flex: 1 1 auto; max-width: 240px; margin-right: auto; }
+
 .zk-notice {
   display: flex; align-items: center; gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 2) calc(var(--space) * 4);

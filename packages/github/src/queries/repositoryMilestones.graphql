@@ -1,0 +1,11 @@
+# リポジトリに定義済みの Milestone 一覧。Issue に設定する候補になる。
+# 閉じた Milestone は付け替え先にしないため OPEN のみ、期日順で返す。
+query RepositoryMilestones($repositoryId: ID!) {
+  node(id: $repositoryId) {
+    ... on Repository {
+      milestones(first: 100, states: OPEN, orderBy: { field: DUE_DATE, direction: ASC }) {
+        nodes { id title dueOn }
+      }
+    }
+  }
+}

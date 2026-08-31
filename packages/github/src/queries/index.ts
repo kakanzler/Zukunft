@@ -14,8 +14,10 @@ import projectRepositories from "./projectRepositories.graphql"
 import createIssue from "./createIssue.graphql"
 import addProjectItem from "./addProjectItem.graphql"
 import updateDateField from "./updateDateField.graphql"
+import updateSingleSelectField from "./updateSingleSelectField.graphql"
 import updateIssue from "./updateIssue.graphql"
 import repositoryLabels from "./repositoryLabels.graphql"
+import repositoryMilestones from "./repositoryMilestones.graphql"
 import createLabel from "./createLabel.graphql"
 import clearDateField from "./clearDateField.graphql"
 
@@ -29,8 +31,14 @@ export const PROJECT_ITEMS = `${fragments}\n${projectItems}`
 export const ITEM_UPDATED_AT = `${fragments}\n${itemUpdatedAt}`
 
 export const UPDATE_DATE_FIELD = updateDateField
+
+/** Status の変更。選択肢は optionId で指定する。 */
+export const UPDATE_SINGLE_SELECT_FIELD = updateSingleSelectField
 export const UPDATE_ISSUE = updateIssue
 export const REPOSITORY_LABELS = repositoryLabels
+
+/** Issue に設定できる Milestone の候補（OPEN のみ）。 */
+export const REPOSITORY_MILESTONES = repositoryMilestones
 export const CREATE_LABEL = createLabel
 
 /** createLabel は preview 扱い。この Accept を付けないと失敗する。 */

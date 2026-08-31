@@ -187,7 +187,13 @@ async fn update_task_content(
 
     let client = state.client()?;
     client
-        .update_issue(&issue_id, title, &content.body, &content.label_ids)
+        .update_issue(
+            &issue_id,
+            title,
+            &content.body,
+            &content.label_ids,
+            content.milestone_id.as_deref(),
+        )
         .await?;
     client.item(&task_id).await
 }
@@ -195,6 +201,15 @@ async fn update_task_content(
 #[tauri::command]
 async fn list_labels(state: State<'_>, repository_id: String) -> Result<Vec<Label>, AppError> {
     state.client()?.repository_labels(&repository_id).await
+}
+
+/// Issue に設定できる Milestone の候補（OPEN のみ）。
+#[tauri::command]
+async fn list_milestones(
+    state: State<'_>,
+    repository_id: String,
+) -> Result<Vec<Milestone>, AppError> {
+    state.client()?.repository_milestones(&repository_id).await
 }
 
 /// ラベルを新規作成する。作成しただけでは Issue には付かないので、
@@ -364,6 +379,43 @@ async fn update_task_dates(
     client.item(&task_id).await
 }
 
+/// Status（Projects v2 の SINGLE_SELECT）を変更する。
+///
+/// 日付と違い競合検出（expectedUpdatedAt）を行わない。Status は Projects v2 の
+/// フィールド値であって Issue 本体ではないため、変更しても Issue の updatedAt が動かない。
+/// updatedAt での判定は Status の競合を検出できず、無関係な本文編集を弾くだけになる。
+#[tauri::command]
+async fn update_task_status(
+    state: State<'_>,
+    project_id: String,
+    task_id: String,
+    option_id: String,
+) -> Result<ScheduleTask, AppError> {
+    if option_id.trim().is_empty() {
+        return Err(AppError::new(
+            ErrorKind::Unknown,
+            "Status の選択肢が指定されていません",
+        ));
+    }
+
+    let client = state.client()?;
+    let field_id = match resolve_field_id(&state, &client, &project_id, FieldRole::Status).await {
+        Ok(id) => id,
+        Err(error) => {
+            // フィールド不整合はキャッシュが古い可能性があるので捨てる（企画書 §7.3.3）。
+            state.invalidate_fields(&project_id);
+            return Err(error);
+        }
+    };
+
+    client
+        .update_single_select_field(&project_id, &task_id, &field_id, &option_id)
+        .await?;
+
+    // 反映後の値を GitHub から読み直して返す。UI はこれで上書きする。
+    client.item(&task_id).await
+}
+
 /// 部分適用の取り消し。ここも失敗した場合は GitHub 側が中間状態のまま残るため、
 /// 呼び出し元は失敗として扱い、ユーザーに再取得を促す（企画書 §16.2）。
 async fn compensate(
@@ -406,8 +458,10 @@ pub fn run() {
             create_task,
             update_task_content,
             list_labels,
+            list_milestones,
             create_label,
             update_task_dates,
+            update_task_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Zukunft");

@@ -13,7 +13,7 @@ query ProjectItems($projectId: ID!, $after: String) {
               assignees(first: 5) { nodes { login avatarUrl } }
               labels(first: 20) { nodes { id name color } }
               repository { id }
-              milestone { title dueOn }
+              milestone { id title dueOn }
             }
           }
         }

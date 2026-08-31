@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   GroupMode,
   Label,
+  Milestone,
   NewTaskInput,
   TaskContent,
   ProjectSchema,
@@ -11,7 +12,7 @@ import type {
   RepositorySummary,
   ZoomLevel,
 } from "@zukunft/domain"
-import { ZOOM_LEVELS, canEditDates, missingRequiredFields } from "@zukunft/domain"
+import { ZOOM_LEVELS, canEditDates, missingRequiredFields, resolveField } from "@zukunft/domain"
 import { GanttChart, Sidebar } from "@zukunft/gantt"
 import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
@@ -163,6 +164,11 @@ function Workspace({
   const schedule = useSchedule(repository, projectId)
   const missing = useMemo(() => (schema ? missingRequiredFields(schema) : []), [schema])
   const statuses = useMemo(() => (schema ? statusOrder(schema) : []), [schema])
+  // Status の変更には選択肢の ID が要る。名前だけの statuses とは別に持つ。
+  const statusOptions = useMemo(
+    () => (schema ? resolveField(schema, "status", "SINGLE_SELECT")?.options ?? [] : []),
+    [schema],
+  )
   const editable = useMemo(() => canEditDates(schema), [schema])
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
@@ -172,6 +178,8 @@ function Workspace({
   const [repositories, setRepositories] = useState<RepositorySummary[]>([])
   // ラベル候補はリポジトリ単位。開いたタスクのリポジトリの分を取りに行く。
   const [labelsByRepo, setLabelsByRepo] = useState<Record<string, Label[]>>({})
+  // Milestone 候補も同じくリポジトリ単位。
+  const [milestonesByRepo, setMilestonesByRepo] = useState<Record<string, Milestone[]>>({})
   const log = useLog()
   const logged = useRef<Set<string>>(new Set())
 
@@ -304,6 +312,30 @@ function Workspace({
     }
   }, [repository, openRepositoryId, labelsByRepo, log])
 
+  // 同じく Milestone の候補。編集モードで付け替えるのに使う。
+  useEffect(() => {
+    if (!openRepositoryId || milestonesByRepo[openRepositoryId]) return
+    let alive = true
+    void repository
+      .listMilestones(openRepositoryId)
+      .then((list) => {
+        if (alive) setMilestonesByRepo((prev) => ({ ...prev, [openRepositoryId]: list }))
+      })
+      .catch((error) => {
+        if (!alive) return
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        log.append({
+          level: "warn",
+          message: "Milestone 一覧を取得できませんでした",
+          hint: `${err.message}　Milestone を付け替えられません。`,
+          dedupeKey: `milestones:${openRepositoryId}`,
+        })
+      })
+    return () => {
+      alive = false
+    }
+  }, [repository, openRepositoryId, milestonesByRepo, log])
+
   const createLabel = useCallback(
     async (repositoryId: string, name: string, color: string): Promise<Label | null> => {
       try {
@@ -346,6 +378,30 @@ function Workspace({
           hint: `${err.message}　${info.hint}`,
         })
         return null
+      }
+    },
+    [schedule, log],
+  )
+
+  /** Status の変更。選んだ時点で送るので、失敗はログでだけ知らせる。 */
+  const changeStatus = useCallback(
+    async (taskId: string, optionId: string) => {
+      try {
+        const updated = await schedule.updateStatus(taskId, optionId)
+        if (updated) {
+          log.append({
+            level: "info",
+            message: `#${updated.issueNumber} の Status を ${updated.status ?? "—"} にしました`,
+          })
+        }
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        log.append({
+          level: "error",
+          message: "Status を変更できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
       }
     },
     [schedule, log],
@@ -480,9 +536,13 @@ function Workspace({
           task={openTask}
           canEditDates={editable}
           savingContent={schedule.savingContent}
+          savingStatus={schedule.savingStatus}
+          statusOptions={statusOptions}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
+          availableMilestones={milestonesByRepo[openTask.repositoryId] ?? []}
           onCreateLabel={createLabel}
           onChangeDates={schedule.changeDates}
+          onChangeStatus={changeStatus}
           onSaveContent={saveContent}
           onClose={() => setOpenTaskId(null)}
         />

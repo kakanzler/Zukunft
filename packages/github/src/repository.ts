@@ -1,6 +1,7 @@
 import type {
   DateChange,
   Label,
+  Milestone,
   NewTaskInput,
   ProjectSchema,
   ProjectSummary,
@@ -42,8 +43,22 @@ export interface GitHubScheduleRepository {
     content: TaskContent,
   ): Promise<ScheduleTask>
 
+  /**
+   * Status（Projects v2 の SINGLE_SELECT）を変更する。
+   * フィールド ID の解決は実装側の責務。
+   *
+   * 日付の更新と違い `expectedUpdatedAt` を取らない。Status は Projects v2 の
+   * フィールド値であって Issue 本体ではないため、変更しても Issue の updatedAt が
+   * 動かない。updatedAt で競合を判定すると「他人が Status を変えた」ことは検出できず、
+   * 逆に無関係な本文編集で弾いてしまうだけなので、ここでは判定しない（企画書 §16.3）。
+   */
+  updateTaskStatus(projectId: string, taskId: string, optionId: string): Promise<ScheduleTask>
+
   /** リポジトリに定義済みのラベル。Issue に付け外しする候補 */
   listLabels(repositoryId: string): Promise<Label[]>
+
+  /** Issue に設定できる Milestone の候補（OPEN のみ） */
+  listMilestones(repositoryId: string): Promise<Milestone[]>
 
   /** ラベルを新規作成する。作成しただけでは Issue には付かない */
   createLabel(repositoryId: string, name: string, color: string): Promise<Label>

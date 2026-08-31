@@ -1,20 +1,37 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { DateChange, ISODate, Label, ScheduleTask, TaskContent } from "@zukunft/domain"
+import type { CSSProperties } from "react"
+import type {
+  DateChange,
+  ISODate,
+  Label,
+  Milestone,
+  ScheduleTask,
+  TaskContent,
+} from "@zukunft/domain"
 import { LabelEditor } from "@/LabelEditor"
 import { inclusiveDays, isISODate } from "@zukunft/domain"
+import { statusVar } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
+
+type StatusOption = { id: string; name: string }
 
 type Props = {
   task: ScheduleTask
   /** Start Date / Target Date が Project に無い場合は編集できない */
   canEditDates: boolean
   savingContent: boolean
+  savingStatus: boolean
+  /** Project の Status フィールドの選択肢。定義順。空なら Status を変更できない */
+  statusOptions: StatusOption[]
   /** リポジトリに定義済みのラベル。編集モードの候補になる */
   availableLabels: Label[]
+  /** リポジトリの Milestone（OPEN のみ）。編集モードの候補になる */
+  availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
   onChangeDates: (taskId: string, change: DateChange) => void
+  onChangeStatus: (taskId: string, optionId: string) => void
   onSaveContent: (taskId: string, issueId: string, content: TaskContent) => Promise<unknown>
   onClose: () => void
 }
@@ -28,24 +45,29 @@ const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
 }
 
 /**
- * タスクの詳細。Gantt の行またはバーをクリックすると開く。
+ * タスクの詳細（意匠は specifications/apeearance/appearnace_modal.png に準拠）。
+ * Gantt の行またはバーをクリックすると開く。
  *
- * 日付をここから直接指定できるようにしてあるのは、日付が未設定の Issue には
- * バーが描かれず、ドラッグでは編集を始められないため。
+ * 編集の粒度は 2 段階。
+ * - Status と日付は「編集」に入らずその場で変更できる。どちらも選択肢と日付入力
+ *   なので誤操作になりにくく、日付が未設定の Issue はバーが描かれずドラッグでも
+ *   直せないため、ここが唯一の入口になる。
+ * - タイトル・ラベル・Milestone・本文は「編集」に入ってから。詳細を見るだけの
+ *   つもりで書き換えてしまうのを避けるため。
  */
 export function TaskModal({
-  task, canEditDates, savingContent, availableLabels, onCreateLabel,
-  onChangeDates, onSaveContent, onClose,
+  task, canEditDates, savingContent, savingStatus, statusOptions,
+  availableLabels, availableMilestones, onCreateLabel,
+  onChangeDates, onChangeStatus, onSaveContent, onClose,
 }: Props) {
   const [start, setStart] = useState(task.startDate ?? "")
   const [end, setEnd] = useState(task.endDate ?? "")
 
-  // タイトルと本文は編集モードに入ったときだけ書き換え可能にする。
-  // 詳細を見るだけのつもりで誤って書き換えるのを避けるため。
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(task.title)
   const [body, setBody] = useState(task.body)
   const [labels, setLabels] = useState<Label[]>(task.labels)
+  const [milestoneId, setMilestoneId] = useState(task.milestone?.id ?? "")
 
   // 同期が返ってきて値が変わったら入力欄も追従させる
   useEffect(() => {
@@ -59,7 +81,8 @@ export function TaskModal({
     setTitle(task.title)
     setBody(task.body)
     setLabels(task.labels)
-  }, [task.title, task.body, task.labels, editing])
+    setMilestoneId(task.milestone?.id ?? "")
+  }, [task.title, task.body, task.labels, task.milestone, editing])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -73,29 +96,32 @@ export function TaskModal({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onClose, editing, task.title, task.body])
+  }, [onClose, editing, task.title, task.body, task.milestone])
 
   // 日付入力は 6 桁の年など ISO から外れた値も受け付けるため、
   // 「形式が不正」と「前後関係が逆」を分けて扱う。
   const bothFilled = start !== "" && end !== ""
   const wellFormed = isISODate(start) && isISODate(end)
   const ordered = wellFormed && start <= end
-  const valid = ordered
-  const dirty = start !== (task.startDate ?? "") || end !== (task.endDate ?? "")
+  const datesValid = ordered
+  const datesDirty = start !== (task.startDate ?? "") || end !== (task.endDate ?? "")
 
-  const apply = () => {
-    if (!valid || !dirty) return
+  const applyDates = () => {
+    if (!datesValid || !datesDirty) return
     const change: DateChange = {}
     if (start !== task.startDate) change.startDate = start as ISODate
     if (end !== task.endDate) change.endDate = end as ISODate
     onChangeDates(task.id, change)
-    onClose()
   }
 
   const sameLabels =
     labels.length === task.labels.length &&
     labels.every((l) => task.labels.some((t) => t.id === l.id))
-  const contentDirty = title !== task.title || body !== task.body || !sameLabels
+  const contentDirty =
+    title !== task.title ||
+    body !== task.body ||
+    !sameLabels ||
+    milestoneId !== (task.milestone?.id ?? "")
   const contentValid = title.trim() !== ""
 
   const saveContent = async () => {
@@ -107,6 +133,7 @@ export function TaskModal({
       title: title.trim(),
       body,
       labelIds: labels.map((l) => l.id),
+      milestoneId: milestoneId === "" ? null : milestoneId,
     })
     setEditing(false)
   }
@@ -115,7 +142,20 @@ export function TaskModal({
     setTitle(task.title)
     setBody(task.body)
     setLabels(task.labels)
+    setMilestoneId(task.milestone?.id ?? "")
     setEditing(false)
+  }
+
+  // 「update」は今そこにある変更をまとめて送る。編集モードなら本文なども、
+  // そうでなければ日付だけ。どちらも無ければ押せない。
+  const busy = savingContent || savingStatus
+  const canUpdate =
+    !busy &&
+    ((datesDirty && datesValid) || (editing && contentDirty && contentValid))
+
+  const update = async () => {
+    if (editing) await saveContent()
+    if (datesDirty && datesValid) applyDates()
   }
 
   const openOnGitHub = async () => {
@@ -128,6 +168,17 @@ export function TaskModal({
     }
   }
 
+  // Status の色は Gantt のバーと同じ規則（定義順に 4 色を巡回）で割り当てる。
+  const statusIndex = statusOptions.findIndex((o) => o.name === task.status)
+  const statusColor = statusIndex >= 0 ? statusVar(statusIndex) : "var(--border-subtle)"
+  const currentStatusId = statusOptions.find((o) => o.name === task.status)?.id ?? ""
+
+  // 現在の Milestone が候補に無い（閉じている等）場合も選択肢に残す。
+  const milestoneChoices = task.milestone &&
+    !availableMilestones.some((m) => m.id === task.milestone!.id)
+    ? [task.milestone, ...availableMilestones]
+    : availableMilestones
+
   return (
     <div
       className="zk-modal-backdrop"
@@ -138,52 +189,119 @@ export function TaskModal({
       aria-modal="true"
       aria-label={`#${task.issueNumber} ${task.title}`}
     >
-      <div className="zk-modal">
-        <div className="zk-modal-head">
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text-secondary)", fontSize: 11 }}>
-              #{task.issueNumber}　/　{SYNC_LABEL[task.syncState]}
+      <div className="zk-modal zk-modal--task">
+        <div className="zk-task-head">
+          <div className="zk-field zk-task-status">
+            <span className="zk-field-label">status</span>
+            <div className="zk-status-picker" title={task.status ?? "未設定"}>
+              <span className="zk-status-dot" style={{ background: statusColor }} />
+              <select
+                className="zk-status-select"
+                aria-label="Status"
+                value={currentStatusId}
+                disabled={busy || statusOptions.length === 0}
+                onChange={(e) => onChangeStatus(task.id, e.target.value)}
+              >
+                {currentStatusId === "" && <option value="">—</option>}
+                {statusOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
             </div>
+          </div>
+
+          <div className="zk-field zk-task-title">
+            <span className="zk-field-label">
+              title　#{task.issueNumber}　/　{SYNC_LABEL[task.syncState]}
+            </span>
             {editing ? (
               <input
-                className="zk-input"
+                className="zk-input zk-title-input"
                 value={title}
                 autoFocus
                 disabled={savingContent}
                 onChange={(e) => setTitle(e.target.value)}
-                style={{ width: "100%", marginTop: 4, fontSize: 14, fontWeight: 600 }}
               />
             ) : (
-              <div className="zk-modal-title">{task.title}</div>
+              <div className="zk-input zk-title-input zk-title-input--static">{task.title}</div>
             )}
           </div>
-          {!editing && (
-            <button className="zk-button" onClick={() => setEditing(true)}>編集</button>
-          )}
-          <button className="zk-button" onClick={onClose} aria-label="閉じる"
-                  disabled={savingContent}>✕</button>
-        </div>
 
-        <div className="zk-modal-body">
-          <div className="zk-field-row">
-            <Field label="Status" value={task.status ?? "—"} />
-            <Field label="Priority" value={task.priority ?? "—"} />
-          </div>
-
-          <div className="zk-field">
-            <span className="zk-field-label">Assignees</span>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {task.assignees.length === 0 ? (
-                <span className="zk-field-value">未アサイン</span>
+          <div className="zk-field zk-task-labels">
+            <span className="zk-field-label">label</span>
+            {/* 編集中は編集後の集合を映す。下の LabelEditor の結果がここに出る。 */}
+            <div className="zk-label-row">
+              {labels.length === 0 ? (
+                <span className="zk-field-value zk-muted">ラベルなし</span>
               ) : (
-                task.assignees.map((a) => (
-                  <span className="zk-chip" key={a.login}>{a.login}</span>
+                labels.map((label) => (
+                  <span
+                    className="zk-chip zk-chip--label"
+                    key={label.id || label.name}
+                    style={chipStyle(label.color)}
+                  >
+                    {label.name}
+                  </span>
                 ))
               )}
             </div>
           </div>
 
-          {editing ? (
+          <button
+            className="zk-button zk-task-close"
+            onClick={onClose}
+            aria-label="閉じる"
+            disabled={savingContent}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="zk-task-meta">
+          <label className="zk-field">
+            <span className="zk-field-label">start date</span>
+            <input
+              className="zk-input"
+              type="date"
+              value={start}
+              disabled={!canEditDates || busy}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </label>
+          <label className="zk-field">
+            <span className="zk-field-label">target date</span>
+            <input
+              className="zk-input"
+              type="date"
+              value={end}
+              disabled={!canEditDates || busy}
+              onChange={(e) => setEnd(e.target.value)}
+            />
+          </label>
+          <label className="zk-field">
+            <span className="zk-field-label">Milestone</span>
+            {editing ? (
+              <select
+                className="zk-input"
+                value={milestoneId}
+                disabled={savingContent}
+                onChange={(e) => setMilestoneId(e.target.value)}
+              >
+                <option value="">なし</option>
+                {milestoneChoices.map((m) => (
+                  <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="zk-input zk-input--static">
+                {task.milestone?.title ?? "—"}
+              </div>
+            )}
+          </label>
+        </div>
+
+        {editing && (
+          <div className="zk-task-labels-edit">
             <LabelEditor
               selected={labels}
               available={availableLabels}
@@ -191,138 +309,73 @@ export function TaskModal({
               onChange={setLabels}
               onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
             />
-          ) : (
-            <div className="zk-field">
-              <span className="zk-field-label">Labels</span>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {task.labels.length === 0 ? (
-                  <span className="zk-field-value">ラベルなし</span>
-                ) : (
-                  task.labels.map((label) => (
-                    <span
-                      className="zk-chip"
-                      key={label.id || label.name}
-                      style={
-                        label.color
-                          ? { borderColor: `#${label.color}`, color: `#${label.color}` }
-                          : undefined
-                      }
-                    >
-                      <span
-                        className="zk-legend-dot"
-                        style={{ background: label.color ? `#${label.color}` : "currentColor" }}
-                      />
-                      {label.name}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+          </div>
+        )}
 
-          <div className="zk-field-row">
-            <Field label="Milestone" value={task.milestone?.title ?? "—"} />
-            <Field
-              label="Progress"
-              value={task.progress === null ? "—" : `${task.progress}%`}
+        <div className="zk-field zk-task-body">
+          <span className="zk-field-label">body</span>
+          {editing ? (
+            <textarea
+              className="zk-input zk-body-input"
+              value={body}
+              disabled={savingContent}
+              placeholder="Issue の本文（Markdown）"
+              onChange={(e) => setBody(e.target.value)}
             />
-          </div>
-
-          <div className="zk-field">
-            <span className="zk-field-label">Body</span>
-            {editing ? (
-              <textarea
-                className="zk-input"
-                rows={8}
-                value={body}
-                disabled={savingContent}
-                placeholder="Issue の本文"
-                onChange={(e) => setBody(e.target.value)}
-                style={{ fontFamily: "inherit" }}
-              />
-            ) : task.body.trim() ? (
-              <div className="zk-body-text">{task.body}</div>
-            ) : (
-              <div className="zk-body-text zk-body-text--empty">本文はありません。</div>
-            )}
-          </div>
-
-          {!canEditDates && (
-            <div className="zk-card" style={{ borderColor: "var(--warning)" }}>
-              <div className="zk-notice-strong">日付フィールドがありません</div>
-              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                Project に Start Date / Target Date（いずれも Date 型）を作ると、
-                ここから日程を設定できるようになります。
-              </div>
+          ) : task.body.trim() ? (
+            <div className="zk-body-text zk-body-text--fill">{task.body}</div>
+          ) : (
+            <div className="zk-body-text zk-body-text--fill zk-body-text--empty">
+              本文はありません。
             </div>
           )}
-
-          <div className="zk-field-row">
-            <label className="zk-field">
-              <span className="zk-field-label">Start Date</span>
-              <input
-                className="zk-input"
-                type="date"
-                value={start}
-                disabled={!canEditDates}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </label>
-            <label className="zk-field">
-              <span className="zk-field-label">Target Date</span>
-              <input
-                className="zk-input"
-                type="date"
-                value={end}
-                disabled={!canEditDates}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", minHeight: 16 }}>
-            {!canEditDates
-              ? null
-              : !bothFilled
-                ? "両方の日付を入力すると Gantt に表示されます。"
-                : !wellFormed
-                  ? "日付の形式が正しくありません。"
-                  : !ordered
-                    ? "開始日は終了日以前にしてください。"
-                    : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
-          </div>
         </div>
 
-        <div className="zk-modal-foot">
+        <div className="zk-task-notice">
+          {/* モックには枠が無いが、担当・Priority・Progress は落とさずここに畳んでおく。 */}
+          <span className="zk-task-meta-inline">
+            {task.assignees.length === 0
+              ? "未アサイン"
+              : task.assignees.map((a) => a.login).join(", ")}
+            　/　Priority: {task.priority ?? "—"}
+            　/　Progress: {task.progress === null ? "—" : `${task.progress}%`}
+          </span>
+          {!canEditDates
+            ? "Project に Start Date / Target Date（Date 型）を作ると日程を設定できます。"
+            : !bothFilled
+              ? "両方の日付を入力すると Gantt に表示されます。"
+              : !wellFormed
+                ? "日付の形式が正しくありません。"
+                : !ordered
+                  ? "開始日は終了日以前にしてください。"
+                  : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
+        </div>
+
+        <div className="zk-task-foot">
+          <div className="zk-field zk-task-parent">
+            <span className="zk-field-label">Parent Issue</span>
+            {/* 親子関係（sub-issue）は未対応。枠だけ用意しておく（企画書 Q-8） */}
+            <div className="zk-input zk-input--static zk-muted">—</div>
+          </div>
+          <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
+            to GitHub
+          </button>
+          <button
+            className="zk-button"
+            aria-pressed={canUpdate}
+            disabled={!canUpdate}
+            onClick={update}
+          >
+            {savingContent ? "保存中…" : "update"}
+          </button>
           {editing ? (
-            <>
-              <button className="zk-button" onClick={cancelEdit} disabled={savingContent}>
-                キャンセル
-              </button>
-              <button
-                className="zk-button"
-                aria-pressed={contentDirty && contentValid}
-                disabled={savingContent || !contentValid}
-                onClick={saveContent}
-              >
-                {savingContent ? "保存中…" : "内容を保存"}
-              </button>
-            </>
+            <button className="zk-button" onClick={cancelEdit} disabled={savingContent}>
+              cancel
+            </button>
           ) : (
-            <>
-              <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
-                GitHub で開く
-              </button>
-              <button className="zk-button" onClick={onClose}>閉じる</button>
-              <button
-                className="zk-button"
-                aria-pressed={dirty && valid}
-                disabled={!canEditDates || !dirty || !valid}
-                onClick={apply}
-              >
-                日程を保存
-              </button>
-            </>
+            <button className="zk-button" onClick={() => setEditing(true)} disabled={busy}>
+              edit
+            </button>
           )}
         </div>
       </div>
@@ -330,11 +383,20 @@ export function TaskModal({
   )
 }
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="zk-field">
-      <span className="zk-field-label">{label}</span>
-      <span className="zk-field-value">{value}</span>
-    </div>
-  )
+/** ラベルの色で塗ったチップ。地の明度に応じて文字色を白黒で切り替える。 */
+function chipStyle(color: string): CSSProperties | undefined {
+  if (!color) return undefined
+  return {
+    background: `#${color}`,
+    borderColor: `#${color}`,
+    color: isLight(color) ? "#0b1020" : "#ffffff",
+  }
+}
+
+function isLight(hex: string): boolean {
+  if (hex.length !== 6) return false
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  if ([r, g, b].some((v) => Number.isNaN(v))) return false
+  // ITU-R BT.601 の輝度。GitHub のラベル表示と同じ考え方。
+  return (r! * 299 + g! * 587 + b! * 114) / 1000 > 150
 }

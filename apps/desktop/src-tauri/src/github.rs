@@ -20,10 +20,14 @@ const ITEM_UPDATED_AT: &str =
     include_str!("../../../../packages/github/src/queries/itemUpdatedAt.graphql");
 const UPDATE_DATE_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/updateDateField.graphql");
+const UPDATE_SINGLE_SELECT_FIELD: &str =
+    include_str!("../../../../packages/github/src/queries/updateSingleSelectField.graphql");
 const UPDATE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/updateIssue.graphql");
 const REPOSITORY_LABELS: &str =
     include_str!("../../../../packages/github/src/queries/repositoryLabels.graphql");
+const REPOSITORY_MILESTONES: &str =
+    include_str!("../../../../packages/github/src/queries/repositoryMilestones.graphql");
 const CREATE_LABEL: &str =
     include_str!("../../../../packages/github/src/queries/createLabel.graphql");
 
@@ -206,14 +210,16 @@ impl GitHubClient {
             .ok_or_else(|| AppError::new(ErrorKind::NotFound, "対象のタスクが見つかりません"))
     }
 
-    /// Issue 本体（タイトル・本文・ラベル）を書き換える。
+    /// Issue 本体（タイトル・本文・ラベル・Milestone）を書き換える。
     /// label_ids は「置き換え後の集合」で、渡した内容がそのまま Issue のラベルになる。
+    /// milestone_id が None のときは JSON の null を送り、Milestone を外す。
     pub async fn update_issue(
         &self,
         issue_id: &str,
         title: &str,
         body: &str,
         label_ids: &[String],
+        milestone_id: Option<&str>,
     ) -> AppResult<()> {
         self.graphql(
             UPDATE_ISSUE,
@@ -222,6 +228,9 @@ impl GitHubClient {
                 "title": title,
                 "body": body,
                 "labelIds": label_ids,
+                // Option<&str> は None がそのまま null になる。
+                // 変数を省くと GitHub 側は「変更しない」と解釈するため、明示的に載せる。
+                "milestoneId": milestone_id,
             }),
         )
         .await
@@ -242,6 +251,23 @@ impl GitHubClient {
             .into_iter()
             .flatten()
             .filter_map(read_label)
+            .collect())
+    }
+
+    /// Issue に設定できる Milestone の候補（OPEN のみ）。
+    pub async fn repository_milestones(&self, repository_id: &str) -> AppResult<Vec<Milestone>> {
+        let data = self
+            .graphql(REPOSITORY_MILESTONES, json!({ "repositoryId": repository_id }))
+            .await?;
+        let nodes = data
+            .get("node")
+            .and_then(|n| n.get("milestones"))
+            .and_then(|m| m.get("nodes"))
+            .and_then(Value::as_array);
+        Ok(nodes
+            .into_iter()
+            .flatten()
+            .filter_map(read_milestone)
             .collect())
     }
 
@@ -363,6 +389,28 @@ impl GitHubClient {
         .await
         .map(|_| ())
     }
+
+    /// SINGLE_SELECT（Status など）の値を変更する。
+    /// 選択肢は名前ではなく optionId（ProjectSchema の options[].id）で指定する。
+    pub async fn update_single_select_field(
+        &self,
+        project_id: &str,
+        item_id: &str,
+        field_id: &str,
+        option_id: &str,
+    ) -> AppResult<()> {
+        self.graphql(
+            UPDATE_SINGLE_SELECT_FIELD,
+            json!({
+                "projectId": project_id,
+                "itemId": item_id,
+                "fieldId": field_id,
+                "optionId": option_id,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
 }
 
 /* ---- GraphQL 応答 → Domain Model（企画書 §7.1） ---- */
@@ -430,6 +478,15 @@ fn read_label(value: &Value) -> Option<Label> {
         id: value.get("id")?.as_str()?.to_owned(),
         name: value.get("name")?.as_str()?.to_owned(),
         color: value.get("color").and_then(Value::as_str).unwrap_or("").to_owned(),
+    })
+}
+
+/// id の無い Milestone は Issue に設定できないので落とす。
+fn read_milestone(value: &Value) -> Option<Milestone> {
+    Some(Milestone {
+        id: value.get("id")?.as_str()?.to_owned(),
+        title: value.get("title")?.as_str()?.to_owned(),
+        due_on: read_date(value.get("dueOn").and_then(Value::as_str)),
     })
 }
 
@@ -508,6 +565,7 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
         .unwrap_or_default();
 
     let milestone = content.get("milestone").filter(|m| !m.is_null()).map(|m| Milestone {
+        id: m.get("id").and_then(Value::as_str).unwrap_or("").to_owned(),
         title: m.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
         due_on: read_date(m.get("dueOn").and_then(Value::as_str)),
     });

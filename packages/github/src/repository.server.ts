@@ -1,6 +1,7 @@
 import type {
   DateChange,
   Label,
+  Milestone,
   NewTaskInput,
   ProjectSchema,
   ProjectSummary,
@@ -8,13 +9,14 @@ import type {
   ScheduleTask,
   TaskContent,
 } from "@zukunft/domain"
-import { mapProjectSchema, mapTasks } from "./mapping"
+import { mapMilestones, mapProjectSchema, mapTasks } from "./mapping"
 import {
   LIST_PROJECTS,
   PROJECT_ITEMS,
   PROJECT_REPOSITORIES,
   PROJECT_SCHEMA,
   REPOSITORY_LABELS,
+  REPOSITORY_MILESTONES,
 } from "./queries"
 import { GitHubError, type GitHubScheduleRepository } from "./repository"
 
@@ -127,6 +129,21 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
       { repositoryId },
     )
     return data.node?.labels?.nodes ?? []
+  }
+
+  async listMilestones(repositoryId: string): Promise<Milestone[]> {
+    const data = await this.#graphql<unknown>(REPOSITORY_MILESTONES, { repositoryId })
+    return mapMilestones(data)
+  }
+
+  updateTaskStatus(
+    _projectId: string,
+    _taskId: string,
+    _optionId: string,
+  ): Promise<ScheduleTask> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。Status の変更はデスクトップアプリから行ってください"),
+    )
   }
 
   createLabel(_repositoryId: string, _name: string, _color: string): Promise<Label> {

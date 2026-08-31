@@ -1,8 +1,9 @@
 # Issue 本体（タイトル・本文）の更新。
 # Projects v2 のフィールドではなく Issue そのものを書き換えるため、
 # 対象は item id ではなく Issue の node id。
-mutation UpdateIssue($issueId: ID!, $title: String!, $body: String!, $labelIds: [ID!]) {
-  updateIssue(input: { id: $issueId, title: $title, body: $body, labelIds: $labelIds }) {
+# milestoneId は null を渡すと Milestone を外す（未指定と区別しない）。
+mutation UpdateIssue($issueId: ID!, $title: String!, $body: String!, $labelIds: [ID!], $milestoneId: ID) {
+  updateIssue(input: { id: $issueId, title: $title, body: $body, labelIds: $labelIds, milestoneId: $milestoneId }) {
     issue { id number title url body updatedAt }
   }
 }

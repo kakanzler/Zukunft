@@ -26,6 +26,8 @@ export type Label = {
 }
 
 export type Milestone = {
+  /** マイルストーンの node id。Issue への設定・解除に使う */
+  id: string
   title: string
   dueOn: ISODate | null
 }
@@ -88,6 +90,11 @@ export type TaskContent = {
   body: string
   /** 付け替え後のラベル。指定した集合で置き換える */
   labelIds: string[]
+  /**
+   * 付け替え後の Milestone の node id。
+   * `null` は「マイルストーンを外す」を表す（未指定ではなく明示的な解除）。
+   */
+  milestoneId: string | null
 }
 
 /** アプリから新しい Issue を起票するときの入力。 */

@@ -5,6 +5,7 @@ import {
   type FieldRole,
   type ISODate,
   type Label,
+  type Milestone,
   type ProjectSchema,
   type ScheduleTask,
   FIELD_ALIASES,
@@ -42,7 +43,7 @@ type RawItem = {
     assignees?: { nodes?: ({ login: string; avatarUrl: string } | null)[] | null } | null
     labels?: { nodes?: ({ id: string; name: string; color: string } | null)[] | null } | null
     repository?: { id?: string } | null
-    milestone?: { title: string; dueOn: string | null } | null
+    milestone?: { id?: string; title: string; dueOn: string | null } | null
   } | null
 }
 
@@ -140,7 +141,7 @@ export function mapTask(item: RawItem): ScheduleTask | null {
     assignees,
     labels,
     milestone: milestone
-      ? { title: milestone.title, dueOn: readDate(milestone.dueOn) }
+      ? { id: milestone.id ?? "", title: milestone.title, dueOn: readDate(milestone.dueOn) }
       : null,
     progress: typeof progressRaw === "number" ? progressRaw : null,
     updatedAt: content.updatedAt ?? "",
@@ -159,6 +160,22 @@ export function mapTasks(raw: unknown): { tasks: ScheduleTask[]; endCursor: stri
   }
   const page = items?.pageInfo
   return { tasks, endCursor: page?.hasNextPage ? (page.endCursor ?? null) : null }
+}
+
+/**
+ * RepositoryMilestones の応答を Milestone[] に変換する。
+ * id と title が無いものは Issue に設定できないので落とす。
+ */
+export function mapMilestones(raw: unknown): Milestone[] {
+  const nodes = (raw as {
+    node?: { milestones?: { nodes?: ({ id?: string; title?: string; dueOn?: string | null } | null)[] | null } | null } | null
+  })?.node?.milestones?.nodes
+  const milestones: Milestone[] = []
+  for (const node of nodes ?? []) {
+    if (!node?.id || !node.title) continue
+    milestones.push({ id: node.id, title: node.title, dueOn: readDate(node.dueOn) })
+  }
+  return milestones
 }
 
 /** Status の選択肢を定義順に返す。色割り当てとグループ順序に使う（企画書 §6.4.1）。 */

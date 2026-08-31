@@ -5,10 +5,14 @@ query ItemUpdatedAt($itemId: ID!) {
       fieldValues(first: 20) { ...FieldValues }
       content {
         __typename
+        # 書き込み後の再取得もここを通るので、選択は projectItems.graphql と揃える。
+        # 欠けると保存直後のタスクだけ issueId / labels を失う。
         ... on Issue {
-          number title url body updatedAt
+          id number title url body updatedAt
           assignees(first: 5) { nodes { login avatarUrl } }
-          milestone { title dueOn }
+          labels(first: 20) { nodes { id name color } }
+          repository { id }
+          milestone { id title dueOn }
         }
       }
     }
