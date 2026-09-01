@@ -30,8 +30,10 @@ const REPOSITORY_MILESTONES: &str =
     include_str!("../../../../packages/github/src/queries/repositoryMilestones.graphql");
 const CREATE_LABEL: &str =
     include_str!("../../../../packages/github/src/queries/createLabel.graphql");
+const DELETE_LABEL: &str =
+    include_str!("../../../../packages/github/src/queries/deleteLabel.graphql");
 
-/// createLabel は preview 扱いで、この Accept を付けないと失敗する。
+/// createLabel / deleteLabel は preview 扱いで、この Accept を付けないと失敗する。
 const LABELS_PREVIEW_ACCEPT: &str = "application/vnd.github.bane-preview+json";
 const CLEAR_DATE_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/clearDateField.graphql");
@@ -41,6 +43,12 @@ const CREATE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/createIssue.graphql");
 const ADD_PROJECT_ITEM: &str =
     include_str!("../../../../packages/github/src/queries/addProjectItem.graphql");
+const CLOSE_ISSUE: &str =
+    include_str!("../../../../packages/github/src/queries/closeIssue.graphql");
+const REOPEN_ISSUE: &str =
+    include_str!("../../../../packages/github/src/queries/reopenIssue.graphql");
+const DELETE_ISSUE: &str =
+    include_str!("../../../../packages/github/src/queries/deleteIssue.graphql");
 
 fn with_fragments(document: &str) -> String {
     format!("{FRAGMENTS}\n{document}")
@@ -291,6 +299,18 @@ impl GitHubClient {
             .ok_or_else(|| AppError::new(ErrorKind::Unknown, "ラベルを作成できませんでした"))
     }
 
+    /// ラベル定義そのものの削除。preview の Accept が必要（LABELS_PREVIEW_ACCEPT）。
+    /// 付いていた Issue すべてから外れ、GitHub 側にも復元手段が無い。
+    pub async fn delete_label(&self, label_id: &str) -> AppResult<()> {
+        self.graphql_with_accept(
+            DELETE_LABEL,
+            json!({ "labelId": label_id }),
+            Some(LABELS_PREVIEW_ACCEPT),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// フィールドの値を消す。元々未設定だったものを戻すのに使う。
     pub async fn clear_date_field(
         &self,
@@ -332,16 +352,27 @@ impl GitHubClient {
     }
 
     /// Issue を作成し、その node id を返す。
+    /// ラベルと Milestone は作成時に一緒に送る。後から付け直すと
+    /// 通知が二重に飛ぶうえ、途中で失敗すると中途半端な Issue が残るため。
     pub async fn create_issue(
         &self,
         repository_id: &str,
         title: &str,
         body: Option<&str>,
+        label_ids: &[String],
+        milestone_id: Option<&str>,
     ) -> AppResult<String> {
         let data = self
             .graphql(
                 CREATE_ISSUE,
-                json!({ "repositoryId": repository_id, "title": title, "body": body }),
+                json!({
+                    "repositoryId": repository_id,
+                    "title": title,
+                    "body": body,
+                    "labelIds": label_ids,
+                    // Option<&str> は None がそのまま null になる。
+                    "milestoneId": milestone_id,
+                }),
             )
             .await?;
         data.get("createIssue")
@@ -388,6 +419,29 @@ impl GitHubClient {
         )
         .await
         .map(|_| ())
+    }
+
+    /// Issue を閉じる。Projects v2 のフィールドではなく Issue 本体を動かすため、
+    /// 対象は item id ではなく Issue の node id。
+    pub async fn close_issue(&self, issue_id: &str) -> AppResult<()> {
+        self.graphql(CLOSE_ISSUE, json!({ "issueId": issue_id }))
+            .await
+            .map(|_| ())
+    }
+
+    /// 閉じた Issue を開き直す。close_issue と対になる。
+    pub async fn reopen_issue(&self, issue_id: &str) -> AppResult<()> {
+        self.graphql(REOPEN_ISSUE, json!({ "issueId": issue_id }))
+            .await
+            .map(|_| ())
+    }
+
+    /// Issue を削除する。Project から外すのではなく Issue そのものが消え、
+    /// GitHub 側にも復元手段が無い。呼び出し側で必ず確認を取ってから使う。
+    pub async fn delete_issue(&self, issue_id: &str) -> AppResult<()> {
+        self.graphql(DELETE_ISSUE, json!({ "issueId": issue_id }))
+            .await
+            .map(|_| ())
     }
 
     /// SINGLE_SELECT（Status など）の値を変更する。
@@ -597,6 +651,17 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
             .to_owned(),
         body: content.get("body").and_then(Value::as_str).unwrap_or("").to_owned(),
         url: content.get("url").and_then(Value::as_str).unwrap_or("").to_owned(),
+        // 選択に入っていない応答では欠けるので、開いている扱いに寄せる。
+        // 閉じたものを開いていると誤るより、逆のほうが害が大きい。
+        issue_state: match content
+            .get("state")
+            .and_then(Value::as_str)
+            .map(str::to_ascii_uppercase)
+            .as_deref()
+        {
+            Some("CLOSED") => "CLOSED".to_owned(),
+            _ => "OPEN".to_owned(),
+        },
         start_date: date_value(FieldRole::StartDate),
         end_date: date_value(FieldRole::EndDate),
         status: select_name(FieldRole::Status),

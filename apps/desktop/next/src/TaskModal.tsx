@@ -5,6 +5,7 @@ import type { CSSProperties } from "react"
 import type {
   DateChange,
   ISODate,
+  IssueState,
   Label,
   Milestone,
   ScheduleTask,
@@ -24,6 +25,10 @@ type Props = {
   canEditDates: boolean
   savingContent: boolean
   savingStatus: boolean
+  /** クローズ / リオープンの送信中 */
+  savingState: boolean
+  /** 削除の送信中 */
+  deleting: boolean
   /** Project の Status フィールドの選択肢。定義順。空なら Status を変更できない */
   statusOptions: StatusOption[]
   /** リポジトリに定義済みのラベル。編集モードの候補になる */
@@ -31,9 +36,12 @@ type Props = {
   /** リポジトリの Milestone（OPEN のみ）。編集モードの候補になる */
   availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
+  onDeleteLabel: (repositoryId: string, label: Label) => Promise<boolean>
   onChangeDates: (taskId: string, change: DateChange) => void
   onChangeStatus: (taskId: string, optionId: string) => void
   onSaveContent: (taskId: string, issueId: string, content: TaskContent) => Promise<unknown>
+  onSetState: (taskId: string, issueId: string, state: IssueState) => void
+  onDelete: (taskId: string, issueId: string) => void | Promise<void>
   onClose: () => void
 }
 
@@ -57,14 +65,16 @@ const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
  *   つもりで書き換えてしまうのを避けるため。
  */
 export function TaskModal({
-  task, canEditDates, savingContent, savingStatus, statusOptions,
-  availableLabels, availableMilestones, onCreateLabel,
-  onChangeDates, onChangeStatus, onSaveContent, onClose,
+  task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
+  availableLabels, availableMilestones, onCreateLabel, onDeleteLabel,
+  onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
 }: Props) {
   const [start, setStart] = useState(task.startDate ?? "")
   const [end, setEnd] = useState(task.endDate ?? "")
 
   const [editing, setEditing] = useState(false)
+  // 削除は取り消せないので、ボタン列を確認に差し替える 2 段階にする。
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [title, setTitle] = useState(task.title)
   const [body, setBody] = useState(task.body)
   const [labels, setLabels] = useState<Label[]>(task.labels)
@@ -85,9 +95,20 @@ export function TaskModal({
     setMilestoneId(task.milestone?.id ?? "")
   }, [task.title, task.body, task.labels, task.milestone, editing])
 
+  // 別のタスクを開いたら削除の確認は持ち越さない。
+  // 前の行で出した確認をそのまま押すと、意図しない Issue を消してしまう。
+  useEffect(() => {
+    setConfirmingDelete(false)
+  }, [task.id])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
+      // 削除の確認が出ているなら、まずそれを取り下げる
+      if (confirmingDelete) {
+        setConfirmingDelete(false)
+        return
+      }
       // 編集中の Esc はまず編集の取り消しに使う
       if (editing) {
         cancelEdit()
@@ -97,7 +118,7 @@ export function TaskModal({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onClose, editing, task.title, task.body, task.milestone])
+  }, [onClose, editing, confirmingDelete, task.title, task.body, task.milestone])
 
   // 日付入力は 6 桁の年など ISO から外れた値も受け付けるため、
   // 「形式が不正」と「前後関係が逆」を分けて扱う。
@@ -145,11 +166,12 @@ export function TaskModal({
     setLabels(task.labels)
     setMilestoneId(task.milestone?.id ?? "")
     setEditing(false)
+    setConfirmingDelete(false)
   }
 
   // 「update」は今そこにある変更をまとめて送る。編集モードなら本文なども、
   // そうでなければ日付だけ。どちらも無ければ押せない。
-  const busy = savingContent || savingStatus
+  const busy = savingContent || savingStatus || savingState || deleting
   const canUpdate =
     !busy &&
     ((datesDirty && datesValid) || (editing && contentDirty && contentValid))
@@ -158,6 +180,9 @@ export function TaskModal({
     if (editing) await saveContent()
     if (datesDirty && datesValid) applyDates()
   }
+
+  const closed = task.issueState === "CLOSED"
+  const toggleState = () => onSetState(task.id, task.issueId, closed ? "OPEN" : "CLOSED")
 
   const openOnGitHub = async () => {
     if (!task.url) return
@@ -212,8 +237,10 @@ export function TaskModal({
           </div>
 
           <div className="zk-field zk-task-title">
+            {/* クローズ済みかどうかは一覧では分からない。開いた時にここで気づけるようにする。 */}
             <span className="zk-field-label">
               title　#{task.issueNumber}　/　{SYNC_LABEL[task.syncState]}
+              {closed && "　/　クローズ済み"}
             </span>
             {editing ? (
               <input
@@ -309,6 +336,7 @@ export function TaskModal({
               busy={savingContent}
               onChange={setLabels}
               onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
+              onDelete={(label) => onDeleteLabel(task.repositoryId, label)}
             />
           </div>
         )}
@@ -353,30 +381,69 @@ export function TaskModal({
         </div>
 
         <div className="zk-task-foot">
-          <div className="zk-field zk-task-parent">
-            <span className="zk-field-label">Parent Issue</span>
-            {/* 親子関係（sub-issue）は未対応。枠だけ用意しておく（企画書 Q-8） */}
-            <div className="zk-input zk-input--static zk-muted">—</div>
-          </div>
-          <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
-            to GitHub
-          </button>
-          <button
-            className="zk-button"
-            aria-pressed={canUpdate}
-            disabled={!canUpdate}
-            onClick={update}
-          >
-            {savingContent ? "保存中…" : "update"}
-          </button>
-          {editing ? (
-            <button className="zk-button" onClick={cancelEdit} disabled={savingContent}>
-              cancel
-            </button>
+          {confirmingDelete ? (
+            <>
+              <span className="zk-task-meta-inline" style={{ flex: 1, color: "var(--danger)" }}>
+                この Issue を削除します。取り消せません
+              </span>
+              <button
+                className="zk-button zk-button--danger"
+                disabled={busy}
+                onClick={async () => {
+                  // 確認は送信が終わるまで出したままにする。押した直後に元の列へ戻ると
+                  // 何が起きているのか分からず、成功したのかも読めない。
+                  await onDelete(task.id, task.issueId)
+                  setConfirmingDelete(false)
+                }}
+              >
+                {deleting ? "削除中…" : "削除する"}
+              </button>
+              <button
+                className="zk-button"
+                disabled={busy}
+                onClick={() => setConfirmingDelete(false)}
+              >
+                やめる
+              </button>
+            </>
           ) : (
-            <button className="zk-button" onClick={() => setEditing(true)} disabled={busy}>
-              edit
-            </button>
+            <>
+              <div className="zk-field zk-task-parent">
+                <span className="zk-field-label">Parent Issue</span>
+                {/* 親子関係（sub-issue）は未対応。枠だけ用意しておく（企画書 Q-8） */}
+                <div className="zk-input zk-input--static zk-muted">—</div>
+              </div>
+              <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
+                to GitHub
+              </button>
+              <button
+                className="zk-button"
+                aria-pressed={canUpdate}
+                disabled={!canUpdate}
+                onClick={update}
+              >
+                {savingContent ? "保存中…" : "update"}
+              </button>
+              {editing ? (
+                <button className="zk-button" onClick={cancelEdit} disabled={savingContent}>
+                  cancel
+                </button>
+              ) : (
+                <button className="zk-button" onClick={() => setEditing(true)} disabled={busy}>
+                  edit
+                </button>
+              )}
+              <button className="zk-button" onClick={toggleState} disabled={busy}>
+                {savingState ? "変更中…" : closed ? "reopen" : "close"}
+              </button>
+              <button
+                className="zk-button zk-button--danger"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={busy}
+              >
+                delete
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@ import {
   addDays, diffDays, inclusiveDays, startOfWeek, startOfNextMonth,
   createTimeScale, timelineRange, monthTicks, subTicks,
   hitTest, applyDrag, diffDates,
-  computeStats, groupByStatus, groupByLabel, groupTasks, missingRequiredFields,
+  computeStats, groupByStatus, groupByLabel, groupByParentLabel, groupTasks, missingRequiredFields,
   initialState, applyLocalChange, markSyncing, markSynced, markFailed, markConflict,
   rollback, resolveWithRemote, resolveWithLocal, nextPending, pendingCount,
   undo, redo, canUndo, canRedo, mergeRefresh, findTask,
@@ -57,7 +57,7 @@ eq("diffDates start only", diffDates(
 
 // --- stats ---
 const mk = (n: number, s: string, start: string, end: string, prog: number | null): ScheduleTask => ({
-  id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", startDate: start, endDate: end,
+  id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", issueState: "OPEN", startDate: start, endDate: end,
   status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30" },
   progress: prog, updatedAt: "2026-08-01T00:00:00Z", syncState: "synced",
 })
@@ -65,7 +65,7 @@ const tasks = [mk(1, "Planning", "2026-09-01", "2026-09-07", 100), mk(2, "Review
 eq("stats", computeStats(tasks), { taskCount: 2, weekCount: 3, milestoneCount: 1, completePercent: 50 })
 eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Review"]).map(g => g.label), ["PLANNING", "REVIEW"])
 
-// --- Category 表示（ラベルでのグループ化） ---
+// --- Category 表示（ラベルの組み合わせでのグループ化） ---
 {
   const withLabels: ScheduleTask[] = [
     { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null),
@@ -76,19 +76,74 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
         { id: "l-design", name: "design", color: "a855f7" },
       ] },
     { ...mk(3, "Planning", "2026-09-03", "2026-09-07", null), labels: [] },
+    // #2 と同じ組み合わせだが GitHub が返す並びが逆のケース。
+    { ...mk(4, "Review", "2026-09-04", "2026-09-08", null),
+      labels: [
+        { id: "l-design", name: "design", color: "a855f7" },
+        { id: "l-backend", name: "backend", color: "0e8a16" },
+      ] },
   ]
   const groups = groupByLabel(withLabels)
-  eq("labels are grouped alphabetically, unlabeled last",
-     groups.map(g => g.label), ["BACKEND", "DESIGN", "NO LABEL"])
-  eq("an issue appears in every label it carries",
-     groups.find(g => g.key === "design")!.tasks.map(t => t.issueNumber), [1, 2])
+  eq("combinations are grouped alphabetically, unlabeled last",
+     groups.map(g => g.label), ["BACKEND + DESIGN", "DESIGN", "NO LABEL"])
+  eq("label order on the issue does not split the group",
+     groups[0]!.tasks.map(t => t.issueNumber), [2, 4])
+  eq("a single-label issue does not join the combination",
+     groups[1]!.tasks.map(t => t.issueNumber), [1])
   eq("unlabeled issues are collected", groups[2]!.tasks.map(t => t.issueNumber), [3])
-  eq("group carries the label colour", groups[0]!.color, "#0e8a16")
+  // 重複しないことの直接の確認。ラベルごとに分けていた頃は 5 になっていた。
+  eq("every issue appears exactly once",
+     groups.reduce((n, g) => n + g.tasks.length, 0), withLabels.length)
+  eq("group carries the first label's colour", groups[0]!.color, "#0e8a16")
   eq("no-label group has no colour", groups[2]!.color, undefined)
   eq("groupTasks dispatches on mode",
      groupTasks(withLabels, "label", []).length, groups.length)
   eq("groupTasks status mode still works",
      groupTasks(withLabels, "status", ["Planning", "Review"]).map(g => g.label),
+     ["PLANNING", "REVIEW"])
+}
+
+// --- 親カテゴリ（Category 表示の 2 階層化） ---
+{
+  const cert = { id: "l-cert", name: "Certification", color: "f0cc19" }
+  const ccar = { id: "l-ccar", name: "CCAR-F", color: "ff4d00" }
+  const math = { id: "l-math", name: "Math", color: "0e8a16" }
+  const claude = { id: "l-claude", name: "Claude", color: "fb4e04" }
+
+  const tasks: ScheduleTask[] = [
+    { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null), labels: [cert, ccar] },
+    { ...mk(2, "Review", "2026-09-02", "2026-09-06", null), labels: [ccar, cert] },
+    { ...mk(3, "Planning", "2026-09-03", "2026-09-07", null), labels: [cert, math] },
+    { ...mk(4, "Review", "2026-09-04", "2026-09-08", null), labels: [ccar] },
+    { ...mk(5, "Planning", "2026-09-05", "2026-09-09", null), labels: [] },
+    // 親を 2 つ持つ Issue。組み合わせで 1 つの親グループになる。
+    { ...mk(6, "Review", "2026-09-06", "2026-09-10", null), labels: [claude, cert] },
+  ]
+  const groups = groupByParentLabel(tasks, ["Certification", "Claude"])
+
+  eq("parents are sorted, orphans last",
+     groups.map(g => g.label), ["CERTIFICATION", "CERTIFICATION + CLAUDE", "その他"])
+  eq("parent counts every task below it", groups.map(g => g.tasks.length), [3, 1, 2])
+  eq("children group by the remaining labels",
+     groups[0]!.groups!.map(g => g.label), ["CCAR-F", "MATH"])
+  eq("the parent label is dropped from the child name",
+     groups[1]!.groups!.map(g => g.label), ["NO LABEL"])
+  eq("a task without any parent label falls to その他",
+     groups[2]!.tasks.map(t => t.issueNumber), [4, 5])
+  eq("leaf tasks add up to the issue count",
+     groups.reduce((n, g) => n + g.groups!.reduce((m, c) => m + c.tasks.length, 0), 0),
+     tasks.length)
+  eq("parent colour comes from the first parent label", groups[0]!.color, "#f0cc19")
+  eq("no groups without parent labels configured",
+     groupTasks(tasks, "label", []).every(g => g.groups === undefined), true)
+  eq("no parent labels keeps the flat grouping",
+     groupTasks(tasks, "label", []).map(g => g.label),
+     groupByLabel(tasks).map(g => g.label))
+  eq("groupTasks nests once parents are given",
+     groupTasks(tasks, "label", [], ["Certification", "Claude"]).map(g => g.label),
+     groups.map(g => g.label))
+  eq("status mode ignores parent labels",
+     groupTasks(tasks, "status", ["Planning", "Review"], ["Certification"]).map(g => g.label),
      ["PLANNING", "REVIEW"])
 }
 

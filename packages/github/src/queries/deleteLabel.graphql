@@ -1,0 +1,9 @@
+# ラベルそのものの削除。
+# 注意: このミューテーションは preview 扱いで、
+# Accept: application/vnd.github.bane-preview+json を付けないと失敗する。
+# 付いていた Issue すべてからラベルが外れ、取り消しはできない。
+mutation DeleteLabel($labelId: ID!) {
+  deleteLabel(input: { id: $labelId }) {
+    clientMutationId
+  }
+}

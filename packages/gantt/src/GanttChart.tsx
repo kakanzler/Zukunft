@@ -20,6 +20,9 @@ import { buildRows, visibleRange } from "./rows"
 
 const ROW_HEIGHT = 32
 
+/** 既定値をその場で書くと毎回別の配列になり、行の再計算が止まらなくなる。 */
+const EMPTY_PARENTS: string[] = []
+
 export type GanttChartProps = {
   tasks: ScheduleTask[]
   /** Status の定義順。色の割り当てとグループ順序に使う */
@@ -27,6 +30,11 @@ export type GanttChartProps = {
   zoom: ZoomLevel
   /** グループ分けの基準。サイドバーの表示切り替えに対応する */
   groupBy?: GroupMode
+  /**
+   * 親カテゴリとして扱うラベル名（アプリの設定）。
+   * 指定すると Category 表示が「親 → 残りのラベルの組み合わせ」の 2 階層になる。
+   */
+  parentLabels?: string[]
   onTaskDatesChange: (taskId: string, change: DateChange) => void
   /** Web 版（読み取り専用）では true にする（企画書 §9） */
   readOnly?: boolean
@@ -38,8 +46,8 @@ export type GanttChartProps = {
 }
 
 export function GanttChart({
-  tasks, statusOrder, zoom, groupBy = "status", onTaskDatesChange, readOnly = false,
-  onTaskOpen, emptyMessage, toolbar,
+  tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
+  onTaskDatesChange, readOnly = false, onTaskOpen, emptyMessage, toolbar,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   const [scrollTop, setScrollTop] = useState(0)
@@ -47,8 +55,8 @@ export function GanttChart({
   const paneRef = useRef<HTMLDivElement>(null)
 
   const rows = useMemo(
-    () => buildRows(tasks, statusOrder, collapsed, groupBy),
-    [tasks, statusOrder, collapsed, groupBy],
+    () => buildRows(tasks, statusOrder, collapsed, groupBy, parentLabels),
+    [tasks, statusOrder, collapsed, groupBy, parentLabels],
   )
 
   const scale = useMemo(() => {

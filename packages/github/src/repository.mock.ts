@@ -1,5 +1,6 @@
 import {
   type DateChange,
+  type IssueState,
   type Label,
   type Milestone,
   type NewTaskInput,
@@ -97,6 +98,7 @@ function buildTasks(origin: string): ScheduleTask[] {
 - [ ] 実装
 - [ ] 動作確認`,
     url: `https://github.com/example/zukunft/issues/${101 + i}`,
+    issueState: "OPEN" as const,
     startDate: addDays(origin, offset),
     endDate: addDays(origin, offset + duration - 1),
     status: STATUSES[statusIndex] ?? null,
@@ -230,6 +232,23 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     return { ...created }
   }
 
+  /** ラベル定義ごと消す。実物と同じく、付いていた Issue すべてから外れる。 */
+  async deleteLabel(labelId: string): Promise<void> {
+    await this.#delay()
+    if (!this.#labels.some((l) => l.id === labelId)) {
+      throw new GitHubError("not-found", "ラベルが見つかりません")
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+    this.#labels = this.#labels.filter((l) => l.id !== labelId)
+    this.#tasks = this.#tasks.map((t) =>
+      t.labels.some((l) => l.id === labelId)
+        ? { ...t, labels: t.labels.filter((l) => l.id !== labelId) }
+        : t,
+    )
+  }
+
   async updateTaskContent(
     taskId: string,
     _issueId: string,
@@ -280,13 +299,18 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       title: input.title,
       body: input.body ?? "",
       url: `https://github.com/example/zukunft/issues/${issueNumber}`,
+      issueState: "OPEN",
       startDate: input.startDate ?? null,
       endDate: input.endDate ?? null,
-      status: STATUSES[0] ?? null,
+      // 知らない選択肢 id は既定のままにする。実物でも作成自体は成功し、
+      // Status だけが Project の既定値で残るため。
+      status: STATUSES.find((_, i) => `o${i}` === input.statusOptionId) ?? STATUSES[0] ?? null,
       priority: null,
       assignees: [],
-      labels: [],
-      milestone: null,
+      labels: (input.labelIds ?? [])
+        .map((id) => this.#labels.find((l) => l.id === id))
+        .filter((l): l is Label => Boolean(l)),
+      milestone: this.#milestones.find((m) => m.id === input.milestoneId) ?? null,
       progress: null,
       updatedAt: new Date().toISOString(),
       syncState: "synced",
@@ -323,6 +347,43 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     const updated: ScheduleTask = { ...current, status: name }
     this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
     return { ...updated }
+  }
+
+  /**
+   * Issue の開閉。Status と違い Issue 本体の状態なので、
+   * 実物では updatedAt が動く。競合検出の確認ができるよう、ここでも進める。
+   */
+  async setTaskState(
+    taskId: string,
+    _issueId: string,
+    state: IssueState,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+
+    const updated: ScheduleTask = {
+      ...current,
+      issueState: state,
+      updatedAt: new Date().toISOString(),
+    }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
+  }
+
+  /** Issue ごと消す。実物と同じく、消えた後は取り戻せない。 */
+  async deleteTask(issueId: string): Promise<void> {
+    await this.#delay()
+    if (!this.#tasks.some((t) => t.issueId === issueId)) {
+      throw new GitHubError("not-found", "タスクが見つかりません")
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+    this.#tasks = this.#tasks.filter((t) => t.issueId !== issueId)
   }
 
   async updateTaskDates(

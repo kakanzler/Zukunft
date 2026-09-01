@@ -22,7 +22,7 @@ import {
   rollback as rollbackAction,
   undo as undoAction,
 } from "@zukunft/domain"
-import type { NewTaskInput, TaskContent } from "@zukunft/domain"
+import type { IssueState, NewTaskInput, TaskContent } from "@zukunft/domain"
 import { GitHubError, type GitHubScheduleRepository } from "@zukunft/github"
 
 /** リトライ間隔（企画書 §16.4）。 */
@@ -245,6 +245,55 @@ export function useSchedule(
     [repository, projectId],
   )
 
+  const [savingState, setSavingState] = useState(false)
+
+  /**
+   * Issue のクローズ / リオープン。
+   * ここも GitHub が返した Issue で置き換える。状態と一緒に updatedAt も進むため、
+   * ローカルで真似ると次の日付更新が競合と見なされてしまう。
+   */
+  const setTaskState = useCallback(
+    async (taskId: string, issueId: string, issueState: IssueState) => {
+      setSavingState(true)
+      try {
+        const updated = await repository.setTaskState(taskId, issueId, issueState)
+        setState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+        }))
+        return updated
+      } finally {
+        setSavingState(false)
+      }
+    },
+    [repository],
+  )
+
+  /**
+   * Issue の削除。GitHub から消えたものは戻せないので楽観的更新はしない。
+   * 未送信の日付変更も一緒に捨てる。宛先の Issue が無い以上、送っても必ず失敗し、
+   * 「要対応」として残り続けてしまうため。
+   */
+  const [deleting, setDeleting] = useState(false)
+
+  const deleteTask = useCallback(async (taskId: string, issueId: string) => {
+    const removed = stateRef.current.tasks.find((t) => t.id === taskId) ?? null
+    // 送信中は UI 側でボタンを塞ぐ。二度押しの 2 回目は必ず「もう無い」で失敗し、
+    // 消えているのに失敗ログだけが残ることになるため。
+    setDeleting(true)
+    try {
+      await repository.deleteTask(issueId)
+    } finally {
+      setDeleting(false)
+    }
+    setState((prev) => ({
+      ...prev,
+      tasks: prev.tasks.filter((t) => t.id !== taskId),
+      queue: prev.queue.filter((m) => m.taskId !== taskId),
+    }))
+    return removed
+  }, [repository])
+
   return {
     tasks: state.tasks,
     queue: state.queue,
@@ -255,6 +304,10 @@ export function useSchedule(
     updateContent,
     savingStatus,
     updateStatus,
+    savingState,
+    setTaskState,
+    deleting,
+    deleteTask,
     pending: pendingCount(state),
     canUndo: canUndo(state),
     canRedo: canRedo(state),

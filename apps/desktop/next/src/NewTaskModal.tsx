@@ -1,14 +1,37 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { ISODate, NewTaskInput, RepositorySummary } from "@zukunft/domain"
+import type {
+  ISODate,
+  Label,
+  Milestone,
+  NewTaskInput,
+  RepositorySummary,
+} from "@zukunft/domain"
+import { LabelEditor } from "@/LabelEditor"
 import { inclusiveDays, isISODate } from "@zukunft/domain"
+
+type StatusOption = { id: string; name: string }
 
 type Props = {
   repositories: RepositorySummary[]
+  /**
+   * 選択中の作成先。ラベルと Milestone の候補はリポジトリ単位で取るため、
+   * どこに作ろうとしているかは親も知っている必要がある。
+   */
+  repositoryId: string
+  onChangeRepository: (id: string) => void
   /** Start Date / Target Date が Project に無い場合、日付は指定できない */
   canEditDates: boolean
   busy: boolean
+  /** Project の Status フィールドの選択肢。定義順。空なら Status を指定できない */
+  statusOptions: StatusOption[]
+  /** 選択中リポジトリに定義済みのラベル */
+  availableLabels: Label[]
+  /** 選択中リポジトリの Milestone（OPEN のみ） */
+  availableMilestones: Milestone[]
+  onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
+  onDeleteLabel: (repositoryId: string, label: Label) => Promise<boolean>
   onCreate: (input: NewTaskInput) => void
   onClose: () => void
 }
@@ -17,18 +40,28 @@ type Props = {
  * 新しい Issue を起票して Project に追加する。
  *
  * 日付は任意。GitHub で Issue を作ってから Project に追加して日付を入れる、
- * という往復を 1 画面に畳むのが目的。
+ * という往復を 1 画面に畳むのが目的。ラベル・Milestone・Status も同じ理由で
+ * ここに置く。作ってから詳細を開いて付け直すのでは往復が残ってしまう。
  */
-export function NewTaskModal({ repositories, canEditDates, busy, onCreate, onClose }: Props) {
-  const [repositoryId, setRepositoryId] = useState(repositories[0]?.id ?? "")
+export function NewTaskModal({
+  repositories, repositoryId, onChangeRepository, canEditDates, busy,
+  statusOptions, availableLabels, availableMilestones, onCreateLabel, onDeleteLabel,
+  onCreate, onClose,
+}: Props) {
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
   const [start, setStart] = useState("")
   const [end, setEnd] = useState("")
+  const [statusOptionId, setStatusOptionId] = useState("")
+  const [labels, setLabels] = useState<Label[]>([])
+  const [milestoneId, setMilestoneId] = useState("")
 
+  // ラベルと Milestone の id はリポジトリごとに別物。作成先を変えても残すと
+  // 別リポジトリの id を送ることになるので捨てる。
   useEffect(() => {
-    if (!repositoryId && repositories[0]) setRepositoryId(repositories[0].id)
-  }, [repositories, repositoryId])
+    setLabels([])
+    setMilestoneId("")
+  }, [repositoryId])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -48,6 +81,9 @@ export function NewTaskModal({ repositories, canEditDates, busy, onCreate, onClo
     if (!canSubmit) return
     const input: NewTaskInput = { repositoryId, title: title.trim() }
     if (body.trim()) input.body = body.trim()
+    if (labels.length > 0) input.labelIds = labels.map((l) => l.id)
+    if (milestoneId !== "") input.milestoneId = milestoneId
+    if (statusOptionId !== "") input.statusOptionId = statusOptionId
     if (bothFilled && wellFormed) {
       input.startDate = start as ISODate
       input.endDate = end as ISODate
@@ -83,7 +119,7 @@ export function NewTaskModal({ repositories, canEditDates, busy, onCreate, onClo
               <select
                 className="zk-input"
                 value={repositoryId}
-                onChange={(e) => setRepositoryId(e.target.value)}
+                onChange={(e) => onChangeRepository(e.target.value)}
               >
                 {repositories.map((repo) => (
                   <option key={repo.id} value={repo.id}>{repo.nameWithOwner}</option>
@@ -104,6 +140,46 @@ export function NewTaskModal({ repositories, canEditDates, busy, onCreate, onClo
                 if (e.key === "Enter") submit()
               }}
             />
+          </label>
+
+          {/* Status・ラベル・Milestone は詳細（TaskModal）と同じ並びにしておく。
+              作成直後に詳細を開いても位置が変わらない方が迷わない。 */}
+          <label className="zk-field">
+            <span className="zk-field-label">Status</span>
+            <select
+              className="zk-input"
+              value={statusOptionId}
+              disabled={statusOptions.length === 0}
+              onChange={(e) => setStatusOptionId(e.target.value)}
+            >
+              <option value="">—（未設定）</option>
+              {statusOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <LabelEditor
+            selected={labels}
+            available={availableLabels}
+            busy={busy}
+            onChange={setLabels}
+            onCreate={(name, color) => onCreateLabel(repositoryId, name, color)}
+            onDelete={(label) => onDeleteLabel(repositoryId, label)}
+          />
+
+          <label className="zk-field">
+            <span className="zk-field-label">Milestone</span>
+            <select
+              className="zk-input"
+              value={milestoneId}
+              onChange={(e) => setMilestoneId(e.target.value)}
+            >
+              <option value="">なし</option>
+              {availableMilestones.map((m) => (
+                <option key={m.id} value={m.id}>{m.title}</option>
+              ))}
+            </select>
           </label>
 
           <label className="zk-field">

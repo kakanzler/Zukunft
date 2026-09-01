@@ -1,0 +1,7 @@
+# Issue を閉じる。Projects v2 のフィールドではなく Issue 本体の状態なので、
+# 対象は item id ではなく Issue の node id。
+mutation CloseIssue($issueId: ID!) {
+  closeIssue(input: { issueId: $issueId }) {
+    issue { id state }
+  }
+}

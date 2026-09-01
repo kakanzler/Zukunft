@@ -1,5 +1,6 @@
 import type {
   DateChange,
+  IssueState,
   Label,
   Milestone,
   NewTaskInput,
@@ -152,6 +153,12 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
     )
   }
 
+  deleteLabel(_labelId: string): Promise<void> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。ラベルの削除はデスクトップアプリから行ってください"),
+    )
+  }
+
   updateTaskContent(
     _taskId: string,
     _issueId: string,
@@ -159,6 +166,22 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
   ): Promise<ScheduleTask> {
     return Promise.reject(
       new GitHubError("unsupported", "Web 版は読み取り専用です。Issue の編集はデスクトップアプリから行ってください"),
+    )
+  }
+
+  setTaskState(
+    _taskId: string,
+    _issueId: string,
+    _state: IssueState,
+  ): Promise<ScheduleTask> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。Issue の開閉はデスクトップアプリから行ってください"),
+    )
+  }
+
+  deleteTask(_issueId: string): Promise<void> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。Issue の削除はデスクトップアプリから行ってください"),
     )
   }
 

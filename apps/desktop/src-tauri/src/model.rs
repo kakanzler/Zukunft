@@ -44,6 +44,8 @@ pub struct ScheduleTask {
     /// Issue の本文。空文字は「本文なし」を表す
     pub body: String,
     pub url: String,
+    /// GitHub 上で開いているか閉じているか。"OPEN" | "CLOSED"
+    pub issue_state: String,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub status: Option<String>,
@@ -124,6 +126,13 @@ pub struct NewTaskInput {
     pub repository_id: String,
     pub title: String,
     pub body: Option<String>,
+    /// 作成時に付けるラベルの node id。None・空なら付けない
+    pub label_ids: Option<Vec<String>>,
+    /// 作成時に設定する Milestone の node id
+    pub milestone_id: Option<String>,
+    /// 作成直後に設定する Status の選択肢 id（Projects v2 の options[].id）。
+    /// Issue には無い値なので、Project へ追加した後でないと書き込めない。
+    pub status_option_id: Option<String>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
 }

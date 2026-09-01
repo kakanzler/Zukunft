@@ -19,7 +19,11 @@ import updateIssue from "./updateIssue.graphql"
 import repositoryLabels from "./repositoryLabels.graphql"
 import repositoryMilestones from "./repositoryMilestones.graphql"
 import createLabel from "./createLabel.graphql"
+import deleteLabel from "./deleteLabel.graphql"
 import clearDateField from "./clearDateField.graphql"
+import closeIssue from "./closeIssue.graphql"
+import reopenIssue from "./reopenIssue.graphql"
+import deleteIssue from "./deleteIssue.graphql"
 
 export const LIST_PROJECTS = listProjects
 export const PROJECT_SCHEMA = projectSchema
@@ -41,9 +45,19 @@ export const REPOSITORY_LABELS = repositoryLabels
 export const REPOSITORY_MILESTONES = repositoryMilestones
 export const CREATE_LABEL = createLabel
 
-/** createLabel は preview 扱い。この Accept を付けないと失敗する。 */
+/** ラベル定義そのものを消す。付いていた Issue すべてから外れ、取り消せない。 */
+export const DELETE_LABEL = deleteLabel
+
+/** createLabel / deleteLabel は preview 扱い。この Accept を付けないと失敗する。 */
 export const LABELS_PREVIEW_ACCEPT = "application/vnd.github.bane-preview+json"
 export const CLEAR_DATE_FIELD = clearDateField
 export const PROJECT_REPOSITORIES = projectRepositories
 export const CREATE_ISSUE = createIssue
 export const ADD_PROJECT_ITEM = addProjectItem
+
+/** Issue の開閉。Projects v2 のフィールドではなく Issue 本体を動かす。 */
+export const CLOSE_ISSUE = closeIssue
+export const REOPEN_ISSUE = reopenIssue
+
+/** Issue ごと消す。取り消せないので、呼ぶ前に UI 側で確認を取る。 */
+export const DELETE_ISSUE = deleteIssue

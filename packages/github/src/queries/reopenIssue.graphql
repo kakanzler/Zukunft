@@ -1,0 +1,6 @@
+# 閉じた Issue を開き直す。closeIssue と対になる。
+mutation ReopenIssue($issueId: ID!) {
+  reopenIssue(input: { issueId: $issueId }) {
+    issue { id state }
+  }
+}

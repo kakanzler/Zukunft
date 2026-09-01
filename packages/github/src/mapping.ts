@@ -4,6 +4,7 @@ import {
   type FieldDefinition,
   type FieldRole,
   type ISODate,
+  type IssueState,
   type Label,
   type Milestone,
   type ProjectSchema,
@@ -39,6 +40,7 @@ type RawItem = {
     title?: string
     body?: string
     url?: string
+    state?: string
     updatedAt?: string
     assignees?: { nodes?: ({ login: string; avatarUrl: string } | null)[] | null } | null
     labels?: { nodes?: ({ id: string; name: string; color: string } | null)[] | null } | null
@@ -108,6 +110,15 @@ function valueOf(
   return undefined
 }
 
+/**
+ * Issue の開閉状態。GitHub は "OPEN" / "CLOSED" を返すが、選択に入っていない
+ * 応答（古いキャッシュなど）では欠けるため、開いている扱いに寄せる。
+ * 閉じたものを開いていると誤るより、開いたものを閉じていると誤るほうが害が大きい。
+ */
+function readIssueState(value: string | null | undefined): IssueState {
+  return value?.toUpperCase() === "CLOSED" ? "CLOSED" : "OPEN"
+}
+
 /** Issue を指さない item（Draft issue や PR）は Gantt の対象外なので null を返す。 */
 export function mapTask(item: RawItem): ScheduleTask | null {
   const content = item.content
@@ -134,6 +145,7 @@ export function mapTask(item: RawItem): ScheduleTask | null {
     title: content.title ?? `#${content.number}`,
     body: content.body ?? "",
     url: content.url ?? "",
+    issueState: readIssueState(content.state),
     startDate: readDate(valueOf(values, "startDate")?.date),
     endDate: readDate(valueOf(values, "endDate")?.date),
     status: valueOf(values, "status")?.name ?? null,

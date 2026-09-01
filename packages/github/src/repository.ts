@@ -1,5 +1,6 @@
 import type {
   DateChange,
+  IssueState,
   Label,
   Milestone,
   NewTaskInput,
@@ -54,6 +55,20 @@ export interface GitHubScheduleRepository {
    */
   updateTaskStatus(projectId: string, taskId: string, optionId: string): Promise<ScheduleTask>
 
+  /**
+   * Issue を閉じる / 開き直す。
+   *
+   * Projects v2 のフィールドではなく Issue 本体の状態なので issueId で送るが、
+   * 反映後の値は item として読み直すため taskId も要る。
+   */
+  setTaskState(taskId: string, issueId: string, state: IssueState): Promise<ScheduleTask>
+
+  /**
+   * Issue を GitHub から削除する。Project から外すのではなく Issue ごと消えるため、
+   * 取り消しはできない。呼ぶ前に UI 側で確認を取る。
+   */
+  deleteTask(issueId: string): Promise<void>
+
   /** リポジトリに定義済みのラベル。Issue に付け外しする候補 */
   listLabels(repositoryId: string): Promise<Label[]>
 
@@ -62,6 +77,12 @@ export interface GitHubScheduleRepository {
 
   /** ラベルを新規作成する。作成しただけでは Issue には付かない */
   createLabel(repositoryId: string, name: string, color: string): Promise<Label>
+
+  /**
+   * ラベルの定義自体を消す。Issue から外すのと違い、そのラベルが付いていた
+   * すべての Issue から外れ、取り消しはできない。呼ぶ前に UI 側で確認を取る。
+   */
+  deleteLabel(labelId: string): Promise<void>
 
   /** Issue の作成先候補。Project にリンクされたリポジトリを返す */
   listRepositories(projectId: string): Promise<RepositorySummary[]>

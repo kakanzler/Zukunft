@@ -21,7 +21,7 @@ export const DEFAULT_VIEWS: SidebarView[] = [
   {
     mode: "label",
     label: "Category",
-    description: "Label ごと",
+    description: "ラベルの組み合わせごと",
     icon: "⛬",
   },
 ]

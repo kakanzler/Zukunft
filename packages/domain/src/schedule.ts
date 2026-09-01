@@ -25,6 +25,9 @@ export type Label = {
   color: string
 }
 
+/** Issue の開閉状態。GitHub の Issue.state に対応する。 */
+export type IssueState = "OPEN" | "CLOSED"
+
 export type Milestone = {
   /** マイルストーンの node id。Issue への設定・解除に使う */
   id: string
@@ -48,6 +51,8 @@ export type ScheduleTask = {
   /** Issue の本文。空文字は「本文なし」を表す */
   body: string
   url: string
+  /** GitHub 上で開いているか閉じているか */
+  issueState: IssueState
   startDate: ISODate | null
   endDate: ISODate | null
   status: string | null
@@ -102,6 +107,15 @@ export type NewTaskInput = {
   repositoryId: string
   title: string
   body?: string
+  /** 作成時に付けるラベルの node id。省略・空配列ならラベルなし */
+  labelIds?: string[]
+  /** 作成時に設定する Milestone の node id。省略なら設定しない */
+  milestoneId?: string
+  /**
+   * 作成直後に設定する Status の選択肢 id（Projects v2 の options[].id）。
+   * 省略すると Project の既定（多くは未設定）のままになる。
+   */
+  statusOptionId?: string
   startDate?: ISODate
   endDate?: ISODate
 }

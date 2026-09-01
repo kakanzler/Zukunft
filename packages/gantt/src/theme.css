@@ -410,8 +410,9 @@
 }
 .zk-task-meta-inline { flex: 0 0 auto; opacity: 0.85; }
 
+/* ボタンが増えても押せなくならないよう折り返す。狭い窓では 2 段になる。 */
 .zk-task-foot {
-  display: flex; align-items: flex-end; gap: calc(var(--space) * 2);
+  display: flex; align-items: flex-end; gap: calc(var(--space) * 2); flex-wrap: wrap;
 }
 .zk-task-parent { flex: 1 1 auto; max-width: 240px; margin-right: auto; }
 
@@ -425,14 +426,32 @@
 }
 .zk-notice-strong { color: var(--warning); font-weight: 600; }
 
-/* ---- ログペイン ---- */
+/* ---- ログペイン ----
+
+   高さはユーザーが境界をドラッグして決める。件数で伸び縮みさせないため
+   max-height ではなく本文に固定の高さを与え、その中でスクロールさせる。 */
 .zk-log {
   flex: 0 0 auto;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
-  max-height: 40vh;
+  min-height: 0;
+}
+/* ログだけを見るモード（Alt+L）。Gantt は描かれないので余りを全部取る。 */
+.zk-log--full { flex: 1 1 auto; }
+
+/* 上端の 6px がつまみ。線そのものは細いので、当たり判定を広げて掴みやすくする。 */
+.zk-log-resizer {
+  flex: 0 0 auto;
+  height: 6px;
+  margin-bottom: -1px;
+  cursor: ns-resize;
+  background: transparent;
+}
+.zk-log-resizer:hover, .zk-log-resizer:focus-visible {
+  background: rgba(45, 107, 255, 0.35);
+  outline: none;
 }
 .zk-log-head {
   display: flex; align-items: center; gap: calc(var(--space) * 3);
@@ -454,11 +473,14 @@
 .zk-log-spacer { flex: 1; }
 
 .zk-log-body {
+  flex: 0 0 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 calc(var(--space) * 4) calc(var(--space) * 3);
   font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
   font-size: 11px;
 }
+.zk-log-body--full { flex: 1 1 auto; }
 .zk-log-entry {
   display: flex; align-items: flex-start; gap: calc(var(--space) * 2);
   padding: calc(var(--space) * 1.5) 0;
@@ -653,6 +675,16 @@
   border-radius: 8px;
   max-height: 128px; overflow-y: auto;
 }
+
+/* 削除モードの候補。付け外しと同じ見た目だと押し間違えるので危険色で塗り分ける。 */
+.zk-label-picker--danger { border-color: rgba(244, 63, 94, 0.4); }
+.zk-chip--danger { border-color: rgba(244, 63, 94, 0.5); color: var(--danger); }
+.zk-chip--danger:hover { border-color: var(--danger); }
+.zk-label-confirm {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  font-size: 11px; color: var(--danger);
+}
+
 .zk-label-new {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
 }

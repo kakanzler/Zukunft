@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   GroupMode,
+  IssueState,
   Label,
   Milestone,
   NewTaskInput,
@@ -18,10 +19,12 @@ import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
 import { SignIn } from "@/SignIn"
+import { CategorySettings } from "@/CategorySettings"
 import { LogPane } from "@/LogPane"
 import { NewTaskModal } from "@/NewTaskModal"
 import { TaskModal } from "@/TaskModal"
 import { useLog } from "@/log"
+import { loadParentLabels, saveParentLabels } from "@/settings"
 import { useSchedule } from "@/useSchedule"
 
 export default function Page() {
@@ -175,7 +178,16 @@ function Workspace({
   const openTask = schedule.tasks.find((t) => t.id === openTaskId) ?? null
 
   const [creatingOpen, setCreatingOpen] = useState(false)
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  // 親カテゴリとして扱うラベル名。GitHub ではなくアプリ側の設定（Project ごと）。
+  const [parentLabels, setParentLabels] = useState<string[]>([])
+  const [savingCategories, setSavingCategories] = useState(false)
+  // ログだけを見るモード（Alt+L）。Gantt を描かないので、長い hint も折り返さず読める。
+  const [logFull, setLogFull] = useState(false)
   const [repositories, setRepositories] = useState<RepositorySummary[]>([])
+  // 新規 Issue の作成先。ラベルと Milestone の候補を先に取りに行くため、
+  // モーダルの中ではなくここで持つ。
+  const [newTaskRepositoryId, setNewTaskRepositoryId] = useState("")
   // ラベル候補はリポジトリ単位。開いたタスクのリポジトリの分を取りに行く。
   const [labelsByRepo, setLabelsByRepo] = useState<Record<string, Label[]>>({})
   // Milestone 候補も同じくリポジトリ単位。
@@ -287,54 +299,144 @@ function Workspace({
     }
   }, [repository, projectId, log])
 
-  // 詳細を開いたタスクのリポジトリのラベルを取っておく
+  // 親カテゴリの設定を読む。ラベル名の意味は Project ごとに違うので、
+  // 切り替えたらいったん空に戻してから読み直す。前の Project の指定で
+  // Gantt を組み替えたままにしないため。
+  useEffect(() => {
+    setParentLabels([])
+    if (!projectId) return
+    let alive = true
+    // 読み込みが返るまでの間、前の Project の親カテゴリで並べてしまわないように落とす。
+    setParentLabels([])
+    void loadParentLabels(projectId).then((names) => {
+      if (alive) setParentLabels(names)
+    })
+    return () => {
+      alive = false
+    }
+  }, [projectId])
+
+  /**
+   * リポジトリのラベルと Milestone を、まだ無ければ取っておく。
+   * 詳細を開いたタスクだけでなく新規 Issue の作成先でも要るので、
+   * 「どのリポジトリの分か」を引数にして両方から呼べる形にしている。
+   */
+  const ensureRepoMeta = useCallback(
+    (repositoryId: string) => {
+      if (!repositoryId) return
+      if (!labelsByRepo[repositoryId]) {
+        void repository
+          .listLabels(repositoryId)
+          .then((list) => setLabelsByRepo((prev) => ({ ...prev, [repositoryId]: list })))
+          .catch((error) => {
+            const err =
+              error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+            log.append({
+              level: "warn",
+              message: "ラベル一覧を取得できませんでした",
+              hint: `${err.message}　既存ラベルを選べません。`,
+              dedupeKey: `labels:${repositoryId}`,
+            })
+          })
+      }
+      if (!milestonesByRepo[repositoryId]) {
+        void repository
+          .listMilestones(repositoryId)
+          .then((list) => setMilestonesByRepo((prev) => ({ ...prev, [repositoryId]: list })))
+          .catch((error) => {
+            const err =
+              error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+            log.append({
+              level: "warn",
+              message: "Milestone 一覧を取得できませんでした",
+              hint: `${err.message}　Milestone を付け替えられません。`,
+              dedupeKey: `milestones:${repositoryId}`,
+            })
+          })
+      }
+    },
+    [repository, labelsByRepo, milestonesByRepo, log],
+  )
+
+  // 詳細を開いたタスクのリポジトリの分
   const openRepositoryId = openTask?.repositoryId ?? ""
   useEffect(() => {
-    if (!openRepositoryId || labelsByRepo[openRepositoryId]) return
-    let alive = true
-    void repository
-      .listLabels(openRepositoryId)
-      .then((list) => {
-        if (alive) setLabelsByRepo((prev) => ({ ...prev, [openRepositoryId]: list }))
-      })
-      .catch((error) => {
-        if (!alive) return
-        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-        log.append({
-          level: "warn",
-          message: "ラベル一覧を取得できませんでした",
-          hint: `${err.message}　既存ラベルを選べません。`,
-          dedupeKey: `labels:${openRepositoryId}`,
-        })
-      })
-    return () => {
-      alive = false
-    }
-  }, [repository, openRepositoryId, labelsByRepo, log])
+    ensureRepoMeta(openRepositoryId)
+  }, [ensureRepoMeta, openRepositoryId])
 
-  // 同じく Milestone の候補。編集モードで付け替えるのに使う。
+  // 新規 Issue の作成先の分。既定は先頭のリポジトリ（一覧は後から届く）。
   useEffect(() => {
-    if (!openRepositoryId || milestonesByRepo[openRepositoryId]) return
-    let alive = true
-    void repository
-      .listMilestones(openRepositoryId)
-      .then((list) => {
-        if (alive) setMilestonesByRepo((prev) => ({ ...prev, [openRepositoryId]: list }))
-      })
-      .catch((error) => {
-        if (!alive) return
-        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-        log.append({
-          level: "warn",
-          message: "Milestone 一覧を取得できませんでした",
-          hint: `${err.message}　Milestone を付け替えられません。`,
-          dedupeKey: `milestones:${openRepositoryId}`,
-        })
-      })
-    return () => {
-      alive = false
+    if (!newTaskRepositoryId && repositories[0]) setNewTaskRepositoryId(repositories[0].id)
+  }, [repositories, newTaskRepositoryId])
+
+  useEffect(() => {
+    if (!creatingOpen) return
+    ensureRepoMeta(newTaskRepositoryId)
+  }, [ensureRepoMeta, creatingOpen, newTaskRepositoryId])
+
+  // カテゴリ設定の候補は Project 全体のラベル。開いたときに揃っていない分を取りに行く。
+  useEffect(() => {
+    if (!categoryOpen) return
+    for (const repo of repositories) ensureRepoMeta(repo.id)
+  }, [ensureRepoMeta, categoryOpen, repositories])
+
+  /**
+   * 親カテゴリに指定できるラベル。名前で重複を除く。
+   *
+   * ラベルは node id がリポジトリごとに別物なので、複数リポジトリに同名のラベルが
+   * あっても 1 件として扱う。指定は名前で行うため、それで困らない。
+   * 一覧の取得が届く前でも選べるよう、いま表示しているタスクが持つラベルも混ぜる。
+   */
+  const labelCandidates = useMemo(() => {
+    const byName = new Map<string, Label>()
+    for (const list of Object.values(labelsByRepo)) {
+      for (const label of list) if (!byName.has(label.name)) byName.set(label.name, label)
     }
-  }, [repository, openRepositoryId, milestonesByRepo, log])
+    for (const task of schedule.tasks) {
+      for (const label of task.labels) if (!byName.has(label.name)) byName.set(label.name, label)
+    }
+    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [labelsByRepo, schedule.tasks])
+
+  /**
+   * 親カテゴリの保存。
+   *
+   * この設定は以後の Gantt の並び全体を黙って変えるので、いつ誰が変えたのかを
+   * 追えるようログにも残す。
+   */
+  const saveCategories = useCallback(
+    async (names: string[]) => {
+      if (!projectId) return
+      setSavingCategories(true)
+      try {
+        await saveParentLabels(projectId, names)
+        setParentLabels(names)
+        setCategoryOpen(false)
+        log.append({
+          level: "info",
+          message:
+            names.length > 0
+              ? `親カテゴリを ${names.join(" / ")} にしました`
+              : "親カテゴリを解除しました",
+        })
+      } catch (error) {
+        // GitHub 呼び出しではないので GitHubError には包まない。
+        // Rust 側は { kind, message } を reject するため、message だけ拾う。
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        log.append({
+          level: "error",
+          message: "カテゴリ設定を保存できませんでした",
+          hint: detail,
+        })
+      } finally {
+        setSavingCategories(false)
+      }
+    },
+    [projectId, log],
+  )
 
   const createLabel = useCallback(
     async (repositoryId: string, name: string, color: string): Promise<Label | null> => {
@@ -358,6 +460,34 @@ function Workspace({
       }
     },
     [repository, log],
+  )
+
+  const deleteLabel = useCallback(
+    async (repositoryId: string, label: Label): Promise<boolean> => {
+      try {
+        await repository.deleteLabel(label.id)
+        setLabelsByRepo((prev) => ({
+          ...prev,
+          [repositoryId]: (prev[repositoryId] ?? []).filter((l) => l.id !== label.id),
+        }))
+        log.append({ level: "info", message: `ラベル「${label.name}」を削除しました` })
+        // 消えたラベルは付いていた Issue すべてから外れる。手元のタスクは
+        // そのラベルを持ったままなので、取り直さないと Gantt や Category
+        // グループが存在しないラベルを表示し続ける。
+        schedule.reload()
+        return true
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        log.append({
+          level: "error",
+          message: "ラベルを削除できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+        return false
+      }
+    },
+    [repository, schedule, log],
   )
 
   const saveContent = useCallback(
@@ -407,6 +537,51 @@ function Workspace({
     [schedule, log],
   )
 
+  /** クローズ / リオープン。押した時点で送るので、失敗はログでだけ知らせる。 */
+  const changeIssueState = useCallback(
+    async (taskId: string, issueId: string, state: IssueState) => {
+      try {
+        const updated = await schedule.setTaskState(taskId, issueId, state)
+        log.append({
+          level: "info",
+          message: `#${updated.issueNumber} を${state === "CLOSED" ? "クローズ" : "リオープン"}しました`,
+        })
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        log.append({
+          level: "error",
+          message: "Issue の状態を変更できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      }
+    },
+    [schedule, log],
+  )
+
+  /** Issue の削除。消えた行を開いたままにできないので、成功したら詳細を閉じる。 */
+  const deleteTask = useCallback(
+    async (taskId: string, issueId: string) => {
+      try {
+        const removed = await schedule.deleteTask(taskId, issueId)
+        setOpenTaskId(null)
+        log.append({
+          level: "info",
+          message: removed ? `#${removed.issueNumber} を削除しました` : "Issue を削除しました",
+        })
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        log.append({
+          level: "error",
+          message: "Issue を削除できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      }
+    },
+    [schedule, log],
+  )
+
   const createTask = useCallback(
     async (input: NewTaskInput) => {
       try {
@@ -447,6 +622,27 @@ function Workspace({
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [schedule])
 
+  // 画面の切り替えと起票の Alt ショートカット。
+  // 文字入力を奪わないよう Alt 単独の組み合わせに限り、Ctrl / Meta との併用は見送る。
+  // キー判定は e.code（物理キー）で行う。Alt を押した状態の e.key は配列によって
+  // 別の文字になることがあり、それを見ると効いたり効かなかったりするため。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return
+      if (e.code === "KeyL") {
+        e.preventDefault()
+        setLogFull((v) => !v)
+      } else if (e.code === "KeyA") {
+        // 作成先の Project が決まっていないと起票できない。
+        if (!projectId) return
+        e.preventDefault()
+        setCreatingOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [projectId])
+
   const toolbar = (
     <>
       <select
@@ -484,7 +680,14 @@ function Workspace({
         onClick={() => setCreatingOpen(true)}
         disabled={!projectId}
       >
-        ＋ 新規 Issue
+        ＋ 新規 Issue (Alt+A)
+      </button>
+      <button
+        className="zk-button"
+        onClick={() => setCategoryOpen(true)}
+        disabled={!projectId}
+      >
+        カテゴリ設定
       </button>
       <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
         {/* 未解決の競合・失敗を「同期済み」と表示しない（企画書 §19）。 */}
@@ -505,11 +708,15 @@ function Workspace({
         footer={project ? project.title : undefined}
       />
       <div className="zk-main">
+      {/* ログだけを見るモードでは Gantt を描かない。畳んで隅に寄せるのではなく
+          消してしまう方が、狭い窓でもログが実際に読める高さになる。 */}
+      {!logFull && (
       <GanttChart
         tasks={schedule.tasks}
         statusOrder={statuses}
         zoom={zoom}
         groupBy={groupBy}
+        parentLabels={parentLabels}
         onTaskDatesChange={schedule.changeDates}
         readOnly={!editable}
         onTaskOpen={setOpenTaskId}
@@ -520,15 +727,32 @@ function Workspace({
         }
         toolbar={toolbar}
       />
-      <LogPane log={log} />
+      )}
+      <LogPane log={log} full={logFull} onToggleFull={() => setLogFull((v) => !v)} />
       </div>
       {creatingOpen && (
         <NewTaskModal
           repositories={repositories}
+          repositoryId={newTaskRepositoryId}
+          onChangeRepository={setNewTaskRepositoryId}
           canEditDates={editable}
           busy={schedule.creating}
+          statusOptions={statusOptions}
+          availableLabels={labelsByRepo[newTaskRepositoryId] ?? []}
+          availableMilestones={milestonesByRepo[newTaskRepositoryId] ?? []}
+          onCreateLabel={createLabel}
+          onDeleteLabel={deleteLabel}
           onCreate={createTask}
           onClose={() => setCreatingOpen(false)}
+        />
+      )}
+      {categoryOpen && (
+        <CategorySettings
+          candidates={labelCandidates}
+          selected={parentLabels}
+          busy={savingCategories}
+          onSave={saveCategories}
+          onClose={() => setCategoryOpen(false)}
         />
       )}
       {openTask && (
@@ -537,13 +761,18 @@ function Workspace({
           canEditDates={editable}
           savingContent={schedule.savingContent}
           savingStatus={schedule.savingStatus}
+          savingState={schedule.savingState}
+          deleting={schedule.deleting}
           statusOptions={statusOptions}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
           availableMilestones={milestonesByRepo[openTask.repositoryId] ?? []}
           onCreateLabel={createLabel}
+          onDeleteLabel={deleteLabel}
           onChangeDates={schedule.changeDates}
           onChangeStatus={changeStatus}
           onSaveContent={saveContent}
+          onSetState={changeIssueState}
+          onDelete={deleteTask}
           onClose={() => setOpenTaskId(null)}
         />
       )}

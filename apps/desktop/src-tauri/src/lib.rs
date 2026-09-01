@@ -2,6 +2,7 @@ mod auth;
 mod error;
 mod github;
 mod model;
+mod settings;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -236,6 +237,22 @@ async fn create_label(
     state.client()?.create_label(&repository_id, name, &color).await
 }
 
+/// ラベルの定義自体を削除する。
+///
+/// Issue から外すのと違い、そのラベルが付いていたすべての Issue から外れ、
+/// GitHub 側にも復元手段が無い。実行してよいかの判断は UI 側の確認に任せ、
+/// ここでは識別子の欠落だけを弾く。
+#[tauri::command]
+async fn delete_label(state: State<'_>, label_id: String) -> Result<(), AppError> {
+    if label_id.is_empty() {
+        return Err(AppError::new(
+            ErrorKind::NotFound,
+            "ラベルの識別子が取得できていません。再読み込みしてください",
+        ));
+    }
+    state.client()?.delete_label(&label_id).await
+}
+
 /* ---- 作成 ---- */
 
 /// Issue を起票し、Project に追加して、指定があれば日付も入れる。
@@ -257,7 +274,13 @@ async fn create_task(
 
     let client = state.client()?;
     let issue_id = client
-        .create_issue(&input.repository_id, title, input.body.as_deref())
+        .create_issue(
+            &input.repository_id,
+            title,
+            input.body.as_deref(),
+            input.label_ids.as_deref().unwrap_or(&[]),
+            input.milestone_id.as_deref(),
+        )
         .await?;
 
     let item_id = match client.add_project_item(&project_id, &issue_id).await {
@@ -272,6 +295,36 @@ async fn create_task(
             ))
         }
     };
+
+    // Status は Issue ではなく Projects v2 のフィールドなので、
+    // Project へ追加した後でなければ書き込めない。ここも Issue は既に存在するので、
+    // 失敗しても消さず「Status だけ入らなかった」と伝える。
+    if let Some(option_id) = input
+        .status_option_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        let applied = match resolve_field_id(&state, &client, &project_id, FieldRole::Status).await
+        {
+            Ok(field_id) => {
+                client
+                    .update_single_select_field(&project_id, &item_id, &field_id, option_id)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        if let Err(error) = applied {
+            state.invalidate_fields(&project_id);
+            return Err(AppError::new(
+                error.kind,
+                format!(
+                    "Issue は作成されましたが Status を設定できませんでした（{}）。                     GitHub 上で設定してください",
+                    error.message
+                ),
+            ));
+        }
+    }
 
     // 日付は任意。入っていれば続けて設定する。失敗しても Issue 自体は残るため、
     // 日付だけ未設定の状態としてエラーを返す。
@@ -416,6 +469,55 @@ async fn update_task_status(
     client.item(&task_id).await
 }
 
+/// Issue を閉じる / 開き直す。
+///
+/// Status（Projects v2 のフィールド）とは別物で、GitHub 上の Issue そのものを動かす。
+/// 反映後の値は item として読み直す。Issue だけを見ても Projects v2 の
+/// フィールド値は分からず、UI が持つタスクを丸ごと置き換えられないため。
+#[tauri::command]
+async fn set_task_state(
+    state: State<'_>,
+    task_id: String,
+    issue_id: String,
+    issue_state: String,
+) -> Result<ScheduleTask, AppError> {
+    if issue_id.is_empty() {
+        return Err(AppError::new(
+            ErrorKind::NotFound,
+            "Issue の識別子が取得できていません。再読み込みしてください",
+        ));
+    }
+
+    let client = state.client()?;
+    match issue_state.as_str() {
+        "CLOSED" => client.close_issue(&issue_id).await?,
+        "OPEN" => client.reopen_issue(&issue_id).await?,
+        other => {
+            return Err(AppError::new(
+                ErrorKind::Unknown,
+                format!("Issue の状態「{other}」は指定できません"),
+            ))
+        }
+    }
+    client.item(&task_id).await
+}
+
+/// Issue を削除する。
+///
+/// Project から外すのではなく Issue そのものが消え、GitHub 側にも復元手段が無い。
+/// 元に戻せない以上、実行してよいかの判断は UI 側の確認ダイアログに任せ、
+/// ここでは識別子の欠落だけを弾く。
+#[tauri::command]
+async fn delete_task(state: State<'_>, issue_id: String) -> Result<(), AppError> {
+    if issue_id.is_empty() {
+        return Err(AppError::new(
+            ErrorKind::NotFound,
+            "Issue の識別子が取得できていません。再読み込みしてください",
+        ));
+    }
+    state.client()?.delete_issue(&issue_id).await
+}
+
 /// 部分適用の取り消し。ここも失敗した場合は GitHub 側が中間状態のまま残るため、
 /// 呼び出し元は失敗として扱い、ユーザーに再取得を促す（企画書 §16.2）。
 async fn compensate(
@@ -460,8 +562,13 @@ pub fn run() {
             list_labels,
             list_milestones,
             create_label,
+            delete_label,
             update_task_dates,
             update_task_status,
+            set_task_state,
+            delete_task,
+            settings::get_settings,
+            settings::set_parent_labels,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Zukunft");

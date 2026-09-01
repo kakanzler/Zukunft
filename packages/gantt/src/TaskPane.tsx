@@ -22,6 +22,9 @@ export function TaskPane({ rows, rowHeight, visible, onToggleGroup, onTaskOpen }
           left: 0,
           right: 0,
           height: rowHeight,
+          // 親カテゴリを使うと 2 階層になる。字下げが唯一の手掛かりなので、
+          // .zk-row の左パディングに深さの分を足す。
+          paddingLeft: `calc(var(--space) * 3 + ${row.depth * 14}px)`,
         }
 
         if (row.kind === "group") {
@@ -31,6 +34,8 @@ export function TaskPane({ rows, rowHeight, visible, onToggleGroup, onTaskOpen }
               key={row.key}
               className="zk-row zk-row--group"
               style={style}
+              /* ラベルの組み合わせは名前が長くなり ellipsis で切れる。 */
+              title={row.label}
               onClick={() => onToggleGroup(groupKey)}
               role="button"
               tabIndex={0}
