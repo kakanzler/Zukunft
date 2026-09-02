@@ -41,6 +41,9 @@ export async function getRepository(): Promise<GitHubScheduleRepository> {
         params.get("nodates") === "once" ? "once" : params.get("nodates") === "1",
       empty: params.get("empty") === "1",
       undated: params.get("undated") === "1",
+      // ?truncated=1 で「ラベル / フィールド値を読み切れていない Issue」を再現する。
+      // 編集を閉じる導線と警告の出方を、実機で確かめるため。
+      truncated: params.get("truncated") === "1",
     })
   }
   return cached

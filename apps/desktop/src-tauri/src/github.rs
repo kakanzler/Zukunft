@@ -24,6 +24,8 @@ const UPDATE_SINGLE_SELECT_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/updateSingleSelectField.graphql");
 const UPDATE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/updateIssue.graphql");
+const UPDATE_ISSUE_KEEP_LABELS: &str =
+    include_str!("../../../../packages/github/src/queries/updateIssueKeepLabels.graphql");
 const REPOSITORY_LABELS: &str =
     include_str!("../../../../packages/github/src/queries/repositoryLabels.graphql");
 const REPOSITORY_MILESTONES: &str =
@@ -147,55 +149,111 @@ impl GitHubClient {
             .ok_or_else(|| AppError::new(ErrorKind::Unknown, "GitHub の応答が空でした"))
     }
 
+    /// 接続を最後まで辿り、各ページの data をそのまま返す（企画書 §7.3.2）。
+    ///
+    /// GraphQL の接続はどれも pageInfo + nodes の同じ形なので、辿り方はここ 1 箇所に置く。
+    /// ページごとの data を返すのは、list_projects のように接続の外側
+    /// （__typename）も要る呼び出しがあるため。
+    ///
+    /// `path` は data から接続までのキー列。after は呼び出し側の variables に
+    /// 上書きで載せるので、クエリ側が `$after: String` を宣言していること。
+    async fn pages(&self, query: &str, variables: Value, path: &[&str]) -> AppResult<Vec<Value>> {
+        let mut collected = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let mut vars = variables.clone();
+            vars["after"] = json!(after);
+            let data = self.graphql(query, vars).await?;
+
+            let mut connection = Some(&data);
+            for key in path {
+                connection = connection.and_then(|value| value.get(*key));
+            }
+            let page = connection.and_then(|c| c.get("pageInfo"));
+            let has_next = page
+                .and_then(|p| p.get("hasNextPage"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let next = page
+                .and_then(|p| p.get("endCursor"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+
+            collected.push(data);
+
+            // カーソルが返らないのに続きがあると言われたら、そこで止める。
+            // 同じページを永久に取り直すより、取り切れなかった方がまし。
+            if !has_next || next.is_none() {
+                break;
+            }
+            after = next;
+        }
+        Ok(collected)
+    }
+
     pub async fn list_projects(&self, login: &str) -> AppResult<Vec<ProjectSummary>> {
-        let data = self.graphql(LIST_PROJECTS, json!({ "login": login })).await?;
-        let owner = data
-            .get("repositoryOwner")
-            .filter(|owner| !owner.is_null())
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorKind::NotFound,
-                    format!("GitHub に「{login}」が見つかりません"),
-                )
-            })?;
-
-        let owner_type = match owner.get("__typename").and_then(Value::as_str) {
-            Some("Organization") => "organization",
-            _ => "user",
-        };
-
-        let nodes = owner
-            .get("projectsV2")
-            .and_then(|p| p.get("nodes"))
-            .and_then(Value::as_array);
+        let pages = self
+            .pages(LIST_PROJECTS, json!({ "login": login }), &["repositoryOwner", "projectsV2"])
+            .await?;
 
         let mut projects = Vec::new();
-        for node in nodes.into_iter().flatten() {
-            if let Some(summary) = project_summary(node, owner_type, login) {
-                projects.push(summary);
+        for data in &pages {
+            let owner = data
+                .get("repositoryOwner")
+                .filter(|owner| !owner.is_null())
+                .ok_or_else(|| {
+                    AppError::new(
+                        ErrorKind::NotFound,
+                        format!("GitHub に「{login}」が見つかりません"),
+                    )
+                })?;
+
+            let owner_type = match owner.get("__typename").and_then(Value::as_str) {
+                Some("Organization") => "organization",
+                _ => "user",
+            };
+
+            let nodes = owner
+                .get("projectsV2")
+                .and_then(|p| p.get("nodes"))
+                .and_then(Value::as_array);
+
+            for node in nodes.into_iter().flatten() {
+                if let Some(summary) = project_summary(node, owner_type, login) {
+                    projects.push(summary);
+                }
             }
         }
         Ok(projects)
     }
 
+    /// フィールド定義も辿る。読み落とすと、既にある Date / Status を
+    /// 「作れ」と案内してしまう。
     pub async fn project_schema(&self, project_id: &str) -> AppResult<ProjectSchema> {
-        let data = self
-            .graphql(PROJECT_SCHEMA, json!({ "projectId": project_id }))
+        let pages = self
+            .pages(PROJECT_SCHEMA, json!({ "projectId": project_id }), &["node", "fields"])
             .await?;
-        Ok(map_schema(project_id, &data))
+        let mut fields = Vec::new();
+        for data in &pages {
+            fields.extend(map_schema(project_id, data).fields);
+        }
+        Ok(ProjectSchema {
+            project_id: project_id.to_owned(),
+            fields,
+        })
     }
 
     /// items は 100 件ずつ endCursor で辿る（企画書 §7.3.2）。
     pub async fn project_tasks(&self, project_id: &str) -> AppResult<Vec<ScheduleTask>> {
         let query = with_fragments(PROJECT_ITEMS);
+        let pages = self
+            .pages(&query, json!({ "projectId": project_id }), &["node", "items"])
+            .await?;
         let mut tasks = Vec::new();
-        let mut after: Option<String> = None;
-        loop {
-            let data = self
-                .graphql(&query, json!({ "projectId": project_id, "after": after }))
-                .await?;
-            let items = data.get("node").and_then(|n| n.get("items"));
-            for node in items
+        for data in &pages {
+            for node in data
+                .get("node")
+                .and_then(|n| n.get("items"))
                 .and_then(|i| i.get("nodes"))
                 .and_then(Value::as_array)
                 .into_iter()
@@ -204,21 +262,6 @@ impl GitHubClient {
                 if let Some(task) = map_task(node) {
                     tasks.push(task);
                 }
-            }
-            let page = items.and_then(|i| i.get("pageInfo"));
-            let has_next = page
-                .and_then(|p| p.get("hasNextPage"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if !has_next {
-                break;
-            }
-            after = page
-                .and_then(|p| p.get("endCursor"))
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            if after.is_none() {
-                break;
             }
         }
         Ok(tasks)
@@ -236,62 +279,79 @@ impl GitHubClient {
     /// Issue 本体（タイトル・本文・ラベル・Milestone）を書き換える。
     /// label_ids は「置き換え後の集合」で、渡した内容がそのまま Issue のラベルになる。
     /// milestone_id が None のときは JSON の null を送り、Milestone を外す。
+    ///
+    /// label_ids が None のときは labelIds を持たない別のドキュメントを送る。
+    /// 変数を null にするのではなく input からキーごと落とすことで、
+    /// 「ラベルには触らない」を曖昧さなく表す。
     pub async fn update_issue(
         &self,
         issue_id: &str,
         title: &str,
         body: &str,
-        label_ids: &[String],
+        label_ids: Option<&[String]>,
         milestone_id: Option<&str>,
     ) -> AppResult<()> {
-        self.graphql(
-            UPDATE_ISSUE,
-            json!({
-                "issueId": issue_id,
-                "title": title,
-                "body": body,
-                "labelIds": label_ids,
-                // Option<&str> は None がそのまま null になる。
-                // 変数を省くと GitHub 側は「変更しない」と解釈するため、明示的に載せる。
-                "milestoneId": milestone_id,
-            }),
-        )
+        let mut variables = json!({
+            "issueId": issue_id,
+            "title": title,
+            "body": body,
+            // Option<&str> は None がそのまま null になる。
+            // 変数を省くと GitHub 側は「変更しない」と解釈するため、明示的に載せる。
+            "milestoneId": milestone_id,
+        });
+        let document = match label_ids {
+            Some(ids) => {
+                variables["labelIds"] = json!(ids);
+                UPDATE_ISSUE
+            }
+            None => UPDATE_ISSUE_KEEP_LABELS,
+        };
+        self.graphql(document, variables)
         .await
         .map(|_| ())
     }
 
     /// リポジトリに定義済みのラベル一覧。
+    /// 読み落とすと、既にある名前での作成が失敗して理由が読めなくなる。
     pub async fn repository_labels(&self, repository_id: &str) -> AppResult<Vec<Label>> {
-        let data = self
-            .graphql(REPOSITORY_LABELS, json!({ "repositoryId": repository_id }))
+        let pages = self
+            .pages(
+                REPOSITORY_LABELS,
+                json!({ "repositoryId": repository_id }),
+                &["node", "labels"],
+            )
             .await?;
-        let nodes = data
-            .get("node")
-            .and_then(|n| n.get("labels"))
-            .and_then(|l| l.get("nodes"))
-            .and_then(Value::as_array);
-        Ok(nodes
-            .into_iter()
-            .flatten()
-            .filter_map(read_label)
-            .collect())
+        let mut labels = Vec::new();
+        for data in &pages {
+            let nodes = data
+                .get("node")
+                .and_then(|n| n.get("labels"))
+                .and_then(|l| l.get("nodes"))
+                .and_then(Value::as_array);
+            labels.extend(nodes.into_iter().flatten().filter_map(read_label));
+        }
+        Ok(labels)
     }
 
     /// Issue に設定できる Milestone の候補（OPEN のみ）。
     pub async fn repository_milestones(&self, repository_id: &str) -> AppResult<Vec<Milestone>> {
-        let data = self
-            .graphql(REPOSITORY_MILESTONES, json!({ "repositoryId": repository_id }))
+        let pages = self
+            .pages(
+                REPOSITORY_MILESTONES,
+                json!({ "repositoryId": repository_id }),
+                &["node", "milestones"],
+            )
             .await?;
-        let nodes = data
-            .get("node")
-            .and_then(|n| n.get("milestones"))
-            .and_then(|m| m.get("nodes"))
-            .and_then(Value::as_array);
-        Ok(nodes
-            .into_iter()
-            .flatten()
-            .filter_map(read_milestone)
-            .collect())
+        let mut milestones = Vec::new();
+        for data in &pages {
+            let nodes = data
+                .get("node")
+                .and_then(|n| n.get("milestones"))
+                .and_then(|m| m.get("nodes"))
+                .and_then(Value::as_array);
+            milestones.extend(nodes.into_iter().flatten().filter_map(read_milestone));
+        }
+        Ok(milestones)
     }
 
     /// ラベルの新規作成。preview の Accept が必要（LABELS_PREVIEW_ACCEPT）。
@@ -341,27 +401,35 @@ impl GitHubClient {
         .map(|_| ())
     }
 
+    /// 読み落としたリポジトリの Issue は「ラベル候補ゼロ」になり、保存すると
+    /// ラベルが全部外れる。ここは特に切ってはいけない。
     pub async fn project_repositories(&self, project_id: &str) -> AppResult<Vec<RepositorySummary>> {
-        let data = self
-            .graphql(PROJECT_REPOSITORIES, json!({ "projectId": project_id }))
+        let pages = self
+            .pages(
+                PROJECT_REPOSITORIES,
+                json!({ "projectId": project_id }),
+                &["node", "repositories"],
+            )
             .await?;
-        let nodes = data
-            .get("node")
-            .and_then(|n| n.get("repositories"))
-            .and_then(|r| r.get("nodes"))
-            .and_then(Value::as_array);
         let mut repositories = Vec::new();
-        for node in nodes.into_iter().flatten() {
-            let (Some(id), Some(name)) = (
-                node.get("id").and_then(Value::as_str),
-                node.get("nameWithOwner").and_then(Value::as_str),
-            ) else {
-                continue;
-            };
-            repositories.push(RepositorySummary {
-                id: id.to_owned(),
-                name_with_owner: name.to_owned(),
-            });
+        for data in &pages {
+            let nodes = data
+                .get("node")
+                .and_then(|n| n.get("repositories"))
+                .and_then(|r| r.get("nodes"))
+                .and_then(Value::as_array);
+            for node in nodes.into_iter().flatten() {
+                let (Some(id), Some(name)) = (
+                    node.get("id").and_then(Value::as_str),
+                    node.get("nameWithOwner").and_then(Value::as_str),
+                ) else {
+                    continue;
+                };
+                repositories.push(RepositorySummary {
+                    id: id.to_owned(),
+                    name_with_owner: name.to_owned(),
+                });
+            }
         }
         Ok(repositories)
     }
@@ -693,5 +761,19 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
             .unwrap_or("")
             .to_owned(),
         sync_state: "synced".to_owned(),
+        labels_complete: is_complete(content.get("labels")),
+        fields_complete: is_complete(item.get("fieldValues")),
     })
+}
+
+/// その接続を読み切れたか。pageInfo が無ければ読み切った扱い。
+///
+/// 読み切れていないラベルで updateIssue を呼ぶと、読めなかった分が Issue から
+/// 永久に外れる。ここで印を付け、画面側が保存を止められるようにする。
+fn is_complete(connection: Option<&Value>) -> bool {
+    !connection
+        .and_then(|c| c.get("pageInfo"))
+        .and_then(|p| p.get("hasNextPage"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }

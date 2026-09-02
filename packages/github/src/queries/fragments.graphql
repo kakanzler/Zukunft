@@ -1,4 +1,9 @@
+# fieldValues の接続そのもの。pageInfo を含めるのは、Projects v2 が
+# 「値の入っている全フィールド」を返すためで、独自フィールドが増えると
+# Start Date / Target Date が後ろへ押し出されて読み落とす。読み落としたことを
+# 呼び出し側が知れないと、バーが黙って盤面から消える。
 fragment FieldValues on ProjectV2ItemFieldValueConnection {
+  pageInfo { hasNextPage }
   nodes {
     __typename
     ... on ProjectV2ItemFieldDateValue {
@@ -18,4 +23,26 @@ fragment FieldValues on ProjectV2ItemFieldValueConnection {
       field { ... on ProjectV2FieldCommon { name } }
     }
   }
+}
+
+# Issue 本体の選択。projectItems と itemUpdatedAt で必ず同じものを使う。
+# 片方だけ欠けると、保存直後のタスクだけ別の形になる。
+#
+# labels に pageInfo を取るのは updateIssue の labelIds が「置き換え集合」だから。
+# 読み切れていない状態で送ると、読めなかったラベルが Issue から永久に外れる。
+fragment IssueContent on Issue {
+  id
+  number
+  title
+  url
+  body
+  state
+  updatedAt
+  assignees(first: 20) { nodes { login avatarUrl } }
+  labels(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { id name color }
+  }
+  repository { id }
+  milestone { id title dueOn }
 }

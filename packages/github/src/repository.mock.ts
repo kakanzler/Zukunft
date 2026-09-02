@@ -39,6 +39,14 @@ export type MockOptions = {
   empty?: boolean
   /** フィールドはあるが、どの Issue にも日付が入っていない状態を再現する */
   undated?: boolean
+  /**
+   * ラベルやフィールド値を読み切れていない Issue を混ぜる。
+   *
+   * 実際には Issue に 100 個を超えるラベルが付いた、あるいは Project の
+   * フィールドが多くて日付が後ろへ押し出された、といった状況で起きる。
+   * 用意しないと、その場合に編集を閉じる導線を実機で確かめられない。
+   */
+  truncated?: boolean
 }
 
 const PROJECT_ID = "mock-project"
@@ -136,7 +144,23 @@ blocked-by: #${100 + i}
     progress,
     updatedAt: new Date().toISOString(),
     syncState: "synced" as const,
+    labelsComplete: true,
+    fieldsComplete: true,
   }))
+}
+
+/**
+ * 読み切れていない Issue を混ぜる。
+ * #103 はラベルが、#106 はフィールド値が読み切れていない想定。
+ */
+function withTruncation(tasks: ScheduleTask[]): ScheduleTask[] {
+  return tasks.map((task) =>
+    task.issueNumber === 103
+      ? { ...task, labelsComplete: false }
+      : task.issueNumber === 106
+        ? { ...task, fieldsComplete: false, startDate: null, endDate: null }
+        : task,
+  )
 }
 
 export class MockScheduleRepository implements GitHubScheduleRepository {
@@ -154,13 +178,15 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       withoutDateFields: options.withoutDateFields ?? false,
       empty: options.empty ?? false,
       undated: options.undated ?? false,
+      truncated: options.truncated ?? false,
     }
     const origin = addDays(today(), -14)
     this.#milestones = buildMilestones(origin)
     const seeded = buildTasks(origin)
-    this.#tasks = (options.undated ?? false)
+    const dated = (options.undated ?? false)
       ? seeded.map((t) => ({ ...t, startDate: null, endDate: null }))
       : seeded
+    this.#tasks = (options.truncated ?? false) ? withTruncation(dated) : dated
   }
 
   async #delay(): Promise<void> {
@@ -278,9 +304,14 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       ...current,
       title: content.title,
       body: content.body,
-      labels: content.labelIds
-        .map((id) => this.#labels.find((l) => l.id === id))
-        .filter((l): l is Label => Boolean(l)),
+      // null は「ラベルには触らない」。読み切れていない Issue で置き換えを
+      // 送らせないための経路なので、モックでも現状維持にする。
+      labels:
+        content.labelIds === null
+          ? current.labels
+          : content.labelIds
+              .map((id) => this.#labels.find((l) => l.id === id))
+              .filter((l): l is Label => Boolean(l)),
       // null は「外す」。知らない id は現状維持にして、
       // 候補の取得に失敗しただけでマイルストーンを黙って消さないようにする。
       milestone:
@@ -328,6 +359,9 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       progress: null,
       updatedAt: new Date().toISOString(),
       syncState: "synced",
+      // 作ったばかりの Issue は、こちらが送った内容がそのまま全部。
+      labelsComplete: true,
+      fieldsComplete: true,
     }
     this.#tasks = [...this.#tasks, created]
     return { ...created }

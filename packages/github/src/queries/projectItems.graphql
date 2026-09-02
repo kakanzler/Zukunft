@@ -5,16 +5,10 @@ query ProjectItems($projectId: ID!, $after: String) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
-          fieldValues(first: 20) { ...FieldValues }
+          fieldValues(first: 100) { ...FieldValues }
           content {
             __typename
-            ... on Issue {
-              id number title url body state updatedAt
-              assignees(first: 5) { nodes { login avatarUrl } }
-              labels(first: 20) { nodes { id name color } }
-              repository { id }
-              milestone { id title dueOn }
-            }
+            ... on Issue { ...IssueContent }
           }
         }
       }

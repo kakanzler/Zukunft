@@ -2,18 +2,12 @@ query ItemUpdatedAt($itemId: ID!) {
   node(id: $itemId) {
     ... on ProjectV2Item {
       id
-      fieldValues(first: 20) { ...FieldValues }
+      fieldValues(first: 100) { ...FieldValues }
       content {
         __typename
         # 書き込み後の再取得もここを通るので、選択は projectItems.graphql と揃える。
-        # 欠けると保存直後のタスクだけ issueId / labels を失う。
-        ... on Issue {
-          id number title url body state updatedAt
-          assignees(first: 5) { nodes { login avatarUrl } }
-          labels(first: 20) { nodes { id name color } }
-          repository { id }
-          milestone { id title dueOn }
-        }
+        # 共通のフラグメントにしてあるのは、片方だけ直して食い違わせないため。
+        ... on Issue { ...IssueContent }
       }
     }
   }

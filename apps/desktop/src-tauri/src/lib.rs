@@ -200,7 +200,7 @@ async fn update_task_content(
             &issue_id,
             title,
             &content.body,
-            &content.label_ids,
+            content.label_ids.as_deref(),
             content.milestone_id.as_deref(),
         )
         .await?;

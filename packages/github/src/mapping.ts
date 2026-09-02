@@ -30,9 +30,12 @@ type RawFieldValue = {
   field?: { name?: string | null } | null
 }
 
+/** 接続のページ情報。読み切れたかどうかの判定にだけ使う。 */
+type RawPageInfo = { hasNextPage?: boolean | null; endCursor?: string | null } | null | undefined
+
 type RawItem = {
   id: string
-  fieldValues?: { nodes?: (RawFieldValue | null)[] | null } | null
+  fieldValues?: { nodes?: (RawFieldValue | null)[] | null; pageInfo?: RawPageInfo } | null
   content?: {
     __typename?: string
     id?: string
@@ -43,7 +46,10 @@ type RawItem = {
     state?: string
     updatedAt?: string
     assignees?: { nodes?: ({ login: string; avatarUrl: string } | null)[] | null } | null
-    labels?: { nodes?: ({ id: string; name: string; color: string } | null)[] | null } | null
+    labels?: {
+      nodes?: ({ id: string; name: string; color: string } | null)[] | null
+      pageInfo?: RawPageInfo
+    } | null
     repository?: { id?: string } | null
     milestone?: { id?: string; title: string; dueOn: string | null } | null
   } | null
@@ -53,14 +59,42 @@ const KNOWN_TYPES: FieldDataType[] = [
   "DATE", "SINGLE_SELECT", "NUMBER", "TEXT", "ITERATION",
 ]
 
+/**
+ * 次のページの起点。読み切っていれば null を返す。
+ *
+ * pageInfo が無い応答は「1 ページで終わり」として扱う。取り切れていないのに
+ * 取り切ったことにするより、余計に 1 往復する方が安全ではあるが、pageInfo を
+ * 選択していないクエリは元々 1 ページしか要らないもの。
+ */
+function nextCursor(page: RawPageInfo): string | null {
+  return page?.hasNextPage ? (page.endCursor ?? null) : null
+}
+
+/** その接続を読み切れたか。pageInfo が無ければ読み切った扱い。 */
+function isComplete(page: RawPageInfo): boolean {
+  return !page?.hasNextPage
+}
+
 function toFieldDataType(value: unknown): FieldDataType {
   return typeof value === "string" && (KNOWN_TYPES as string[]).includes(value)
     ? (value as FieldDataType)
     : "UNKNOWN"
 }
 
-export function mapProjectSchema(projectId: string, raw: unknown): ProjectSchema {
-  const node = (raw as { node?: { fields?: { nodes?: unknown[] } } })?.node
+/**
+ * Project のフィールド定義を 1 ページぶん読む。
+ *
+ * mapTasks と同じく endCursor を返す形にしてある。フィールドが多い Project で
+ * Date / Status の定義を読み落とすと、既にあるフィールドを「作れ」と案内して
+ * しまうため、呼び出し側は必ず最後まで辿ること。
+ */
+export function mapProjectSchema(
+  projectId: string,
+  raw: unknown,
+): { schema: ProjectSchema; endCursor: string | null } {
+  const node = (raw as {
+    node?: { fields?: { nodes?: unknown[]; pageInfo?: RawPageInfo } }
+  })?.node
   const nodes = node?.fields?.nodes ?? []
   const fields: FieldDefinition[] = []
   for (const entry of nodes) {
@@ -73,7 +107,7 @@ export function mapProjectSchema(projectId: string, raw: unknown): ProjectSchema
       options: f.options ?? [],
     })
   }
-  return { projectId, fields }
+  return { schema: { projectId, fields }, endCursor: nextCursor(node?.fields?.pageInfo) }
 }
 
 function readDate(value: string | null | undefined): ISODate | null {
@@ -158,36 +192,44 @@ export function mapTask(item: RawItem): ScheduleTask | null {
     progress: typeof progressRaw === "number" ? progressRaw : null,
     updatedAt: content.updatedAt ?? "",
     syncState: "synced",
+    labelsComplete: isComplete(content.labels?.pageInfo),
+    fieldsComplete: isComplete(item.fieldValues?.pageInfo),
   }
 }
 
 export function mapTasks(raw: unknown): { tasks: ScheduleTask[]; endCursor: string | null } {
   const items = (raw as {
-    node?: { items?: { nodes?: RawItem[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } }
+    node?: { items?: { nodes?: RawItem[]; pageInfo?: RawPageInfo } }
   })?.node?.items
   const tasks: ScheduleTask[] = []
   for (const item of items?.nodes ?? []) {
     const task = mapTask(item)
     if (task) tasks.push(task)
   }
-  const page = items?.pageInfo
-  return { tasks, endCursor: page?.hasNextPage ? (page.endCursor ?? null) : null }
+  return { tasks, endCursor: nextCursor(items?.pageInfo) }
 }
 
 /**
  * RepositoryMilestones の応答を Milestone[] に変換する。
  * id と title が無いものは Issue に設定できないので落とす。
  */
-export function mapMilestones(raw: unknown): Milestone[] {
-  const nodes = (raw as {
-    node?: { milestones?: { nodes?: ({ id?: string; title?: string; dueOn?: string | null } | null)[] | null } | null } | null
-  })?.node?.milestones?.nodes
+export function mapMilestones(
+  raw: unknown,
+): { milestones: Milestone[]; endCursor: string | null } {
+  const page = (raw as {
+    node?: {
+      milestones?: {
+        nodes?: ({ id?: string; title?: string; dueOn?: string | null } | null)[] | null
+        pageInfo?: RawPageInfo
+      } | null
+    } | null
+  })?.node?.milestones
   const milestones: Milestone[] = []
-  for (const node of nodes ?? []) {
+  for (const node of page?.nodes ?? []) {
     if (!node?.id || !node.title) continue
     milestones.push({ id: node.id, title: node.title, dueOn: readDate(node.dueOn) })
   }
-  return milestones
+  return { milestones, endCursor: nextCursor(page?.pageInfo) }
 }
 
 /** Status の選択肢を定義順に返す。色割り当てとグループ順序に使う（企画書 §6.4.1）。 */

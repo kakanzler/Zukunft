@@ -1,8 +1,11 @@
 # Project にリンクされているリポジトリ。Issue の作成先を選ばせるために使う。
-query ProjectRepositories($projectId: ID!) {
+# 読み落とすとそのリポジトリの Issue が「ラベル候補ゼロ」になり、保存で
+# ラベルが全部外れる。必ず最後まで辿る。
+query ProjectRepositories($projectId: ID!, $after: String) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      repositories(first: 20) {
+      repositories(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
         nodes { id nameWithOwner }
       }
     }

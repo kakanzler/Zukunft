@@ -16,6 +16,7 @@ import addProjectItem from "./addProjectItem.graphql"
 import updateDateField from "./updateDateField.graphql"
 import updateSingleSelectField from "./updateSingleSelectField.graphql"
 import updateIssue from "./updateIssue.graphql"
+import updateIssueKeepLabels from "./updateIssueKeepLabels.graphql"
 import repositoryLabels from "./repositoryLabels.graphql"
 import repositoryMilestones from "./repositoryMilestones.graphql"
 import createLabel from "./createLabel.graphql"
@@ -39,6 +40,9 @@ export const UPDATE_DATE_FIELD = updateDateField
 /** Status の変更。選択肢は optionId で指定する。 */
 export const UPDATE_SINGLE_SELECT_FIELD = updateSingleSelectField
 export const UPDATE_ISSUE = updateIssue
+
+/** ラベルを読み切れていないときに使う。labelIds を input ごと持たない。 */
+export const UPDATE_ISSUE_KEEP_LABELS = updateIssueKeepLabels
 export const REPOSITORY_LABELS = repositoryLabels
 
 /** Issue に設定できる Milestone の候補（OPEN のみ）。 */

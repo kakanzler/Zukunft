@@ -187,8 +187,9 @@ export function TaskModal({
   }
 
   const sameLabels =
-    labels.length === task.labels.length &&
-    labels.every((l) => task.labels.some((t) => t.id === l.id))
+    !task.labelsComplete ||
+    (labels.length === task.labels.length &&
+      labels.every((l) => task.labels.some((t) => t.id === l.id)))
   const savedDeps = parseDependencyRefs(task.body)
   const sameDeps =
     dependsOn.length === savedDeps.length && dependsOn.every((n) => savedDeps.includes(n))
@@ -209,7 +210,9 @@ export function TaskModal({
       title: title.trim(),
       // 依存関係は本文の中の宣言なので、本文と一緒に 1 回で送る。
       body: withDependencyRefs(body, dependsOn),
-      labelIds: labels.map((l) => l.id),
+      // ラベルを読み切れていない Issue では触らない。置き換え集合として送ると、
+      // 読めなかった分が Issue から永久に外れる。
+      labelIds: task.labelsComplete ? labels.map((l) => l.id) : null,
       milestoneId: milestoneId === "" ? null : milestoneId,
     })
     setEditing(false)
@@ -407,7 +410,13 @@ export function TaskModal({
           <div className="zk-task-labels-edit">
             {/* 親カテゴリはラベルの一種なので、ラベル編集と同じカードに置く。
                 別の枠にすると「ラベルとは別の何か」に見えてしまう。 */}
-            {parentLabels.length > 0 && (
+            {!task.labelsComplete && (
+              <div className="zk-label-confirm">
+                この Issue のラベルを全部読めていないため、ラベルの変更はできません。
+                保存しても、いま付いているラベルはそのまま残ります。
+              </div>
+            )}
+            {task.labelsComplete && parentLabels.length > 0 && (
               <ParentCategoryPicker
                 parentLabels={parentLabels}
                 labelCatalog={labelCatalog}
@@ -418,6 +427,7 @@ export function TaskModal({
                 onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
               />
             )}
+            {task.labelsComplete && (
             <LabelEditor
               selected={labels}
               available={availableLabels}
@@ -426,6 +436,7 @@ export function TaskModal({
               onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
               onDelete={(label) => onDeleteLabel(task.repositoryId, label)}
             />
+            )}
             <DependencyEditor
               tasks={allTasks}
               taskId={task.id}
@@ -466,7 +477,9 @@ export function TaskModal({
             　/　Priority: {task.priority ?? "—"}
             　/　Progress: {task.progress === null ? "—" : `${task.progress}%`}
           </span>
-          {!canEditDates
+          {!task.fieldsComplete && !bothFilled
+            ? "この Issue はフィールドが多く、日付を読み切れていません。未設定とは限りません。"
+            : !canEditDates
             ? "Project に Start Date / Target Date（Date 型）を作ると日程を設定できます。"
             : !bothFilled
               ? "両方の日付を入力すると Gantt に表示されます。"

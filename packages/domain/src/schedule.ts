@@ -65,6 +65,22 @@ export type ScheduleTask = {
   /** 競合検出に使う Issue の updatedAt（ISO 8601 日時） */
   updatedAt: string
   syncState: SyncState
+  /**
+   * この Issue のラベルを全部読めているか。
+   *
+   * GitHub の updateIssue は labelIds を「置き換え集合」として受け取るので、
+   * 読み切れていない状態で保存すると、読めなかったラベルが Issue から永久に外れる。
+   * false のときはラベルを送らない（変数を省くと GitHub は「変更しない」と解釈する）。
+   */
+  labelsComplete: boolean
+  /**
+   * この item のフィールド値を全部読めているか。
+   *
+   * Projects v2 は値の入っている全フィールドを返すため、独自フィールドが増えると
+   * Start Date / Target Date が後ろへ押し出される。false のとき日付が null なら、
+   * それは「未設定」ではなく「読めていない」— 区別しないとバーが黙って消える。
+   */
+  fieldsComplete: boolean
 }
 
 /** Gantt に描画できる（開始日と終了日が揃っている）タスク。 */
@@ -93,8 +109,14 @@ export type RepositorySummary = {
 export type TaskContent = {
   title: string
   body: string
-  /** 付け替え後のラベル。指定した集合で置き換える */
-  labelIds: string[]
+  /**
+   * 付け替え後のラベル。指定した集合で置き換える。
+   *
+   * `null` は「ラベルに触らない」。全ラベルを読み切れていない Issue
+   * （`labelsComplete === false`）で置き換えを送ると、読めなかった分が
+   * 永久に外れるため、そのときは null にする。
+   */
+  labelIds: string[] | null
   /**
    * 付け替え後の Milestone の node id。
    * `null` は「マイルストーンを外す」を表す（未指定ではなく明示的な解除）。

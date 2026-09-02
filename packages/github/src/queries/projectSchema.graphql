@@ -1,8 +1,11 @@
-query ProjectSchema($projectId: ID!) {
+# Project のフィールド定義。$after で続きを辿る — フィールドが多い Project で
+# Date / Status の定義を読み落とすと、既にあるフィールドを「作れ」と案内してしまう。
+query ProjectSchema($projectId: ID!, $after: String) {
   node(id: $projectId) {
     ... on ProjectV2 {
       id
-      fields(first: 50) {
+      fields(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           __typename
           ... on ProjectV2FieldCommon { id name dataType }

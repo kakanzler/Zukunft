@@ -74,6 +74,7 @@ const mk = (n: number, s: string, start: string, end: string, prog: number | nul
   id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", issueState: "OPEN", startDate: start, endDate: end,
   status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30" },
   progress: prog, updatedAt: "2026-08-01T00:00:00Z", syncState: "synced",
+  labelsComplete: true, fieldsComplete: true,
 })
 const tasks = [mk(1, "Planning", "2026-09-01", "2026-09-07", 100), mk(2, "Review", "2026-09-08", "2026-09-21", 0)]
 eq("stats", computeStats(tasks), { taskCount: 2, weekCount: 3, milestoneCount: 1, completePercent: 50 })

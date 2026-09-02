@@ -56,6 +56,17 @@ pub struct ScheduleTask {
     pub progress: Option<f64>,
     pub updated_at: String,
     pub sync_state: String,
+    /// この Issue のラベルを全部読めているか。
+    ///
+    /// updateIssue の labelIds は「置き換え集合」なので、読み切れていない状態で
+    /// 保存すると読めなかったラベルが Issue から永久に外れる。false なら送らない。
+    pub labels_complete: bool,
+    /// この item のフィールド値を全部読めているか。
+    ///
+    /// Projects v2 は値の入っている全フィールドを返すため、独自フィールドが増えると
+    /// Start Date / Target Date が後ろへ押し出される。false のとき日付が None なら、
+    /// それは「未設定」ではなく「読めていない」。
+    pub fields_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,8 +124,9 @@ pub struct RepositorySummary {
 pub struct TaskContent {
     pub title: String,
     pub body: String,
-    /// 付け替え後のラベル。指定した集合で置き換える
-    pub label_ids: Vec<String>,
+    /// 付け替え後のラベル。指定した集合で置き換える。
+    /// None は「ラベルに触らない」（読み切れていないときに使う）
+    pub label_ids: Option<Vec<String>>,
     /// 付け替え後の Milestone の node id。None は「マイルストーンを外す」
     pub milestone_id: Option<String>,
 }

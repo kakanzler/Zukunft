@@ -85,23 +85,41 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
 
   async listProjects(owner: string): Promise<ProjectSummary[]> {
     type Node = { id: string; number: number; title: string; url: string }
-    const data = await this.#graphql<{
-      repositoryOwner?: {
-        __typename?: string
-        projectsV2?: { nodes?: Node[] }
-      } | null
-    }>(LIST_PROJECTS, { login: owner })
+    type Page = { nodes?: Node[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } }
+    const projects: ProjectSummary[] = []
+    let after: string | null = null
+    let ownerType: "organization" | "user" = "user"
 
-    const node = data.repositoryOwner
-    if (!node) throw new GitHubError("not-found", `GitHub に「${owner}」が見つかりません`)
+    // 一覧はどの接続も最後まで辿る。途中で切ると、古い Project が
+    // 「存在しない」ように見えて選べなくなる。
+    do {
+      const data: {
+        repositoryOwner?: { __typename?: string; projectsV2?: Page } | null
+      } = await this.#graphql(LIST_PROJECTS, { login: owner, after })
 
-    const ownerType = node.__typename === "Organization" ? "organization" : "user"
-    return (node.projectsV2?.nodes ?? []).map((n) => toSummary(n, ownerType, owner))
+      const node = data.repositoryOwner
+      if (!node) throw new GitHubError("not-found", `GitHub に「${owner}」が見つかりません`)
+
+      ownerType = node.__typename === "Organization" ? "organization" : "user"
+      const page = node.projectsV2
+      projects.push(...(page?.nodes ?? []).map((n) => toSummary(n, ownerType, owner)))
+      after = page?.pageInfo?.hasNextPage ? (page.pageInfo.endCursor ?? null) : null
+    } while (after !== null)
+
+    return projects
   }
 
   async getProjectSchema(projectId: string): Promise<ProjectSchema> {
-    const data = await this.#graphql<unknown>(PROJECT_SCHEMA, { projectId })
-    return mapProjectSchema(projectId, data)
+    const fields: ProjectSchema["fields"] = []
+    let after: string | null = null
+    // フィールドを読み落とすと、既にある Date / Status を「作れ」と案内してしまう。
+    do {
+      const data: unknown = await this.#graphql<unknown>(PROJECT_SCHEMA, { projectId, after })
+      const page = mapProjectSchema(projectId, data)
+      fields.push(...page.schema.fields)
+      after = page.endCursor
+    } while (after !== null)
+    return { projectId, fields }
   }
 
   async getTasks(projectId: string): Promise<ScheduleTask[]> {
@@ -118,23 +136,56 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
   }
 
   async listRepositories(projectId: string): Promise<RepositorySummary[]> {
-    const data = await this.#graphql<{
-      node?: { repositories?: { nodes?: RepositorySummary[] } } | null
-    }>(PROJECT_REPOSITORIES, { projectId })
-    return data.node?.repositories?.nodes ?? []
+    type Page = {
+      nodes?: RepositorySummary[]
+      pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }
+    }
+    const repositories: RepositorySummary[] = []
+    let after: string | null = null
+    // 読み落としたリポジトリの Issue は「ラベル候補ゼロ」になり、保存すると
+    // ラベルが全部外れる。ここは特に切ってはいけない。
+    do {
+      const data: { node?: { repositories?: Page } | null } = await this.#graphql(
+        PROJECT_REPOSITORIES,
+        { projectId, after },
+      )
+      const page = data.node?.repositories
+      repositories.push(...(page?.nodes ?? []))
+      after = page?.pageInfo?.hasNextPage ? (page.pageInfo.endCursor ?? null) : null
+    } while (after !== null)
+    return repositories
   }
 
   async listLabels(repositoryId: string): Promise<Label[]> {
-    const data = await this.#graphql<{ node?: { labels?: { nodes?: Label[] } } | null }>(
-      REPOSITORY_LABELS,
-      { repositoryId },
-    )
-    return data.node?.labels?.nodes ?? []
+    type Page = { nodes?: Label[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } }
+    const labels: Label[] = []
+    let after: string | null = null
+    // 読み落とすと、既にある名前での作成が失敗して理由が読めなくなる。
+    do {
+      const data: { node?: { labels?: Page } | null } = await this.#graphql(REPOSITORY_LABELS, {
+        repositoryId,
+        after,
+      })
+      const page = data.node?.labels
+      labels.push(...(page?.nodes ?? []))
+      after = page?.pageInfo?.hasNextPage ? (page.pageInfo.endCursor ?? null) : null
+    } while (after !== null)
+    return labels
   }
 
   async listMilestones(repositoryId: string): Promise<Milestone[]> {
-    const data = await this.#graphql<unknown>(REPOSITORY_MILESTONES, { repositoryId })
-    return mapMilestones(data)
+    const milestones: Milestone[] = []
+    let after: string | null = null
+    do {
+      const data: unknown = await this.#graphql<unknown>(REPOSITORY_MILESTONES, {
+        repositoryId,
+        after,
+      })
+      const page = mapMilestones(data)
+      milestones.push(...page.milestones)
+      after = page.endCursor
+    } while (after !== null)
+    return milestones
   }
 
   updateTaskStatus(

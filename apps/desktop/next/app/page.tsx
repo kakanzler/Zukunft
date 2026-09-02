@@ -592,6 +592,34 @@ function Workspace({
    * 循環した依存（企画書 §15.1）。Gantt では赤い破線になるが、グループを畳んでいれば
    * 線そのものが出ない。気づける場所を Gantt の外にも置く。
    */
+  /**
+   * フィールド値を読み切れていないタスク（企画書 §7.3.2）。
+   *
+   * Projects v2 は値の入っている全フィールドを返すので、独自フィールドが多いと
+   * Start Date / Target Date が後ろへ押し出される。押し出されると日付が null に
+   * なってバーが盤面から消える — 「未設定だから出ない」と区別が付かないので、
+   * 消えた理由を画面に出す。
+   */
+  const truncated = useMemo(
+    () => schedule.tasks.filter((t) => !t.fieldsComplete).map((t) => t.issueNumber),
+    [schedule.tasks],
+  )
+  const truncatedKey = truncated.join(",")
+  useEffect(() => {
+    if (truncated.length === 0) return
+    logAppend({
+      level: "warn",
+      message: `${truncated.map((n) => `#${n}`).join(", ")} はフィールドを読み切れていません`,
+      hint:
+        "Project のフィールドが多く、日付が取得できていません。日付が空でも" +
+        "「未設定」とは限りません。Project のフィールドを減らすと解消します。",
+      dedupeKey: "fields-truncated",
+    })
+    // 中身が変わったときだけ出し直す。tasks は同期のたびに新しくなるので、
+    // 配列そのものを依存にすると警告がログの中を飛び回る。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [truncatedKey, logAppend])
+
   const cycles = useMemo(() => detectCycles(schedule.tasks).cycles, [schedule.tasks])
   // 前に出した循環の一覧。同じ内容なら出し直さない。
   //
