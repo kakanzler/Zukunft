@@ -627,12 +627,17 @@ fn read_milestone(value: &Value) -> Option<Milestone> {
     })
 }
 
+/// GitHub が返す日付・日時から先頭の YYYY-MM-DD を取る。
+///
+/// バイト数ではなく文字数で切る。len() で見て text[..10] とすると、先頭 10 バイトの
+/// 途中に多バイト文字の境界が来たときに panic する。GitHub は今のところ ASCII しか
+/// 返さないが、ここは Tauri コマンドから届く値なので、落ちない形にしておく。
 fn read_date(value: Option<&str>) -> Option<String> {
-    let text = value?;
-    if text.len() < 10 {
+    let date: String = value?.chars().take(10).collect();
+    if date.chars().count() < 10 {
         return None;
     }
-    Some(text[..10].to_owned())
+    Some(date)
 }
 
 /// item の fieldValues を「フィールド名 → 値」で引ける形に畳む。
@@ -776,4 +781,64 @@ fn is_complete(connection: Option<&Value>) -> bool {
         .and_then(|p| p.get("hasNextPage"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_date_takes_the_leading_day() {
+        assert_eq!(read_date(Some("2026-09-30T00:00:00Z")).as_deref(), Some("2026-09-30"));
+        assert_eq!(read_date(Some("2026-09-30")).as_deref(), Some("2026-09-30"));
+    }
+
+    #[test]
+    fn read_date_rejects_what_is_too_short() {
+        assert_eq!(read_date(Some("2026-09")), None);
+        assert_eq!(read_date(None), None);
+    }
+
+    /// バイトで切っていた頃はここで panic していた。
+    #[test]
+    fn read_date_does_not_panic_on_multibyte() {
+        assert_eq!(read_date(Some("日付ではない値")), None);
+        assert_eq!(read_date(Some("あいうえおかきくけこさ")).as_deref(), Some("あいうえおかきくけこ"));
+    }
+
+    #[test]
+    fn is_complete_defaults_to_true() {
+        // pageInfo を選択していない応答は「読み切った」に倒す。
+        assert!(is_complete(None));
+        assert!(is_complete(Some(&json!({}))));
+        assert!(is_complete(Some(&json!({ "pageInfo": { "hasNextPage": false } }))));
+    }
+
+    #[test]
+    fn is_complete_detects_truncation() {
+        assert!(!is_complete(Some(&json!({ "pageInfo": { "hasNextPage": true } }))));
+    }
+
+    #[test]
+    fn map_task_flags_truncated_labels() {
+        let item = json!({
+            "id": "item-1",
+            "fieldValues": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+            "content": {
+                "__typename": "Issue",
+                "id": "issue-1",
+                "number": 101,
+                "labels": { "pageInfo": { "hasNextPage": true }, "nodes": [] }
+            }
+        });
+        let task = map_task(&item).expect("Issue なので変換できる");
+        assert!(!task.labels_complete);
+        assert!(task.fields_complete);
+    }
+
+    #[test]
+    fn map_task_skips_non_issues() {
+        let draft = json!({ "id": "item-1", "content": { "__typename": "DraftIssue" } });
+        assert!(map_task(&draft).is_none());
+    }
 }

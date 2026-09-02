@@ -168,8 +168,25 @@ fn write(app: &tauri::AppHandle, settings: &AppSettings) -> AppResult<()> {
     let text = serde_json::to_string_pretty(settings).map_err(|error| {
         AppError::new(ErrorKind::Unknown, format!("設定を変換できませんでした: {error}"))
     })?;
-    std::fs::write(path, text).map_err(|error| {
+    write_atomically(&path, &text)
+}
+
+/// 一時ファイルへ書いてから置き換える。
+///
+/// 直接上書きすると、途中で落ちたときやディスクが一杯のときに、中途半端な JSON が
+/// 残る。read() は壊れたファイルを既定値に倒すので、全 Project の親カテゴリと
+/// テーマと窓の設定が理由も出ずに消える。書けたものだけが見えるようにする。
+fn write_atomically(path: &std::path::Path, text: &str) -> AppResult<()> {
+    let temp = path.with_extension("json.tmp");
+    let save = |error: std::io::Error| {
         AppError::new(ErrorKind::Unknown, format!("設定を保存できませんでした: {error}"))
+    };
+    std::fs::write(&temp, text).map_err(save)?;
+    // Windows の rename は上書きしないので、std::fs::rename を使う
+    // （こちらは既存を置き換える）。失敗したら一時ファイルを残さない。
+    std::fs::rename(&temp, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temp);
+        save(error)
     })
 }
 
@@ -305,4 +322,45 @@ pub async fn set_window_settings(
     write(&app, &settings)?;
     apply(&app, window);
     Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_enable_auto_reschedule() {
+        // derive の Default は bool を false にするので、ここが既定と逆になっていた。
+        let settings = AppSettings::default();
+        assert!(settings.auto_reschedule);
+        assert_eq!(settings.theme, "default");
+        assert!(settings.parent_labels.is_empty());
+    }
+
+    #[test]
+    fn normalize_drops_blanks_and_duplicates() {
+        let labels = normalize(vec![
+            " design ".to_owned(),
+            "design".to_owned(),
+            "   ".to_owned(),
+            "backend".to_owned(),
+        ]);
+        assert_eq!(labels, vec!["design".to_owned(), "backend".to_owned()]);
+    }
+
+    #[test]
+    fn atomic_write_replaces_the_previous_content() {
+        let dir = std::env::temp_dir().join("zukunft-settings-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+
+        write_atomically(&path, "{\"a\":1}").unwrap();
+        write_atomically(&path, "{\"a\":2}").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"a\":2}");
+        // 一時ファイルを残さない
+        assert!(!path.with_extension("json.tmp").exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

@@ -18,7 +18,8 @@
     "build:web": "yarn workspace @zukunft/web build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p packages/domain && tsc --noEmit -p packages/gantt && tsc --noEmit -p packages/github && tsc --noEmit -p apps/desktop/next && tsc --noEmit -p apps/web/next",
-    "test": "yarn workspace @zukunft/domain test",
+    "test": "yarn workspace @zukunft/domain test && yarn workspace @zukunft/github test",
+    "test:rust": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "devDependencies": {

@@ -10,6 +10,9 @@
     "./server": "./src/repository.server.ts",
     "./mock": "./src/repository.mock.ts"
   },
+  "scripts": {
+    "test": "tsc -p tsconfig.test.json && node test/run.js"
+  },
   "dependencies": {
     "@zukunft/domain": "0.1.9"
   },
