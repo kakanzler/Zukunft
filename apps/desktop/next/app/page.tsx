@@ -1054,6 +1054,7 @@ function Workspace({
           deleting={schedule.deleting}
           statusOptions={statusOptions}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
+          parentLabels={parentLabels}
           availableMilestones={milestonesByRepo[openTask.repositoryId] ?? []}
           onCreateLabel={createLabel}
           onDeleteLabel={deleteLabel}

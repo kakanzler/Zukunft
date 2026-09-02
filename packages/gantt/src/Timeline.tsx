@@ -3,6 +3,7 @@
 import { type CSSProperties, useMemo } from "react"
 import {
   type DateChange,
+  type Dependency,
   type ISODate,
   type ScheduledTask,
   type TimeScale,
@@ -12,11 +13,13 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { glowVar, gradientId } from "./colors"
+import { glowVar, gradientId, statusVar } from "./colors"
 import type { Row } from "./rows"
 import { useBarDrag } from "./useBarDrag"
 
 const BAR_INSET = 5
+/** 矢印の先端の大きさ（px）。行の高さ 32 に対して主張しすぎない程度。 */
+const ARROW = 8
 
 type Props = {
   rows: Row[]
@@ -24,6 +27,8 @@ type Props = {
   rowHeight: number
   visible: { start: number; end: number }
   milestones: { title: string; dueOn: ISODate }[]
+  /** Issue 間の依存関係。両端が描かれている行のときだけ矢印にする */
+  dependencies?: Dependency[]
   onTaskDatesChange: (taskId: string, change: DateChange) => void
   readOnly?: boolean
   onTaskOpen?: (taskId: string) => void
@@ -34,8 +39,12 @@ type Props = {
   scrollRef?: React.RefObject<HTMLDivElement>
 }
 
+/** 既定値をその場で書くと毎回別の配列になり、矢印の再計算が止まらなくなる。 */
+const EMPTY_DEPENDENCIES: Dependency[] = []
+
 export function Timeline({
-  rows, scale, rowHeight, visible, milestones, onTaskDatesChange, readOnly = false,
+  rows, scale, rowHeight, visible, milestones, dependencies = EMPTY_DEPENDENCIES,
+  onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef,
 }: Props) {
   const { drag, begin, move, end } = useBarDrag({
@@ -51,6 +60,22 @@ export function Timeline({
   }, [scale])
 
   const bodyHeight = rows.length * rowHeight
+
+  /** 矢印を引くのに要る、タスクごとの行番号・色・バーの位置。 */
+  const placed = useMemo(() => {
+    const map = new Map<string, { index: number; statusIndex: number; task: ScheduledTask }>()
+    rows.forEach((row, index) => {
+      if (row.kind === "task" && isScheduled(row.task)) {
+        map.set(row.task.id, { index, statusIndex: row.statusIndex, task: row.task })
+      }
+    })
+    return map
+  }, [rows])
+
+  const links = useMemo(
+    () => buildLinks(dependencies, placed, scale, rowHeight, visible),
+    [dependencies, placed, scale, rowHeight, visible],
+  )
 
   return (
     <div className="zk-timeline" onScroll={onScroll} ref={scrollRef}>
@@ -73,6 +98,19 @@ export function Timeline({
             <linearGradient key={i} id={`zk-grad-${i}`} x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={`var(--status-${i}-from)`} />
               <stop offset="100%" stopColor={`var(--status-${i}-to)`} />
+            </linearGradient>
+          ))}
+          {/* 矢印は自分の色から依存先の色へ。線の実座標で刻むので、
+              行が離れていても向きと色の対応が崩れない。 */}
+          {links.map((link) => (
+            <linearGradient
+              key={link.id}
+              id={link.id}
+              gradientUnits="userSpaceOnUse"
+              x1={link.x1} y1={link.y1} x2={link.x2} y2={link.y2}
+            >
+              <stop offset="0%" stopColor={link.fromColor} />
+              <stop offset="100%" stopColor={link.toColor} />
             </linearGradient>
           ))}
         </defs>
@@ -140,6 +178,15 @@ export function Timeline({
           )
         })}
 
+        {/* バーより後に描く。関係が線で追えることを、バーの見やすさより優先する。 */}
+        {links.map((link) => (
+          <g key={link.id} className="zk-dep">
+            <path className="zk-dep-line" d={link.path} stroke={`url(#${link.id})`} />
+            {/* 先端はグラデーションの終端色で塗る。線が着いた先の色と揃える。 */}
+            <path className="zk-dep-head" d={link.head} fill={link.toColor} />
+          </g>
+        ))}
+
         {milestones.map((m) => {
           if (m.dueOn < scale.origin || m.dueOn > scale.end) return null
           const x = scale.toX(m.dueOn) + scale.pxPerDay / 2
@@ -204,3 +251,69 @@ function Bar({
   )
 }
 
+
+type Placement = { index: number; statusIndex: number; task: ScheduledTask }
+
+type Link = {
+  id: string
+  path: string
+  head: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  fromColor: string
+  toColor: string
+}
+
+/**
+ * 依存関係を矢印の座標に変換する。
+ *
+ * 依存元のバーから出て依存先のバーに刺さる。依存先は普通あとに来ないので
+ * 線は左へ戻ることが多く、そのぶん「どちらが先か」を向きで読ませたい。
+ * そこで端点は常に近い側の端に取り、外向きの制御点で膨らませて、
+ * バーの上を横切らずに回り込ませる。
+ */
+function buildLinks(
+  dependencies: Dependency[],
+  placed: Map<string, Placement>,
+  scale: TimeScale,
+  rowHeight: number,
+  visible: { start: number; end: number },
+): Link[] {
+  const links: Link[] = []
+  dependencies.forEach((dep, i) => {
+    const from = placed.get(dep.fromTaskId)
+    const to = placed.get(dep.toTaskId)
+    // 折り畳んだグループの中や、日付が未設定で描かれていない行には引けない。
+    if (!from || !to) return
+    // 両端とも可視範囲の同じ側の外なら、線も画面に掛からない。
+    if (from.index >= visible.end && to.index >= visible.end) return
+    if (from.index < visible.start && to.index < visible.start) return
+
+    const fx = scale.toX(from.task.startDate)
+    const fw = barWidth(from.task, scale)
+    const tx = scale.toX(to.task.startDate)
+    const tw = barWidth(to.task, scale)
+    const y1 = from.index * rowHeight + rowHeight / 2
+    const y2 = to.index * rowHeight + rowHeight / 2
+
+    // 依存先が手前にあるか。あるなら左端から出て、依存先の右端に刺す。
+    const backwards = tx + tw <= fx + fw
+    const x1 = backwards ? fx : fx + fw
+    const x2 = backwards ? tx + tw : tx
+    const out1 = backwards ? -1 : 1
+    const out2 = backwards ? 1 : -1
+    const bend = Math.max(18, Math.min(64, Math.abs(x2 - x1) / 2))
+
+    links.push({
+      id: `zk-dep-${i}`,
+      path: `M ${x1} ${y1} C ${x1 + out1 * bend} ${y1}, ${x2 + out2 * bend} ${y2}, ${x2} ${y2}`,
+      head: `M ${x2} ${y2} L ${x2 + out2 * ARROW} ${y2 - ARROW / 2} L ${x2 + out2 * ARROW} ${y2 + ARROW / 2} Z`,
+      x1, y1, x2, y2,
+      fromColor: statusVar(from.statusIndex),
+      toColor: statusVar(to.statusIndex),
+    })
+  })
+  return links
+}

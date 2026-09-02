@@ -33,6 +33,11 @@ type Props = {
   statusOptions: StatusOption[]
   /** リポジトリに定義済みのラベル。編集モードの候補になる */
   availableLabels: Label[]
+  /**
+   * 親カテゴリとして扱うラベル名（カテゴリ設定の値）。
+   * 編集モードで、この Issue をどの親カテゴリに置くかを選ばせるのに使う。
+   */
+  parentLabels?: string[]
   /** リポジトリの Milestone（OPEN のみ）。編集モードの候補になる */
   availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
@@ -46,6 +51,9 @@ type Props = {
   /** 一覧で e から開いたときは編集モードで始める */
   initialEditing?: boolean
 }
+
+/** 既定値をその場で書くと毎回別の配列になり、選択肢の再計算が止まらなくなる。 */
+const EMPTY_PARENT_LABELS: string[] = []
 
 const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
   synced: "同期済み",
@@ -68,7 +76,8 @@ const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
  */
 export function TaskModal({
   task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
-  availableLabels, availableMilestones, onCreateLabel, onDeleteLabel,
+  availableLabels, parentLabels = EMPTY_PARENT_LABELS, availableMilestones,
+  onCreateLabel, onDeleteLabel,
   onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
   initialEditing = false,
 }: Props) {
@@ -225,6 +234,35 @@ export function TaskModal({
     ? [task.milestone, ...availableMilestones]
     : availableMilestones
 
+  /**
+   * 親カテゴリの選択肢。
+   *
+   * 親カテゴリは GitHub 側ではただのラベルなので、選ぶ / 外すはそのラベルの
+   * 付け外しそのものになる。付けるには node id が要るが、カテゴリ設定が持って
+   * いるのは名前だけなので、ここで実体を引き直す。他のリポジトリにしか無い
+   * ラベルは引けない — その場合は選べないことを理由ごと出す。
+   */
+  const parentChoices = parentLabels.map((name) => ({
+    name,
+    label:
+      task.labels.find((l) => l.name === name) ??
+      availableLabels.find((l) => l.name === name) ??
+      null,
+  }))
+  const selectedParents = new Set(
+    labels.filter((l) => parentLabels.includes(l.name)).map((l) => l.name),
+  )
+
+  /** 親カテゴリの付け外し。下の Labels の集合と同じ状態を触るので表示は連動する。 */
+  const toggleParent = (name: string, label: Label | null) => {
+    if (selectedParents.has(name)) {
+      setLabels(labels.filter((l) => l.name !== name))
+      return
+    }
+    if (!label) return
+    setLabels([...labels, label])
+  }
+
   return (
     <div
       className="zk-modal-backdrop"
@@ -350,6 +388,41 @@ export function TaskModal({
 
         {editing && (
           <div className="zk-task-labels-edit">
+            {/* 親カテゴリはラベルの一種なので、ラベル編集と同じカードに置く。
+                別の枠にすると「ラベルとは別の何か」に見えてしまう。 */}
+            {parentLabels.length > 0 && (
+              <div className="zk-field">
+                <span className="zk-field-label">Parent category</span>
+                <div className="zk-label-picker zk-label-picker--parents">
+                  {parentChoices.map(({ name, label }) => (
+                    <button
+                      type="button"
+                      key={name}
+                      className="zk-chip zk-chip--button"
+                      aria-pressed={selectedParents.has(name)}
+                      disabled={savingContent || (!label && !selectedParents.has(name))}
+                      title={
+                        label
+                          ? "このラベルの付け外しになります"
+                          : `${name} はこの Issue のリポジトリに無いラベルです。GitHub 側で作ると選べます。`
+                      }
+                      onClick={() => toggleParent(name, label)}
+                      style={
+                        selectedParents.has(name) && label?.color
+                          ? { borderColor: `#${label.color}`, color: `#${label.color}` }
+                          : undefined
+                      }
+                    >
+                      <span
+                        className="zk-legend-dot"
+                        style={{ background: label?.color ? `#${label.color}` : "currentColor" }}
+                      />
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <LabelEditor
               selected={labels}
               available={availableLabels}

@@ -12,6 +12,7 @@ import {
   defaultTimelineEnd,
   isScheduled,
   maxDate,
+  resolveDependencies,
   timelineRange,
   today,
 } from "@zukunft/domain"
@@ -98,6 +99,8 @@ export function GanttChart({
   }, [tasks, zoom, endOverride, defaultEnd])
 
   const milestones = useMemo(() => collectMilestones(tasks), [tasks])
+  // 依存関係は Issue 本文の宣言から起こす。折り畳みやズームでは変わらない。
+  const dependencies = useMemo(() => resolveDependencies(tasks), [tasks])
   const visible = useMemo(
     () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
     [scrollTop, viewportHeight, rows.length],
@@ -270,6 +273,7 @@ export function GanttChart({
           rowHeight={ROW_HEIGHT}
           visible={visible}
           milestones={milestones}
+          dependencies={dependencies}
           onTaskDatesChange={onTaskDatesChange}
           readOnly={readOnly}
           onTaskOpen={onTaskOpen ? openTask : undefined}

@@ -86,6 +86,9 @@ const LABELS: Label[] = [
   { id: "lbl-release", name: "release", color: "d93f0b" },
 ]
 
+/** モックで依存関係を持たせる Issue の添字（直前の Issue に依存する）。 */
+const DEPENDS_ON = new Set([1, 4, 6, 7, 9, 10, 12, 13])
+
 function buildTasks(origin: string): ScheduleTask[] {
   return SEED.map(([title, statusIndex, milestoneIndex, offset, duration, progress], i) => ({
     id: `mock-item-${i + 1}`,
@@ -93,8 +96,12 @@ function buildTasks(origin: string): ScheduleTask[] {
     repositoryId: "mock-repo-1",
     issueNumber: 101 + i,
     title,
+    // 依存関係の矢印を確かめられるよう、一部の Issue に宣言を入れておく。
+    // 直前の Issue に依存させると、どこかで必ず段違いの行を跨ぐ形になる。
     body: `${title} の作業内容をここに書く。
-
+${DEPENDS_ON.has(i) ? `
+blocked-by: #${100 + i}
+` : ""}
 - [ ] 実装
 - [ ] 動作確認`,
     url: `https://github.com/example/zukunft/issues/${101 + i}`,

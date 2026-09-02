@@ -7,6 +7,7 @@ import {
   rollback, resolveWithRemote, resolveWithLocal, nextPending, pendingCount,
   undo, redo, canUndo, canRedo, mergeRefresh, findTask,
   normalizeFieldName, resolveField, canEditDates,
+  parseDependencyRefs, resolveDependencies,
   type ScheduleTask, type ProjectSchema,
 } from "../src/index"
 
@@ -300,6 +301,40 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   st = mergeRefresh(st, [mk(1, "Planning", "2026-09-01", "2026-09-07", null), mk(2, "Review", "2026-09-15", "2026-09-20", null)])
   eq("dirty task keeps local edit", findTask(st, "i1")!.startDate, "2026-09-04")
   eq("clean task takes refreshed value", findTask(st, "i2")!.startDate, "2026-09-15")
+}
+
+// --- dependency: 本文の宣言から辺を起こす ---
+{
+  eq("parses blocked-by", parseDependencyRefs("blocked-by: #101"), [101])
+  eq("parses a list", parseDependencyRefs("blocked by #101, #102、#103"), [101, 102, 103])
+  eq("parses depends-on and japanese", parseDependencyRefs("depends on #7\n依存: ＃8"), [7, 8])
+  eq("dedupes", parseDependencyRefs("blocked-by: #5\ndepends-on: #5"), [5])
+  eq("ignores fenced code", parseDependencyRefs("```\nblocked-by: #9\n```"), [])
+  eq("ignores a bare issue link", parseDependencyRefs("#101 も参照"), [])
+
+  const graph: ScheduleTask[] = [
+    mk(1, "Planning", "2026-09-01", "2026-09-05", null),
+    { ...mk(2, "Review", "2026-09-06", "2026-09-10", null), body: "blocked-by: #1" },
+    { ...mk(3, "Review", "2026-09-11", "2026-09-15", null), body: "blocked-by: #2, #99" },
+  ]
+  eq("resolves declared edges", resolveDependencies(graph), [
+    { fromTaskId: "i2", toTaskId: "i1" },
+    { fromTaskId: "i3", toTaskId: "i2" },
+  ])
+
+  // Project に複数のリポジトリが載っていても、別リポジトリの同じ番号には繋がない
+  const crossRepo: ScheduleTask[] = [
+    { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null), repositoryId: "other" },
+    { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null), id: "x1", repositoryId: "repo" },
+    { ...mk(2, "Review", "2026-09-06", "2026-09-10", null), repositoryId: "repo", body: "blocked-by: #1" },
+  ]
+  eq("prefers the same repository", resolveDependencies(crossRepo), [
+    { fromTaskId: "i2", toTaskId: "x1" },
+  ])
+
+  eq("drops self reference", resolveDependencies([
+    { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null), body: "blocked-by: #1" },
+  ]), [])
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)

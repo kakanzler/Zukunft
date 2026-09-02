@@ -19,6 +19,7 @@ type Section = {
 const SECTIONS: Section[] = [
   { id: "legend", title: "凡例", summary: "画面の色と記号の意味" },
   { id: "hotkeys", title: "ホットキー", summary: "キーボード操作の一覧" },
+  { id: "dependency", title: "依存関係", summary: "矢印の出し方と読み方" },
   { id: "sync", title: "同期状態", summary: "GitHub との一致状況の読み方" },
 ]
 
@@ -92,6 +93,7 @@ export function ManualModal({ statuses, onClose }: Props) {
           <div className="zk-manual-body">
             {active === "legend" && <LegendSection statuses={statuses} />}
             {active === "hotkeys" && <HotkeySection />}
+            {active === "dependency" && <DependencySection />}
             {active === "sync" && <SyncSection />}
           </div>
         </div>
@@ -185,6 +187,49 @@ function HotkeySection() {
           Esc でフルスクリーンを抜けても設定は変わりません。次の起動は Settings で
           選んだ見せ方に戻ります。
         </p>
+      </Block>
+    </>
+  )
+}
+
+function DependencySection() {
+  return (
+    <>
+      <Block title="書き方">
+        <p className="zk-manual-text">
+          Issue の本文に <code className="zk-kbd">blocked-by: #101</code> と書くと、
+          その Issue から #101 へ矢印が出ます。<code className="zk-kbd">depends-on:</code> と
+          <code className="zk-kbd">依存:</code> も同じ意味です。
+          <code className="zk-kbd">blocked-by: #101, #102</code> のように並べて書けます。
+        </p>
+        <p className="zk-manual-text">
+          保存先は Issue の本文そのものです。Project にフィールドを増やす必要はなく、
+          GitHub の画面でもそのまま読めます。囲みコード（``` で挟んだ部分）の中は
+          書き方の説明とみなして拾いません。
+        </p>
+      </Block>
+
+      <Block title="矢印の読み方">
+        <dl className="zk-manual-list">
+          <dt>色</dt>
+          <dd>
+            自分の Status の色から、依存先の Status の色へのグラデーションです。
+            先端は依存先の色なので、どちらへ向かっているかが色でも分かります。
+          </dd>
+          <dt>向き</dt>
+          <dd>矢印が刺さっている側が依存先。先に片付いている必要がある Issue です。</dd>
+        </dl>
+      </Block>
+
+      <Block title="出ないとき">
+        <dl className="zk-manual-list">
+          <dt>依存先が Project に無い</dt>
+          <dd>この Project に載っていない Issue 番号への参照は線にしません。</dd>
+          <dt>どちらかに日付が無い</dt>
+          <dd>バーが描かれていないので、線を引く先がありません。</dd>
+          <dt>グループを折り畳んでいる</dt>
+          <dd>行として出ていない Issue には引きません。開くと出ます。</dd>
+        </dl>
       </Block>
     </>
   )

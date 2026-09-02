@@ -1,4 +1,5 @@
 export * from "./date"
+export * from "./dependency"
 export * from "./drag"
 export * from "./schedule"
 export * from "./stats"
