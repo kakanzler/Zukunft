@@ -1,3 +1,4 @@
+import { cascade } from "./cascade"
 import type { ISODate } from "./date"
 import type { DateChange, ScheduleTask, SyncState } from "./schedule"
 
@@ -34,11 +35,23 @@ export type Mutation = {
   remote: ScheduleTask | null
 }
 
-/** Undo/Redo の 1 エントリ。1 ドラッグ＝1 エントリ（企画書 §6.3.4）。 */
-export type UndoEntry = {
+/** グループの中の 1 タスク分。 */
+export type UndoItem = {
   taskId: string
   before: Dates
   after: Dates
+}
+
+/**
+ * Undo/Redo の 1 エントリ = 利用者の操作 1 回（企画書 §6.3.4）。
+ *
+ * 依存関係に合わせた自動調整（§15.2）は 1 ドラッグで複数のタスクを動かすので、
+ * エントリは 1 タスクではなくグループを持つ。Ctrl+Z 1 回で操作 1 回分が戻る。
+ */
+export type UndoEntry = {
+  /** グループの識別子。起点のミューテーション id を使う */
+  id: string
+  items: UndoItem[]
 }
 
 export type ScheduleState = {
@@ -94,7 +107,7 @@ export function applyLocalChange(
   taskId: string,
   change: DateChange,
   mutationId: string,
-  options: { recordUndo?: boolean } = {},
+  options: { recordUndo?: boolean; undoGroupId?: string } = {},
 ): ScheduleState {
   const task = findTask(state, taskId)
   if (!task) return state
@@ -128,10 +141,59 @@ export function applyLocalChange(
     undo:
       options.recordUndo === false || toChange(before) === null
         ? state.undo
-        : [...state.undo, { taskId, before, after }],
+        : recordUndo(state.undo, { taskId, before, after }, options.undoGroupId ?? mutationId),
     // 新しい操作をした時点で redo は捨てる
     redo: options.recordUndo === false ? state.redo : [],
   }
+}
+
+/**
+ * Undo スタックに 1 件積む。同じグループなら末尾のエントリへ追記する。
+ *
+ * 末尾の **id が一致するときだけ**追記するのが要点。「末尾に足す」だけにすると、
+ * カスケードの起点が Undo に積まれなかったとき（日付未設定だった等）に、
+ * 押し出された分が 1 つ前の無関係な操作にくっつき、Ctrl+Z 1 回で 2 操作
+ * 戻ってしまう。まとめてよいのは、同じ状態遷移の中で続けて呼ばれた分だけ。
+ */
+function recordUndo(undo: UndoEntry[], item: UndoItem, groupId: string): UndoEntry[] {
+  const tail = undo[undo.length - 1]
+  if (tail && tail.id === groupId) {
+    return [...undo.slice(0, -1), { ...tail, items: [...tail.items, item] }]
+  }
+  return [...undo, { id: groupId, items: [item] }]
+}
+
+/**
+ * ドラッグ確定 1 回分（企画書 §16.2 / §15.2）。
+ *
+ * 動かしたタスクと、それが押し出したタスクを 1 つの Undo エントリにまとめる。
+ * 押し出された側もそれぞれ独立したミューテーションになるので、送信の直列化や
+ * 競合の検出は今までどおり 1 タスクずつ効く。
+ *
+ * id をいくつ使うか呼ぶ前には決まらないため、id そのものではなく生成関数を取る。
+ */
+export function applyChangeWithCascade(
+  state: ScheduleState,
+  taskId: string,
+  change: DateChange,
+  nextMutationId: () => string,
+  options: { autoReschedule?: boolean } = {},
+): ScheduleState {
+  const groupId = nextMutationId()
+  const applied = applyLocalChange(state, taskId, change, groupId, { undoGroupId: groupId })
+  if (options.autoReschedule === false || applied === state) return applied
+
+  return cascade(applied.tasks, taskId).reduce(
+    (acc, edit) =>
+      applyLocalChange(
+        acc,
+        edit.taskId,
+        { startDate: edit.startDate, endDate: edit.endDate },
+        nextMutationId(),
+        { undoGroupId: groupId },
+      ),
+    applied,
+  )
 }
 
 function diffFrom(before: Dates, after: Dates): DateChange {
@@ -213,6 +275,10 @@ export function markConflict(
  * ロールバック（企画書 §16.2 手順 4）。
  * 保存しておいた変更前の値へ戻し、キューからも取り除く。
  * Undo スタックからも消す — 失敗した操作を Undo で復活させないため（§6.3.4）。
+ *
+ * 失敗したタスクを含むエントリは、**グループごと**捨てる。一部だけ残すと、
+ * 押し出された側だけが元に戻り、依存先より前に始まる日程 — 利用者が一度も
+ * 見ていない状態 — を Undo で作れてしまう。
  */
 export function rollback(state: ScheduleState, mutationId: string): ScheduleState {
   const mutation = state.queue.find((m) => m.id === mutationId)
@@ -225,10 +291,25 @@ export function rollback(state: ScheduleState, mutationId: string): ScheduleStat
       ...mutation.before,
       syncState: "synced",
     })),
-    undo: state.undo.filter(
-      (e) => !(e.taskId === mutation.taskId && sameDates(e.after, mutation.after)),
-    ),
+    undo: dropUndoGroup(state.undo, mutation.taskId, mutation.after),
   }
+}
+
+/**
+ * 失敗した変更を含むエントリを 1 つだけ落とす。
+ *
+ * 末尾から探すのは、失敗が届くまでに別の編集が入りうるうえ、同じ
+ * (taskId, after) の組を持つエントリが正当に 2 つ存在しうるため。
+ * 直近のものが、その失敗したミューテーションの属するエントリ。
+ */
+function dropUndoGroup(undo: UndoEntry[], taskId: string, after: Dates): UndoEntry[] {
+  for (let i = undo.length - 1; i >= 0; i--) {
+    const hit = undo[i]!.items.some(
+      (item) => item.taskId === taskId && sameDates(item.after, after),
+    )
+    if (hit) return [...undo.slice(0, i), ...undo.slice(i + 1)]
+  }
+  return undo
 }
 
 /** 競合を「GitHub 側を採用」で解決する（企画書 §16.3）。 */
@@ -307,35 +388,58 @@ export function canRedo(state: ScheduleState): boolean {
 /**
  * Undo（企画書 §6.3.4）。
  * 逆向きの変更を新しいミューテーションとして発行するため、GitHub 側の履歴も前進する。
+ *
+ * エントリはグループなので、含まれるタスクの数だけミューテーションを出す。
+ * いくつ要るかは呼ぶ前に決まらないため、id ではなく生成関数を取る。
  */
-export function undo(state: ScheduleState, mutationId: string): ScheduleState {
+export function undo(state: ScheduleState, nextMutationId: () => string): ScheduleState {
   const entry = state.undo[state.undo.length - 1]
   if (!entry) return state
-  const change = toChange(entry.before)
-  if (!change) return state
-  const reverted = applyLocalChange(
+  // 積んだ順の逆に戻す。日付は絶対値なので結果は変わらないが、キューとログに
+  // 出る並びが行きと鏡になり、何が起きたのかを追いやすい。
+  const applied = applyItems(
     { ...state, undo: state.undo.slice(0, -1) },
-    entry.taskId,
-    change,
-    mutationId,
-    { recordUndo: false },
+    [...entry.items].reverse(),
+    (item) => item.before,
+    nextMutationId,
   )
-  return { ...reverted, redo: [...state.redo, entry] }
+  if (!applied) return state
+  return { ...applied, redo: [...state.redo, entry] }
 }
 
-export function redo(state: ScheduleState, mutationId: string): ScheduleState {
+export function redo(state: ScheduleState, nextMutationId: () => string): ScheduleState {
   const entry = state.redo[state.redo.length - 1]
   if (!entry) return state
-  const change = toChange(entry.after)
-  if (!change) return state
-  const reapplied = applyLocalChange(
+  const applied = applyItems(
     { ...state, redo: state.redo.slice(0, -1) },
-    entry.taskId,
-    change,
-    mutationId,
-    { recordUndo: false },
+    entry.items,
+    (item) => item.after,
+    nextMutationId,
   )
-  return { ...reapplied, undo: [...state.undo, entry] }
+  if (!applied) return state
+  return { ...applied, undo: [...state.undo, entry] }
+}
+
+/**
+ * グループの各要素を、指定した側の日付へ戻す。
+ *
+ * 戻せない要素（日付が未設定だった側）は飛ばす。1 件も戻せなければ null を返し、
+ * 呼び出し側はスタックを消費せずに何もしなかったことにする。
+ */
+function applyItems(
+  state: ScheduleState,
+  items: UndoItem[],
+  pick: (item: UndoItem) => Dates,
+  nextMutationId: () => string,
+): ScheduleState | null {
+  let applied = false
+  const next = items.reduce((acc, item) => {
+    const change = toChange(pick(item))
+    if (!change) return acc
+    applied = true
+    return applyLocalChange(acc, item.taskId, change, nextMutationId(), { recordUndo: false })
+  }, state)
+  return applied ? next : null
 }
 
 /** GitHub から取り直したタスク一覧を反映する。未送信の変更は保持する。 */

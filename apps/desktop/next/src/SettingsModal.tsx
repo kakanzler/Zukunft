@@ -11,10 +11,16 @@ import {
 
 type Props = {
   settings: WindowSettings
+  /** 依存関係に合わせて日程を後ろへずらすか（企画書 §15.2） */
+  autoReschedule: boolean
   busy: boolean
   /** Tauri の外（モック）では反映する窓が無い。その旨を画面に出すために受け取る。 */
   applies: boolean
-  onSave: (settings: WindowSettings) => void
+  /**
+   * 保存先は窓の設定と別だが、押すボタンは 1 つにする。
+   * 「保存して反映」で片方しか保存されない画面は説明が要る。
+   */
+  onSave: (settings: WindowSettings, autoReschedule: boolean) => void
   onClose: () => void
 }
 
@@ -46,18 +52,26 @@ const PRESETS: { width: number; height: number }[] = [
 ]
 
 /**
- * アプリの設定。いまのところウィンドウの見せ方だけを扱う。
+ * アプリの設定。Project に依らない、アプリ全体の振る舞いを扱う。
  *
- * 「解像度」と言ってもディスプレイの設定には触れない。変えるのはこのアプリの窓の
- * 大きさだけで、閉じたあとに何かが残ることはない — そこは画面にも書いておく。
+ * ウィンドウについて「解像度」と言ってもディスプレイの設定には触れない。変えるのは
+ * このアプリの窓の大きさだけで、閉じたあとに何かが残ることはない — そこは画面にも
+ * 書いておく。
  */
-export function SettingsModal({ settings, busy, applies, onSave, onClose }: Props) {
+export function SettingsModal({
+  settings, autoReschedule, busy, applies, onSave, onClose,
+}: Props) {
   const [draft, setDraft] = useState<WindowSettings>(settings)
+  const [autoDraft, setAutoDraft] = useState(autoReschedule)
 
   // 保存済みの値は開いた後に届くことがある（Rust 側の読み取りを待つ）。
   useEffect(() => {
     setDraft(settings)
   }, [settings])
+
+  useEffect(() => {
+    setAutoDraft(autoReschedule)
+  }, [autoReschedule])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -88,9 +102,11 @@ export function SettingsModal({ settings, busy, applies, onSave, onClose }: Prop
         </div>
 
         <div className="zk-modal-body">
+          {/* 窓についての断りなので、窓の設定の直前に置く。画面の冒頭に置くと、
+              下にある日程の設定まで「窓の話」に読めてしまう。 */}
           <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            変わるのは Zukunft の窓の大きさだけです。ディスプレイの解像度そのものには
-            触れないので、アプリを閉じれば元の画面のままです。
+            ウィンドウで変わるのは Zukunft の窓の大きさだけです。ディスプレイの解像度
+            そのものには触れないので、アプリを閉じれば元の画面のままです。
             {!applies && "　（ブラウザで開いているため、ここでの指定は窓に反映されません）"}
           </div>
 
@@ -172,18 +188,42 @@ export function SettingsModal({ settings, busy, applies, onSave, onClose }: Prop
                   : "Gantt が読める大きさを保つため、これより小さくはできません。"}
             </span>
           </div>
+
+          <div className="zk-field">
+            <span className="zk-field-label">日程の自動調整</span>
+            <label style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={autoDraft}
+                disabled={busy}
+                onChange={(e) => setAutoDraft(e.target.checked)}
+              />
+              <span>依存関係に合わせて自動で日程を後ろへずらす</span>
+            </label>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
+              依存先の終了日より前に始まっている Issue だけを後ろへずらします。前倒しはしません。
+              まとめて動いた分は Ctrl+Z 一回で戻せます。
+            </span>
+          </div>
         </div>
 
         <div className="zk-modal-foot">
           <button
             className="zk-button"
             disabled={busy}
-            onClick={() => setDraft(DEFAULT_WINDOW_SETTINGS)}
+            onClick={() => {
+              setDraft(DEFAULT_WINDOW_SETTINGS)
+              setAutoDraft(true)
+            }}
           >
             既定に戻す
           </button>
           <button className="zk-button" onClick={onClose} disabled={busy}>キャンセル</button>
-          <button className="zk-button" disabled={busy || tooSmall} onClick={() => onSave(draft)}>
+          <button
+            className="zk-button"
+            disabled={busy || tooSmall}
+            onClick={() => onSave(draft, autoDraft)}
+          >
             {busy ? "保存中…" : "保存して反映"}
           </button>
         </div>

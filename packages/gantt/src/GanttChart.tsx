@@ -10,6 +10,7 @@ import {
   collectMilestones,
   createTimeScale,
   defaultTimelineEnd,
+  detectCycles,
   isScheduled,
   maxDate,
   resolveDependencies,
@@ -101,6 +102,11 @@ export function GanttChart({
   const milestones = useMemo(() => collectMilestones(tasks), [tasks])
   // 依存関係は Issue 本文の宣言から起こす。折り畳みやズームでは変わらない。
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks])
+  // 循環した依存は成立しない日程を表している。消さずに、そうと分かる線で描く。
+  const cyclicEdges = useMemo(
+    () => detectCycles(tasks, dependencies).cyclicEdges,
+    [tasks, dependencies],
+  )
   const visible = useMemo(
     () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
     [scrollTop, viewportHeight, rows.length],
@@ -274,6 +280,7 @@ export function GanttChart({
           visible={visible}
           milestones={milestones}
           dependencies={dependencies}
+          cyclicEdges={cyclicEdges}
           onTaskDatesChange={onTaskDatesChange}
           readOnly={readOnly}
           onTaskOpen={onTaskOpen ? openTask : undefined}

@@ -277,6 +277,8 @@
    バーと同じ強さで出ると盤面が線だらけになる。 */
 .zk-dep-line { fill: none; stroke-width: 1.5; stroke-linecap: round; opacity: 0.85; }
 .zk-dep-head { opacity: 0.85; }
+/* 循環した依存。成立しない日程なので、色と破線の両方で他と区別する。 */
+.zk-dep-line--cyclic { stroke-dasharray: 5 4; opacity: 1; }
 
 .zk-milestone { fill: #a855f7; }
 .zk-milestone-label { fill: var(--text-secondary); font-size: 10px; dominant-baseline: middle; }

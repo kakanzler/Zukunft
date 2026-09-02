@@ -11,9 +11,11 @@ import type {
   ScheduleTask,
   TaskContent,
 } from "@zukunft/domain"
+import { DependencyEditor } from "@/DependencyEditor"
 import { LabelEditor } from "@/LabelEditor"
+import { ParentCategoryPicker } from "@/ParentCategoryPicker"
 import { Markdown } from "@/Markdown"
-import { inclusiveDays, isISODate } from "@zukunft/domain"
+import { inclusiveDays, isISODate, parseDependencyRefs, withDependencyRefs } from "@zukunft/domain"
 import { statusVar } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
 
@@ -38,6 +40,10 @@ type Props = {
    * 編集モードで、この Issue をどの親カテゴリに置くかを選ばせるのに使う。
    */
   parentLabels?: string[]
+  /** 名前で重複を除いたラベル一覧。別リポジトリにしか無いものの色を引くのに使う */
+  labelCatalog?: Label[]
+  /** 同じ Project のタスク。依存先の候補になる */
+  allTasks?: ScheduleTask[]
   /** リポジトリの Milestone（OPEN のみ）。編集モードの候補になる */
   availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
@@ -54,6 +60,8 @@ type Props = {
 
 /** 既定値をその場で書くと毎回別の配列になり、選択肢の再計算が止まらなくなる。 */
 const EMPTY_PARENT_LABELS: string[] = []
+const EMPTY_LABELS: Label[] = []
+const EMPTY_TASKS: ScheduleTask[] = []
 
 const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
   synced: "同期済み",
@@ -76,8 +84,8 @@ const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
  */
 export function TaskModal({
   task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
-  availableLabels, parentLabels = EMPTY_PARENT_LABELS, availableMilestones,
-  onCreateLabel, onDeleteLabel,
+  availableLabels, parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
+  allTasks = EMPTY_TASKS, availableMilestones, onCreateLabel, onDeleteLabel,
   onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
   initialEditing = false,
 }: Props) {
@@ -92,6 +100,8 @@ export function TaskModal({
   const [body, setBody] = useState(task.body)
   const [labels, setLabels] = useState<Label[]>(task.labels)
   const [milestoneId, setMilestoneId] = useState(task.milestone?.id ?? "")
+  // 依存関係は本文に書いてある。編集中は本文とは別に持ち、保存のときに書き戻す。
+  const [dependsOn, setDependsOn] = useState<number[]>(() => parseDependencyRefs(task.body))
 
   // 同期が返ってきて値が変わったら入力欄も追従させる
   useEffect(() => {
@@ -106,6 +116,7 @@ export function TaskModal({
     setBody(task.body)
     setLabels(task.labels)
     setMilestoneId(task.milestone?.id ?? "")
+    setDependsOn(parseDependencyRefs(task.body))
   }, [task.title, task.body, task.labels, task.milestone, editing])
 
   // 別のタスクを開いたら削除の確認は持ち越さない。
@@ -120,6 +131,7 @@ export function TaskModal({
     setBody(task.body)
     setLabels(task.labels)
     setMilestoneId(task.milestone?.id ?? "")
+    setDependsOn(parseDependencyRefs(task.body))
     setEditing(false)
     setConfirmingDelete(false)
   }, [task.title, task.body, task.labels, task.milestone])
@@ -177,10 +189,14 @@ export function TaskModal({
   const sameLabels =
     labels.length === task.labels.length &&
     labels.every((l) => task.labels.some((t) => t.id === l.id))
+  const savedDeps = parseDependencyRefs(task.body)
+  const sameDeps =
+    dependsOn.length === savedDeps.length && dependsOn.every((n) => savedDeps.includes(n))
   const contentDirty =
     title !== task.title ||
     body !== task.body ||
     !sameLabels ||
+    !sameDeps ||
     milestoneId !== (task.milestone?.id ?? "")
   const contentValid = title.trim() !== ""
 
@@ -191,7 +207,8 @@ export function TaskModal({
     }
     await onSaveContent(task.id, task.issueId, {
       title: title.trim(),
-      body,
+      // 依存関係は本文の中の宣言なので、本文と一緒に 1 回で送る。
+      body: withDependencyRefs(body, dependsOn),
       labelIds: labels.map((l) => l.id),
       milestoneId: milestoneId === "" ? null : milestoneId,
     })
@@ -391,37 +408,15 @@ export function TaskModal({
             {/* 親カテゴリはラベルの一種なので、ラベル編集と同じカードに置く。
                 別の枠にすると「ラベルとは別の何か」に見えてしまう。 */}
             {parentLabels.length > 0 && (
-              <div className="zk-field">
-                <span className="zk-field-label">Parent category</span>
-                <div className="zk-label-picker zk-label-picker--parents">
-                  {parentChoices.map(({ name, label }) => (
-                    <button
-                      type="button"
-                      key={name}
-                      className="zk-chip zk-chip--button"
-                      aria-pressed={selectedParents.has(name)}
-                      disabled={savingContent || (!label && !selectedParents.has(name))}
-                      title={
-                        label
-                          ? "このラベルの付け外しになります"
-                          : `${name} はこの Issue のリポジトリに無いラベルです。GitHub 側で作ると選べます。`
-                      }
-                      onClick={() => toggleParent(name, label)}
-                      style={
-                        selectedParents.has(name) && label?.color
-                          ? { borderColor: `#${label.color}`, color: `#${label.color}` }
-                          : undefined
-                      }
-                    >
-                      <span
-                        className="zk-legend-dot"
-                        style={{ background: label?.color ? `#${label.color}` : "currentColor" }}
-                      />
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ParentCategoryPicker
+                parentLabels={parentLabels}
+                labelCatalog={labelCatalog}
+                available={availableLabels}
+                selected={labels}
+                busy={savingContent}
+                onChange={setLabels}
+                onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
+              />
             )}
             <LabelEditor
               selected={labels}
@@ -430,6 +425,13 @@ export function TaskModal({
               onChange={setLabels}
               onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
               onDelete={(label) => onDeleteLabel(task.repositoryId, label)}
+            />
+            <DependencyEditor
+              tasks={allTasks}
+              taskId={task.id}
+              value={dependsOn}
+              busy={savingContent}
+              onChange={setDependsOn}
             />
           </div>
         )}
@@ -456,6 +458,8 @@ export function TaskModal({
         <div className="zk-task-notice">
           {/* モックには枠が無いが、担当・Priority・Progress は落とさずここに畳んでおく。 */}
           <span className="zk-task-meta-inline">
+            依存: {savedDeps.length === 0 ? "—" : savedDeps.map((n) => `#${n}`).join(", ")}
+            　/　
             {task.assignees.length === 0
               ? "未アサイン"
               : task.assignees.map((a) => a.login).join(", ")}

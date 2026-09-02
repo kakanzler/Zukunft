@@ -88,6 +88,11 @@ const LABELS: Label[] = [
 
 /** モックで依存関係を持たせる Issue の添字（直前の Issue に依存する）。 */
 const DEPENDS_ON = new Set([1, 4, 6, 7, 9, 10, 12, 13])
+/**
+ * 循環を 1 組だけ作る（#111 ⇄ #112）。値は依存先の添字。
+ * 危険色の破線とログの警告を、実機で確かめられるようにしておく。
+ */
+const CYCLE_BACK = new Map<number, number>([[10, 11], [11, 10]])
 
 function buildTasks(origin: string): ScheduleTask[] {
   return SEED.map(([title, statusIndex, milestoneIndex, offset, duration, progress], i) => ({
@@ -99,7 +104,9 @@ function buildTasks(origin: string): ScheduleTask[] {
     // 依存関係の矢印を確かめられるよう、一部の Issue に宣言を入れておく。
     // 直前の Issue に依存させると、どこかで必ず段違いの行を跨ぐ形になる。
     body: `${title} の作業内容をここに書く。
-${DEPENDS_ON.has(i) ? `
+${CYCLE_BACK.has(i) ? `
+blocked-by: #${101 + CYCLE_BACK.get(i)!}
+` : ""}${DEPENDS_ON.has(i) ? `
 blocked-by: #${100 + i}
 ` : ""}
 - [ ] 実装

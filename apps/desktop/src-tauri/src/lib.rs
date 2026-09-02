@@ -578,6 +578,7 @@ pub fn run() {
             settings::get_settings,
             settings::set_parent_labels,
             settings::set_window_settings,
+            settings::set_auto_reschedule,
             settings::exit_fullscreen,
         ])
         // 保存されている窓の見せ方は、画面が出る前に当てる。

@@ -36,6 +36,7 @@ export const MIN_WINDOW_HEIGHT = 600
 type AppSettings = {
   parentLabels?: Record<string, string[]>
   window?: Partial<WindowSettings>
+  autoReschedule?: boolean
 }
 
 /**
@@ -45,6 +46,7 @@ type AppSettings = {
  */
 const STORAGE_PREFIX = "zukunft.parentLabels."
 const WINDOW_STORAGE_KEY = "zukunft.window"
+const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
 
 async function invokeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   // Tauri の外では @tauri-apps/api の読み込み自体が失敗するため、動的に読む。
@@ -82,6 +84,33 @@ export async function saveParentLabels(projectId: string, labels: string[]): Pro
     return
   }
   window.sessionStorage.setItem(STORAGE_PREFIX + projectId, JSON.stringify(labels))
+}
+
+/**
+ * 依存関係に合わせて日程を自動で後ろへずらすか（企画書 §15.2）。
+ *
+ * 既定は有効。依存関係を書いた時点で「守りたい」という意思表示なので、
+ * 既定で守る側に倒す。読めなければ既定に落ちる — この設定のために
+ * Gantt が開けなくなる方が困る。
+ */
+export async function loadAutoReschedule(): Promise<boolean> {
+  try {
+    if (isTauri()) {
+      const settings = await invokeCommand<AppSettings>("get_settings", {})
+      return settings.autoReschedule ?? true
+    }
+    return window.sessionStorage.getItem(AUTO_RESCHEDULE_STORAGE_KEY) !== "false"
+  } catch {
+    return true
+  }
+}
+
+export async function saveAutoReschedule(enabled: boolean): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("set_auto_reschedule", { enabled })
+    return
+  }
+  window.sessionStorage.setItem(AUTO_RESCHEDULE_STORAGE_KEY, String(enabled))
 }
 
 /** 壊れた値でウィンドウ設定の画面が開けなくなるのを避ける。 */

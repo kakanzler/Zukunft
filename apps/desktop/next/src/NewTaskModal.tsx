@@ -9,6 +9,7 @@ import type {
   RepositorySummary,
 } from "@zukunft/domain"
 import { LabelEditor } from "@/LabelEditor"
+import { ParentCategoryPicker } from "@/ParentCategoryPicker"
 import { inclusiveDays, isISODate } from "@zukunft/domain"
 
 type StatusOption = { id: string; name: string }
@@ -28,6 +29,13 @@ type Props = {
   statusOptions: StatusOption[]
   /** 選択中リポジトリに定義済みのラベル */
   availableLabels: Label[]
+  /**
+   * 親カテゴリとして扱うラベル名（カテゴリ設定の値）。
+   * 起票の時点で置き場所を決められないと、作った直後に詳細を開き直すことになる。
+   */
+  parentLabels?: string[]
+  /** 名前で重複を除いたラベル一覧。別リポジトリにしか無いものの色を引くのに使う */
+  labelCatalog?: Label[]
   /** 選択中リポジトリの Milestone（OPEN のみ） */
   availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
@@ -53,6 +61,10 @@ const BODY_TEMPLATE = `## Aiming
 ## Acceptance Criteria
 `
 
+/** 既定値をその場で書くと毎回別の配列になり、選択肢の再計算が止まらなくなる。 */
+const EMPTY_PARENT_LABELS: string[] = []
+const EMPTY_LABELS: Label[] = []
+
 /**
  * 新しい Issue を起票して Project に追加する。
  *
@@ -63,6 +75,7 @@ const BODY_TEMPLATE = `## Aiming
 export function NewTaskModal({
   repositories, repositoryId, onChangeRepository, canEditDates, busy,
   statusOptions, availableLabels, availableMilestones, onCreateLabel, onDeleteLabel,
+  parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
   onCreate, onClose,
 }: Props) {
   const [title, setTitle] = useState("")
@@ -175,6 +188,20 @@ export function NewTaskModal({
               ))}
             </select>
           </label>
+
+          {/* 親カテゴリはラベルの一種なので、ラベル編集と続けて置く。
+              どちらも同じ labels を編集するので、片方で付けた分はもう片方にも出る。 */}
+          {parentLabels.length > 0 && (
+            <ParentCategoryPicker
+              parentLabels={parentLabels}
+              labelCatalog={labelCatalog}
+              available={availableLabels}
+              selected={labels}
+              busy={busy}
+              onChange={setLabels}
+              onCreate={(name, color) => onCreateLabel(repositoryId, name, color)}
+            />
+          )}
 
           <LabelEditor
             selected={labels}

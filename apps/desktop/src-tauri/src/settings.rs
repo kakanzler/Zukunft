@@ -86,7 +86,7 @@ impl WindowSettings {
 /// ラベル名の意味は Project ごとに違う（同じ「Certification」でも、別の Project では
 /// ただのラベルでありうる）ため、Project の node id をキーにして持つ。
 /// BTreeMap なのは、保存のたびに JSON のキー順が入れ替わって差分が読めなくなるのを避けるため。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     /// project id -> 親カテゴリとして扱うラベル名
@@ -95,6 +95,26 @@ pub struct AppSettings {
     /// 窓の見せ方。Project に依らないので、こちらはキーを持たない。
     #[serde(default)]
     pub window: WindowSettings,
+    /// 依存関係に合わせて日程を自動で後ろへずらすか（企画書 §15.2）。
+    /// 既定は有効 — 依存関係を書いた時点で守りたいという意思表示なので、そちらに倒す。
+    #[serde(default = "default_true")]
+    pub auto_reschedule: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Default は derive しない。bool の derive は false なので、設定ファイルが
+/// 無い / 壊れている初回起動だけ auto_reschedule が既定と逆になってしまう。
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            parent_labels: BTreeMap::new(),
+            window: WindowSettings::default(),
+            auto_reschedule: default_true(),
+        }
+    }
 }
 
 /// 設定ファイルの置き場所。無ければ作る。
@@ -177,6 +197,20 @@ pub async fn set_parent_labels(
     } else {
         settings.parent_labels.insert(project_id, labels);
     }
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// 自動の日程調整を切り替える。
+///
+/// Project に依らない設定なので、窓の見せ方と同じくキーを持たない。
+#[tauri::command]
+pub async fn set_auto_reschedule(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<AppSettings, AppError> {
+    let mut settings = read(&app);
+    settings.auto_reschedule = enabled;
     write(&app, &settings)?;
     Ok(settings)
 }

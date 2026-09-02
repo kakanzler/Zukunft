@@ -7,7 +7,7 @@ GitHub Projects v2 の日付フィールドを Gantt 上でドラッグして編
 ドキュメント:
 
 - [企画書](specifications/github_issue_gantt_desktop_app_proposal.md) — 設計の意図と構想
-- [v0.1.0 仕様書](specifications/zukunft_v0.1.0_specification.md) — 実装済みの状態、企画書からの変更点、検証状況
+- [v0.1.0 仕様書](specifications/backup/zukunft_v0.1.0_specification.md) — v0.1.0 時点の記録。現在の正本は企画書のほう
 
 ## 構成
 

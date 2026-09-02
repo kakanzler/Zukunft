@@ -5,7 +5,7 @@ import {
   type DateChange,
   type ScheduleState,
   type ScheduleTask,
-  applyLocalChange,
+  applyChangeWithCascade,
   canRedo,
   canUndo,
   initialState,
@@ -150,9 +150,18 @@ export function useSchedule(
     pump.current()
   }, [state.queue, projectId, repository])
 
-  const changeDates = useCallback((taskId: string, change: DateChange) => {
-    setState((prev) => applyLocalChange(prev, taskId, change, nextMutationId()))
-  }, [])
+  /**
+   * 日付の変更。依存関係に合わせて、押し出されたタスクも一緒に動かす（企画書 §15.2）。
+   * 自動調整は設定で切れる。切っているときは今までどおり 1 件だけ動く。
+   */
+  const changeDates = useCallback(
+    (taskId: string, change: DateChange, options: { autoReschedule?: boolean } = {}) => {
+      setState((prev) =>
+        applyChangeWithCascade(prev, taskId, change, nextMutationId, options),
+      )
+    },
+    [],
+  )
 
   const [creating, setCreating] = useState(false)
 
@@ -179,8 +188,10 @@ export function useSchedule(
 
   const actions = useMemo(
     () => ({
-      undo: () => setState((prev) => undoAction(prev, nextMutationId())),
-      redo: () => setState((prev) => redoAction(prev, nextMutationId())),
+      // カスケードは 1 操作で複数タスクを動かすので、id をいくつ使うかは
+      // 呼ぶ前に決まらない。id そのものではなく生成関数を渡す。
+      undo: () => setState((prev) => undoAction(prev, nextMutationId)),
+      redo: () => setState((prev) => redoAction(prev, nextMutationId)),
       rollback: (mutationId: string) => setState((prev) => rollbackAction(prev, mutationId)),
       keepRemote: (mutationId: string) => setState((prev) => resolveWithRemote(prev, mutationId)),
       keepLocal: (mutationId: string) =>

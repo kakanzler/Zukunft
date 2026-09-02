@@ -7,7 +7,8 @@ import {
   rollback, resolveWithRemote, resolveWithLocal, nextPending, pendingCount,
   undo, redo, canUndo, canRedo, mergeRefresh, findTask,
   normalizeFieldName, resolveField, canEditDates,
-  parseDependencyRefs, resolveDependencies,
+  parseDependencyRefs, resolveDependencies, withDependencyRefs,
+  detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
   type ScheduleTask, type ProjectSchema,
 } from "../src/index"
 
@@ -243,11 +244,11 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
 {
   let st = initialState([mk(1, "Planning", "2026-09-01", "2026-09-07", null)])
   st = applyLocalChange(st, "i1", { startDate: "2026-09-05", endDate: "2026-09-11" }, "m1")
-  st = undo(st, "m2")
+  st = undo(st, () => "m2")
   eq("undo restores dates", [findTask(st, "i1")!.startDate, findTask(st, "i1")!.endDate], ["2026-09-01", "2026-09-07"])
   eq("undo issues a new mutation", nextPending(st)!.id, "m2")
   eq("undo enables redo", canRedo(st), true)
-  st = redo(st, "m3")
+  st = redo(st, () => "m3")
   eq("redo reapplies", findTask(st, "i1")!.startDate, "2026-09-05")
   eq("redo re-enables undo", canUndo(st), true)
 }
@@ -335,6 +336,227 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   eq("drops self reference", resolveDependencies([
     { ...mk(1, "Planning", "2026-09-01", "2026-09-05", null), body: "blocked-by: #1" },
   ]), [])
+}
+
+// --- dependency: 本文への書き戻し ---
+{
+  const body = "作業内容。\n\nblocked-by: #101\n\n- [ ] 実装"
+  eq("rewrites an existing declaration",
+     withDependencyRefs(body, [102, 103]),
+     "作業内容。\n\nblocked-by: #102, #103\n\n- [ ] 実装")
+  eq("round-trips", parseDependencyRefs(withDependencyRefs(body, [7, 3])), [3, 7])
+  eq("sorts and dedupes", withDependencyRefs("x", [9, 2, 9]), "x\n\nblocked-by: #2, #9")
+  eq("appends when there was none", withDependencyRefs("本文", [5]), "本文\n\nblocked-by: #5")
+  eq("no double blank line", withDependencyRefs("本文\n", [5]), "本文\n\nblocked-by: #5")
+  eq("empty removes the declaration", withDependencyRefs(body, []), "作業内容。\n\n- [ ] 実装")
+  eq("keeps deliberate blank runs when nothing was dropped",
+     withDependencyRefs("a\n\n\nb", [1]), "a\n\n\nb\n\nblocked-by: #1")
+  eq("keeps the rest of an inline line",
+     withDependencyRefs("これは blocked-by: #1 のはず", [2]),
+     "blocked-by: #2\nこれは のはず")
+  eq("leaves fenced code alone",
+     withDependencyRefs("```\nblocked-by: #9\n```", [4]),
+     "```\nblocked-by: #9\n```\n\nblocked-by: #4")
+  eq("declaration position is kept",
+     withDependencyRefs("a\nblocked-by: #1\nb", [2]), "a\nblocked-by: #2\nb")
+}
+
+// --- cycle: 循環の検出（§15.1） ---
+{
+  const dep = (n: number, refs: number[]) => ({
+    ...mk(n, "Planning", "2026-09-01", "2026-09-05", null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+
+  const acyclic = [dep(1, []), dep(2, [1]), dep(3, [2])]
+  eq("no cycle in a chain", detectCycles(acyclic).cycles.length, 0)
+  eq("no cyclic edges in a chain", detectCycles(acyclic).cyclicEdges.size, 0)
+
+  const pair = [dep(1, [2]), dep(2, [1])]
+  const pairReport = detectCycles(pair)
+  eq("two-node cycle found", pairReport.cycles.length, 1)
+  eq("two-node cycle message", formatCycle(pairReport.cycles[0]!), "循環: #101 → #102 → #101")
+  eq("both edges are cyclic", pairReport.cyclicEdges.size, 2)
+
+  // 3 ノードの循環に弦（i2 → i1）を足す。後退辺だけを拾う実装では弦が循環扱いにならない。
+  const chorded = [dep(1, [2]), dep(2, [3, 1]), dep(3, [1])]
+  const chordReport = detectCycles(chorded)
+  eq("chord is cyclic too", chordReport.cyclicEdges.has(edgeKey("i2", "i1")), true)
+  eq("all three tasks are cyclic", chordReport.cyclicTaskIds.size, 3)
+
+  // 循環にぶら下がるだけのタスクは循環ではない。
+  const hanging = [dep(1, [2]), dep(2, [1]), dep(3, [1])]
+  const hangingReport = detectCycles(hanging)
+  eq("dependent of a cycle is not cyclic", hangingReport.cyclicTaskIds.has("i3"), false)
+  eq("edge into a cycle is not cyclic", hangingReport.cyclicEdges.has(edgeKey("i3", "i1")), false)
+
+  const selfRef = [{ ...dep(1, []), body: "blocked-by: #101" }]
+  eq("self reference makes no edge", detectCycles(selfRef).cycles.length, 0)
+}
+
+// --- cascade: 依存に合わせて後ろへ押す（§15.2） ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+
+  // #2 は #1 に依存。#1 は 09-10 に終わるのに #2 は 09-05 開始 → 違反。
+  const simple = [dep(1, [], "2026-09-01", "2026-09-10"), dep(2, [1], "2026-09-05", "2026-09-08")]
+  eq("pushes a violating dependent", cascade(simple, "i1"),
+     [{ taskId: "i2", startDate: "2026-09-11", endDate: "2026-09-14" }])
+
+  // 余裕があれば動かさない。前倒しはしない。
+  const slack = [dep(1, [], "2026-09-01", "2026-09-10"), dep(2, [1], "2026-09-20", "2026-09-25")]
+  eq("slack is preserved", cascade(slack, "i1"), [])
+
+  // 依存先の終了日と同じ日に始まるのは違反（後に始まる必要がある）。
+  const touching = [dep(1, [], "2026-09-01", "2026-09-10"), dep(2, [1], "2026-09-10", "2026-09-12")]
+  eq("same-day start is a violation", cascade(touching, "i1")[0]!.startDate, "2026-09-11")
+
+  // 3 連鎖。2 件目は 1 件目の新しい終了日から計算される。
+  const chain = [
+    dep(1, [], "2026-09-01", "2026-09-10"),
+    dep(2, [1], "2026-09-05", "2026-09-06"),
+    dep(3, [2], "2026-09-07", "2026-09-08"),
+  ]
+  eq("chain cascades in blocker-first order", cascade(chain, "i1"), [
+    { taskId: "i2", startDate: "2026-09-11", endDate: "2026-09-12" },
+    { taskId: "i3", startDate: "2026-09-13", endDate: "2026-09-14" },
+  ])
+
+  // 依存先が 2 つ。遅い方に合わせ、出るのは 1 回だけ。
+  const twoBlockers = [
+    dep(1, [], "2026-09-01", "2026-09-10"),
+    dep(2, [], "2026-09-01", "2026-09-20"),
+    dep(3, [1, 2], "2026-09-05", "2026-09-06"),
+  ]
+  eq("waits for the latest blocker", cascade(twoBlockers, "i1"),
+     [{ taskId: "i3", startDate: "2026-09-21", endDate: "2026-09-22" }])
+
+  // ダイヤモンド。単純な BFS だと #4 が 2 回出る。
+  const diamond = [
+    dep(1, [], "2026-09-01", "2026-09-10"),
+    dep(2, [1], "2026-09-02", "2026-09-03"),
+    dep(3, [1], "2026-09-02", "2026-09-04"),
+    dep(4, [2, 3], "2026-09-05", "2026-09-06"),
+  ]
+  const diamondEdits = cascade(diamond, "i1")
+  eq("diamond emits each task once", diamondEdits.length, 3)
+  eq("diamond joins after the later branch",
+     diamondEdits.find((e) => e.taskId === "i4")!.startDate, "2026-09-14")
+
+  // 日付未設定のタスクは飛ばす。
+  const undated = [
+    dep(1, [], "2026-09-01", "2026-09-10"),
+    { ...dep(2, [1], "2026-09-05", "2026-09-06"), startDate: null, endDate: null },
+  ]
+  eq("undated dependent is skipped", cascade(undated, "i1"), [])
+
+  // 循環していても返ってくる（無限ループしない）。
+  const cyclic = [
+    dep(1, [], "2026-09-01", "2026-09-10"),
+    dep(2, [1, 3], "2026-09-05", "2026-09-06"),
+    dep(3, [2], "2026-09-05", "2026-09-06"),
+  ]
+  eq("cyclic tasks are excluded", cascade(cyclic, "i1"), [])
+}
+
+// --- store: カスケードは 1 つの Undo エントリにまとまる ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+  let seq = 0
+  const next = () => `g${++seq}`
+
+  let st = initialState([
+    dep(1, [], "2026-09-01", "2026-09-05"),
+    dep(2, [1], "2026-09-03", "2026-09-04"),
+    dep(3, [2], "2026-09-05", "2026-09-06"),
+  ])
+  st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next)
+  eq("cascade queues one mutation per task", pendingCount(st), 3)
+  eq("cascade is one undo entry", st.undo.length, 1)
+  eq("the entry holds every moved task", st.undo[0]!.items.length, 3)
+  eq("downstream moved", findTask(st, "i3")!.startDate, "2026-09-13")
+
+  st = undo(st, next)
+  eq("one undo reverts the whole group", [
+    findTask(st, "i1")!.endDate, findTask(st, "i2")!.startDate, findTask(st, "i3")!.startDate,
+  ], ["2026-09-05", "2026-09-03", "2026-09-05"])
+  eq("undo empties the stack", canUndo(st), false)
+  eq("undo enables redo for the group", canRedo(st), true)
+
+  st = redo(st, next)
+  eq("redo reapplies the whole group", findTask(st, "i3")!.startDate, "2026-09-13")
+  eq("redo restores the undo entry", st.undo.length, 1)
+}
+
+// --- store: 自動調整を切れば 1 件だけ ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+  let seq = 0
+  const next = () => `g${++seq}`
+  let st = initialState([
+    dep(1, [], "2026-09-01", "2026-09-05"),
+    dep(2, [1], "2026-09-03", "2026-09-04"),
+  ])
+  st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next, { autoReschedule: false })
+  eq("auto reschedule off moves only the dragged task", pendingCount(st), 1)
+  eq("dependent is left where it was", findTask(st, "i2")!.startDate, "2026-09-03")
+}
+
+// --- store: グループが直前の操作にくっつかない ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+  let seq = 0
+  const next = () => `g${++seq}`
+  let st = initialState([
+    dep(1, [], "2026-09-01", "2026-09-05"),
+    dep(2, [1], "2026-09-03", "2026-09-04"),
+    dep(3, [], "2026-09-01", "2026-09-02"),
+  ])
+  st = applyChangeWithCascade(st, "i3", { endDate: "2026-09-04" }, next)
+  st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next)
+  eq("separate actions stay separate entries", st.undo.length, 2)
+  eq("the earlier entry keeps its own item", st.undo[0]!.items.length, 1)
+
+  st = undo(st, next)
+  eq("undo reverts only the latest group", findTask(st, "i3")!.endDate, "2026-09-04")
+  eq("the earlier action survives", canUndo(st), true)
+}
+
+// --- store: ロールバックはグループごと落とす ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+  let seq = 0
+  const next = () => `g${++seq}`
+  let st = initialState([
+    dep(1, [], "2026-09-01", "2026-09-05"),
+    dep(2, [1], "2026-09-03", "2026-09-04"),
+  ])
+  st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next)
+  const pushed = st.queue.find((m) => m.taskId === "i2")!
+  st = rollback(st, pushed.id)
+  eq("rollback reverts the failed task", findTask(st, "i2")!.startDate, "2026-09-03")
+  eq("rollback drops the whole group", canUndo(st), false)
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)

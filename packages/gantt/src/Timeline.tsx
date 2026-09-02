@@ -5,6 +5,7 @@ import {
   type DateChange,
   type Dependency,
   type ISODate,
+  edgeKey,
   type ScheduledTask,
   type TimeScale,
   inclusiveDays,
@@ -15,7 +16,7 @@ import {
 } from "@zukunft/domain"
 import { glowVar, gradientId, statusVar } from "./colors"
 import type { Row } from "./rows"
-import { useBarDrag } from "./useBarDrag"
+import { type DragState, useBarDrag } from "./useBarDrag"
 
 const BAR_INSET = 5
 /** 矢印の先端の大きさ（px）。行の高さ 32 に対して主張しすぎない程度。 */
@@ -29,6 +30,8 @@ type Props = {
   milestones: { title: string; dueOn: ISODate }[]
   /** Issue 間の依存関係。両端が描かれている行のときだけ矢印にする */
   dependencies?: Dependency[]
+  /** 循環している辺（cycle.ts の edgeKey）。危険色の破線で描く */
+  cyclicEdges?: ReadonlySet<string>
   onTaskDatesChange: (taskId: string, change: DateChange) => void
   readOnly?: boolean
   onTaskOpen?: (taskId: string) => void
@@ -41,10 +44,11 @@ type Props = {
 
 /** 既定値をその場で書くと毎回別の配列になり、矢印の再計算が止まらなくなる。 */
 const EMPTY_DEPENDENCIES: Dependency[] = []
+const EMPTY_EDGES: ReadonlySet<string> = new Set()
 
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, dependencies = EMPTY_DEPENDENCIES,
-  onTaskDatesChange, readOnly = false,
+  cyclicEdges = EMPTY_EDGES, onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef,
 }: Props) {
   const { drag, begin, move, end } = useBarDrag({
@@ -72,9 +76,11 @@ export function Timeline({
     return map
   }, [rows])
 
+  // drag を placed の依存に入れると、ポインタが動くたびに全行の Map を作り直すことに
+  // なる。辺の数はたかが知れているので、buildLinks の中で 1 本ずつ差し替える。
   const links = useMemo(
-    () => buildLinks(dependencies, placed, scale, rowHeight, visible),
-    [dependencies, placed, scale, rowHeight, visible],
+    () => buildLinks(dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag),
+    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag],
   )
 
   return (
@@ -102,7 +108,7 @@ export function Timeline({
           ))}
           {/* 矢印は自分の色から依存先の色へ。線の実座標で刻むので、
               行が離れていても向きと色の対応が崩れない。 */}
-          {links.map((link) => (
+          {links.filter((link) => !link.cyclic).map((link) => (
             <linearGradient
               key={link.id}
               id={link.id}
@@ -181,9 +187,18 @@ export function Timeline({
         {/* バーより後に描く。関係が線で追えることを、バーの見やすさより優先する。 */}
         {links.map((link) => (
           <g key={link.id} className="zk-dep">
-            <path className="zk-dep-line" d={link.path} stroke={`url(#${link.id})`} />
+            {/* 循環した辺はグラデーションを当てない。当てると危険色が消える。 */}
+            <path
+              className={link.cyclic ? "zk-dep-line zk-dep-line--cyclic" : "zk-dep-line"}
+              d={link.path}
+              stroke={link.cyclic ? "var(--danger)" : `url(#${link.id})`}
+            />
             {/* 先端はグラデーションの終端色で塗る。線が着いた先の色と揃える。 */}
-            <path className="zk-dep-head" d={link.head} fill={link.toColor} />
+            <path
+              className="zk-dep-head"
+              d={link.head}
+              fill={link.cyclic ? "var(--danger)" : link.toColor}
+            />
           </g>
         ))}
 
@@ -256,6 +271,7 @@ type Placement = { index: number; statusIndex: number; task: ScheduledTask }
 
 type Link = {
   id: string
+  cyclic: boolean
   path: string
   head: string
   x1: number
@@ -280,11 +296,20 @@ function buildLinks(
   scale: TimeScale,
   rowHeight: number,
   visible: { start: number; end: number },
+  cyclicEdges: ReadonlySet<string>,
+  drag: DragState | null,
 ): Link[] {
+  // ドラッグ中のタスクは仮の日付で描く。確定するまで線が元の位置に残ると、
+  // 依存先を見ながら日程を動かすことができない。
+  const at = (placement: Placement | undefined): Placement | undefined =>
+    placement && drag?.taskId === placement.task.id
+      ? { ...placement, task: { ...placement.task, ...drag.preview } }
+      : placement
+
   const links: Link[] = []
   dependencies.forEach((dep, i) => {
-    const from = placed.get(dep.fromTaskId)
-    const to = placed.get(dep.toTaskId)
+    const from = at(placed.get(dep.fromTaskId))
+    const to = at(placed.get(dep.toTaskId))
     // 折り畳んだグループの中や、日付が未設定で描かれていない行には引けない。
     if (!from || !to) return
     // 両端とも可視範囲の同じ側の外なら、線も画面に掛からない。
@@ -308,6 +333,7 @@ function buildLinks(
 
     links.push({
       id: `zk-dep-${i}`,
+      cyclic: cyclicEdges.has(edgeKey(dep.fromTaskId, dep.toTaskId)),
       path: `M ${x1} ${y1} C ${x1 + out1 * bend} ${y1}, ${x2 + out2 * bend} ${y2}, ${x2} ${y2}`,
       head: `M ${x2} ${y2} L ${x2 + out2 * ARROW} ${y2 - ARROW / 2} L ${x2 + out2 * ARROW} ${y2 + ARROW / 2} Z`,
       x1, y1, x2, y2,

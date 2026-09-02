@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
+  DateChange,
   GroupMode,
   IssueState,
   Label,
@@ -13,7 +14,14 @@ import type {
   RepositorySummary,
   ZoomLevel,
 } from "@zukunft/domain"
-import { ZOOM_LEVELS, canEditDates, missingRequiredFields, resolveField } from "@zukunft/domain"
+import {
+  ZOOM_LEVELS,
+  canEditDates,
+  detectCycles,
+  formatCycle,
+  missingRequiredFields,
+  resolveField,
+} from "@zukunft/domain"
 import { DEFAULT_VIEWS, GanttChart, Sidebar } from "@zukunft/gantt"
 import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
@@ -31,8 +39,10 @@ import type { WindowSettings } from "@/settings"
 import {
   DEFAULT_WINDOW_SETTINGS,
   exitFullscreen,
+  loadAutoReschedule,
   loadParentLabels,
   loadWindowSettings,
+  saveAutoReschedule,
   saveParentLabels,
   saveWindowSettings,
 } from "@/settings"
@@ -213,6 +223,7 @@ function Workspace({
     keepLocal,
     retry,
     rollback,
+    changeDates,
     updateContent,
     updateStatus,
     setTaskState,
@@ -242,6 +253,9 @@ function Workspace({
   const [manualOpen, setManualOpen] = useState(false)
   // ウィンドウの見せ方。Project に依らないアプリ全体の設定。
   const [windowSettings, setWindowSettings] = useState<WindowSettings>(DEFAULT_WINDOW_SETTINGS)
+  // 依存に合わせて日程を押し出すか。これも Project に依らないアプリ全体の設定。
+  // 既定は ON。読み込みが返るまでの間も、企画書 §15.2 の既定で動かす。
+  const [autoReschedule, setAutoReschedule] = useState(true)
   const [savingWindow, setSavingWindow] = useState(false)
   // ログだけを見るモード（Alt+L）。Gantt を描かないので、長い hint も折り返さず読める。
   const [logFull, setLogFull] = useState(false)
@@ -442,12 +456,16 @@ function Workspace({
     }
   }, [repository, projectId, logAppend])
 
-  // ウィンドウの設定は起動時に一度だけ読む。窓への反映は Rust 側が起動時に済ませて
-  // いるので、ここで読むのは設定画面に今の値を出すためだけ。
+  // アプリ全体の設定は起動時に一度だけ読む。窓への反映は Rust 側が起動時に済ませて
+  // いるので、ここで読むのは設定画面に今の値を出すためだけ。自動の日程調整は
+  // 反映先が画面ではなく操作なので、こちらは読めた値をそのまま使う。
   useEffect(() => {
     let alive = true
     void loadWindowSettings().then((loaded) => {
       if (alive) setWindowSettings(loaded)
+    })
+    void loadAutoReschedule().then((enabled) => {
+      if (alive) setAutoReschedule(enabled)
     })
     return () => {
       alive = false
@@ -563,6 +581,32 @@ function Workspace({
   }, [labelsByRepo, schedule.tasks])
 
   /**
+   * 循環した依存（企画書 §15.1）。Gantt では赤い破線になるが、グループを畳んでいれば
+   * 線そのものが出ない。気づける場所を Gantt の外にも置く。
+   */
+  const cycles = useMemo(() => detectCycles(schedule.tasks).cycles, [schedule.tasks])
+  // 前に出した循環の一覧。同じ内容なら出し直さない。
+  //
+  // dedupeKey は行を積み増さないだけで、出し直せば時刻が更新されて末尾に動く。
+  // tasks は同期のたびに新しくなるので、それだけで警告がログの中を飛び回る。
+  const loggedCycles = useRef("")
+  useEffect(() => {
+    const key = cycles.map((c) => c.taskIds.join(">")).join("|")
+    if (key === loggedCycles.current) return
+    loggedCycles.current = key
+    for (const cycle of cycles) {
+      logAppend({
+        level: "warn",
+        message: formatCycle(cycle),
+        hint:
+          "依存が循環しています。自動の日程調整はこの循環を対象外にします。" +
+          "どちらかの Issue の blocked-by を外してください。",
+        dedupeKey: `cycle:${cycle.taskIds.join(">")}`,
+      })
+    }
+  }, [cycles, logAppend])
+
+  /**
    * 親カテゴリの保存。
    *
    * この設定は以後の Gantt の並び全体を黙って変えるので、いつ誰が変えたのかを
@@ -603,15 +647,28 @@ function Workspace({
   )
 
   /**
-   * ウィンドウ設定の保存。Rust 側が保存と同時に窓へ反映する。
+   * 設定画面の保存。ウィンドウは Rust 側が保存と同時に窓へ反映する。
    * 反映まで含めて成功したときだけ画面の値を進める。
+   *
+   * 自動の日程調整は保存先が別なので続けて書く。以後の日付操作が黙って変わる
+   * 設定なので、カテゴリと同じくログにも残す。変わっていなければ書かない。
    */
   const saveWindow = useCallback(
-    async (next: WindowSettings) => {
+    async (next: WindowSettings, nextAutoReschedule: boolean) => {
       setSavingWindow(true)
       try {
         await saveWindowSettings(next)
         setWindowSettings(next)
+        if (nextAutoReschedule !== autoReschedule) {
+          await saveAutoReschedule(nextAutoReschedule)
+          setAutoReschedule(nextAutoReschedule)
+          logAppend({
+            level: "info",
+            message: nextAutoReschedule
+              ? "依存に合わせた日程の自動調整を有効にしました"
+              : "依存に合わせた日程の自動調整をやめました",
+          })
+        }
         setSettingsOpen(false)
         logAppend({
           level: "info",
@@ -629,14 +686,14 @@ function Workspace({
             : String(error)
         logAppend({
           level: "error",
-          message: "ウィンドウの設定を保存できませんでした",
+          message: "設定を保存できませんでした",
           hint: detail,
         })
       } finally {
         setSavingWindow(false)
       }
     },
-    [logAppend],
+    [logAppend, autoReschedule],
   )
 
   const createLabel = useCallback(
@@ -858,6 +915,19 @@ function Workspace({
     logSyncStanding()
   }, [onReloadSchema, reload, logSyncStanding])
 
+  /**
+   * 日付の変更。押し出しを伴うかどうかは設定で決まるので、ここで足してから渡す。
+   *
+   * 依存は設定と changeDates の 2 つだけに保つ。これも GanttChart に渡る props で、
+   * 描画のたびに別物になると keydown リスナが張り直される。
+   */
+  const changeTaskDates = useCallback(
+    (taskId: string, change: DateChange) => {
+      changeDates(taskId, change, { autoReschedule })
+    },
+    [changeDates, autoReschedule],
+  )
+
   // GanttChart の keydown リスナが毎レンダリング張り直されないよう、関数の identity を保つ。
   const openTaskDetail = useCallback((taskId: string) => {
     setOpenTaskEditing(false)
@@ -991,7 +1061,7 @@ function Workspace({
         zoom={zoom}
         groupBy={groupBy}
         parentLabels={parentLabels}
-        onTaskDatesChange={schedule.changeDates}
+        onTaskDatesChange={changeTaskDates}
         readOnly={!editable}
         onTaskOpen={openTaskDetail}
         onTaskEdit={openTaskForEdit}
@@ -1016,6 +1086,8 @@ function Workspace({
           busy={schedule.creating}
           statusOptions={statusOptions}
           availableLabels={labelsByRepo[newTaskRepositoryId] ?? []}
+          parentLabels={parentLabels}
+          labelCatalog={labelCandidates}
           availableMilestones={milestonesByRepo[newTaskRepositoryId] ?? []}
           onCreateLabel={createLabel}
           onDeleteLabel={deleteLabel}
@@ -1038,6 +1110,7 @@ function Workspace({
       {settingsOpen && (
         <SettingsModal
           settings={windowSettings}
+          autoReschedule={autoReschedule}
           busy={savingWindow}
           applies={isTauri()}
           onSave={saveWindow}
@@ -1055,10 +1128,12 @@ function Workspace({
           statusOptions={statusOptions}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
           parentLabels={parentLabels}
+          labelCatalog={labelCandidates}
+          allTasks={schedule.tasks}
           availableMilestones={milestonesByRepo[openTask.repositoryId] ?? []}
           onCreateLabel={createLabel}
           onDeleteLabel={deleteLabel}
-          onChangeDates={schedule.changeDates}
+          onChangeDates={changeTaskDates}
           onChangeStatus={changeStatus}
           onSaveContent={saveContent}
           onSetState={changeIssueState}
