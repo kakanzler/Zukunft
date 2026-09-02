@@ -107,16 +107,19 @@ export function LogPane({ log, full, onToggleFull }: Props) {
         )}
         {counts.total === 0 && <span className="zk-log-title">問題なし</span>}
         <span className="zk-log-spacer" />
-        <button
-          className="zk-button"
-          aria-pressed={full}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleFull()
-          }}
-        >
-          {full ? "Gantt に戻す (Alt+L)" : "ログだけ表示 (Alt+L)"}
-        </button>
+        {/* ログだけの表示に入る口はヘッダから外し、Alt+L に任せる。
+            戻る口まで消すと full のまま抜けられなくなるので、その間だけ出す。 */}
+        {full && (
+          <button
+            className="zk-button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFull()
+            }}
+          >
+            Gantt に戻す (Alt+L)
+          </button>
+        )}
         <button
           className="zk-button"
           disabled={counts.total === 0}

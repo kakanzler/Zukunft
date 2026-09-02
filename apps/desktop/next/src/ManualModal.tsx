@@ -1,0 +1,220 @@
+"use client"
+
+import { type ReactNode, useEffect, useState } from "react"
+import { StatusLegend } from "@zukunft/gantt"
+
+type Props = {
+  /** Project の Status の定義順。凡例の色はこの並びに対応する */
+  statuses: string[]
+  onClose: () => void
+}
+
+type Section = {
+  id: string
+  title: string
+  /** 目次に添える 1 行。開く前に当たりを付けられるようにする */
+  summary: string
+}
+
+const SECTIONS: Section[] = [
+  { id: "legend", title: "凡例", summary: "画面の色と記号の意味" },
+  { id: "hotkeys", title: "ホットキー", summary: "キーボード操作の一覧" },
+  { id: "sync", title: "同期状態", summary: "GitHub との一致状況の読み方" },
+]
+
+const HOTKEYS: [string, string][] = [
+  ["Alt+M", "このマニュアルを開く / 閉じる"],
+  ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
+  ["Alt+L", "ログだけの表示と Gantt を切り替える"],
+  ["Ctrl+Z", "日付の変更を元に戻す"],
+  ["Ctrl+Shift+Z / Ctrl+Y", "元に戻した変更をやり直す"],
+  ["Esc", "開いているモーダルを閉じる"],
+]
+
+/**
+ * アプリの使い方（Alt+M）。
+ *
+ * ヘッダから凡例と同期状態の表示を外したので、その説明の置き場をここにまとめた。
+ * 常時画面を占有させず、必要なときだけ開いて読む形にする。
+ *
+ * 左の目次で節を選び、右にその節だけを出す。スクロール位置で節を追わせるより、
+ * 「いま何を読んでいるか」が目次の見た目と一致する方が迷わない。
+ */
+export function ManualModal({ statuses, onClose }: Props) {
+  const [active, setActive] = useState<string>(SECTIONS[0]!.id)
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
+
+  return (
+    <div
+      className="zk-modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="マニュアル"
+    >
+      <div className="zk-modal zk-modal--manual">
+        <div className="zk-modal-head">
+          <div className="zk-modal-title" style={{ flex: 1 }}>マニュアル</div>
+          <button className="zk-button" onClick={onClose} aria-label="閉じる">✕</button>
+        </div>
+
+        <div className="zk-manual">
+          <nav className="zk-manual-toc" aria-label="目次">
+            {SECTIONS.map((section) => (
+              <button
+                key={section.id}
+                className="zk-manual-toc-item"
+                aria-pressed={active === section.id}
+                onClick={() => setActive(section.id)}
+              >
+                <span className="zk-manual-toc-title">{section.title}</span>
+                <span className="zk-manual-toc-summary">{section.summary}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="zk-manual-body">
+            {active === "legend" && <LegendSection statuses={statuses} />}
+            {active === "hotkeys" && <HotkeySection />}
+            {active === "sync" && <SyncSection />}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Block({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="zk-manual-block">
+      <h3 className="zk-manual-heading">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function LegendSection({ statuses }: { statuses: string[] }) {
+  return (
+    <>
+      <Block title="Status の色">
+        {statuses.length === 0 ? (
+          <p className="zk-manual-text">
+            Project を読み込むと、その Project の Status がここに並びます。
+          </p>
+        ) : (
+          <>
+            <StatusLegend statuses={statuses} />
+            <p className="zk-manual-text">
+              バーの色は Issue の Status に対応します。色は Status の定義順に割り当てるので、
+              Project 側で並べ替えると色も入れ替わります。
+            </p>
+          </>
+        )}
+      </Block>
+
+      <Block title="バーの見え方">
+        <dl className="zk-manual-list">
+          <dt>白い重ね塗り</dt>
+          <dd>Progress フィールドの進捗。0% と未設定のときは出ません。</dd>
+          <dt>薄いバー</dt>
+          <dd>ドラッグ中に残る元の位置。離すまで確定しません。</dd>
+          <dt>#123</dt>
+          <dd>Issue 番号。バーが短いときは省かれます。</dd>
+        </dl>
+      </Block>
+
+      <Block title="タイムラインの記号">
+        <dl className="zk-manual-list">
+          <dt>縦の明るい線</dt>
+          <dd>今日。表示期間の外にあるときは出ません。</dd>
+          <dt>◆</dt>
+          <dd>Milestone の期日。右に Milestone 名が付きます。</dd>
+          <dt>表示終了日</dt>
+          <dd>
+            横軸の右端。既定は「今日から 1 年先」と「進行中の Issue のいちばん先の日付」の
+            遠いほうです。日付を入れると固定され、「自動」で既定に戻ります。
+          </dd>
+        </dl>
+      </Block>
+    </>
+  )
+}
+
+function HotkeySection() {
+  return (
+    <>
+      <Block title="キー一覧">
+        <dl className="zk-manual-list">
+          {HOTKEYS.map(([keys, description]) => (
+            <div className="zk-manual-row" key={keys}>
+              <dt><kbd className="zk-kbd">{keys}</kbd></dt>
+              <dd>{description}</dd>
+            </div>
+          ))}
+        </dl>
+      </Block>
+
+      <Block title="補足">
+        <p className="zk-manual-text">
+          Alt のショートカットは物理キーで判定します。配列を切り替えていても、
+          同じ位置のキーで同じ操作になります。文字入力を奪わないよう、
+          Ctrl や Command と一緒に押したときは効きません。
+        </p>
+      </Block>
+    </>
+  )
+}
+
+function SyncSection() {
+  return (
+    <>
+      <Block title="ログに出る同期の状態">
+        <dl className="zk-manual-list">
+          <dt>同期されています</dt>
+          <dd>送信待ちも未解決の失敗も無く、GitHub と一致している状態です。</dd>
+          <dt>未同期 N 件</dt>
+          <dd>
+            ローカルには反映済みで、まだ GitHub に送っていない変更があります。
+            送信は自動で進むので、待てば「同期されています」に変わります。
+          </dd>
+          <dt>要対応 N 件</dt>
+          <dd>
+            送信に失敗した、または送る前に GitHub 側が変わっていた変更があります。
+            自然には解消しないので、ログの各エントリのボタンで対処してください。
+          </dd>
+        </dl>
+      </Block>
+
+      <Block title="いつログに出るか">
+        <p className="zk-manual-text">
+          状態が変わったときに 1 行だけ出ます。未同期のまま件数が増えても行は増えません。
+          いま同期できているかを確かめたいときは「再読み込み」を押すと、そのときの状態を
+          あらためてログに出します。
+        </p>
+      </Block>
+
+      <Block title="対処のしかた">
+        <dl className="zk-manual-list">
+          <dt>失敗</dt>
+          <dd>「再試行」で送り直します。原因が消えていないうちは同じ結果になります。</dd>
+          <dt>競合</dt>
+          <dd>
+            「GitHub を採用」で自分の変更を捨て、「こちらを採用」で自分の変更を
+            上書き送信します。どちらを選んでも、その場でログのエントリは取り下げられます。
+          </dd>
+          <dt>取り消し</dt>
+          <dd>「取り消し」で、その変更を送る前の値に戻します。</dd>
+        </dl>
+      </Block>
+    </>
+  )
+}

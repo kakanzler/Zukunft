@@ -569,7 +569,14 @@ pub fn run() {
             delete_task,
             settings::get_settings,
             settings::set_parent_labels,
+            settings::set_window_settings,
         ])
+        // 保存されている窓の見せ方は、画面が出る前に当てる。
+        // 起動後に当てると、既定の大きさで一度描いてから跳ねるのが見えてしまう。
+        .setup(|app| {
+            settings::apply_window_settings(app.handle());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Zukunft");
 }

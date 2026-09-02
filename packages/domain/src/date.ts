@@ -37,6 +37,18 @@ export function addDays(date: ISODate, days: number): ISODate {
   return toISODate(new Date(toUTCDate(date).getTime() + days * MS_PER_DAY))
 }
 
+/**
+ * 年を加算した ISODate を返す。
+ * 2/29 に 1 年足すと 3/1 になる（Date.UTC が繰り上げる）。表示期間の端を決めるだけの
+ * 用途なので、そこを日付として厳密に扱う必要はない。
+ */
+export function addYears(date: ISODate, years: number): ISODate {
+  const d = toUTCDate(date)
+  return toISODate(
+    new Date(Date.UTC(d.getUTCFullYear() + years, d.getUTCMonth(), d.getUTCDate())),
+  )
+}
+
 /** `to - from` を日数で返す。 */
 export function diffDays(from: ISODate, to: ISODate): number {
   return Math.round((toUTCDate(to).getTime() - toUTCDate(from).getTime()) / MS_PER_DAY)

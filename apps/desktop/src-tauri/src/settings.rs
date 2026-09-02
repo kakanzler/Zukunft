@@ -6,6 +6,81 @@ use tauri::Manager;
 
 use crate::error::{AppError, AppResult, ErrorKind};
 
+/// ウィンドウの見せ方。
+///
+/// 「フルスクリーン」「最大化」「指定サイズ」の 3 つしか無い。解像度そのものを
+/// 変えるのではなく、あくまでこのアプリの窓の大きさを決めるだけ — ディスプレイの
+/// 設定に手を出すと、アプリを閉じたあとに何が残るのかが利用者から見えなくなる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowMode {
+    /// 指定した幅・高さの窓。
+    Windowed,
+    Maximized,
+    /// 既定。Gantt は横に長く、既定の窓では常に軸が切れるため。
+    #[default]
+    Fullscreen,
+}
+
+/// 既定値は tauri.conf.json の windows[0] に合わせる。
+/// 設定ファイルが無い初回起動で窓の大きさが変わってしまわないようにするため。
+const DEFAULT_WIDTH: f64 = 1440.0;
+const DEFAULT_HEIGHT: f64 = 900.0;
+/// tauri.conf.json の minWidth / minHeight。ここより小さい値は保存させない。
+const MIN_WIDTH: f64 = 960.0;
+const MIN_HEIGHT: f64 = 600.0;
+/// 手で settings.json を書き換えられても、画面外に飛ばない範囲に収める。
+const MAX_WIDTH: f64 = 7680.0;
+const MAX_HEIGHT: f64 = 4320.0;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowSettings {
+    #[serde(default)]
+    pub mode: WindowMode,
+    /// Windowed のときの幅（論理ピクセル）。他のモードでも、戻ったときのために保つ。
+    #[serde(default = "default_width")]
+    pub width: f64,
+    #[serde(default = "default_height")]
+    pub height: f64,
+}
+
+fn default_width() -> f64 {
+    DEFAULT_WIDTH
+}
+
+fn default_height() -> f64 {
+    DEFAULT_HEIGHT
+}
+
+impl Default for WindowSettings {
+    fn default() -> Self {
+        Self {
+            mode: WindowMode::default(),
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+        }
+    }
+}
+
+impl WindowSettings {
+    /// 壊れた値（NaN、極端な大きさ）を落とす。窓が開けなくなる方が設定の失敗より重い。
+    fn normalized(self) -> Self {
+        let clamp = |value: f64, min: f64, max: f64, fallback: f64| {
+            if value.is_finite() {
+                value.clamp(min, max)
+            } else {
+                fallback
+            }
+        };
+        Self {
+            mode: self.mode,
+            width: clamp(self.width, MIN_WIDTH, MAX_WIDTH, DEFAULT_WIDTH),
+            height: clamp(self.height, MIN_HEIGHT, MAX_HEIGHT, DEFAULT_HEIGHT),
+        }
+    }
+}
+
 /// アプリ内だけの設定。GitHub には一切書き戻さない。
 ///
 /// ラベル名の意味は Project ごとに違う（同じ「Certification」でも、別の Project では
@@ -17,6 +92,9 @@ pub struct AppSettings {
     /// project id -> 親カテゴリとして扱うラベル名
     #[serde(default)]
     pub parent_labels: BTreeMap<String, Vec<String>>,
+    /// 窓の見せ方。Project に依らないので、こちらはキーを持たない。
+    #[serde(default)]
+    pub window: WindowSettings,
 }
 
 /// 設定ファイルの置き場所。無ければ作る。
@@ -100,5 +178,55 @@ pub async fn set_parent_labels(
         settings.parent_labels.insert(project_id, labels);
     }
     write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// 保存されている見せ方をメインウィンドウに反映する。
+///
+/// 失敗は握り潰す。ウィンドウ操作が拒まれても（プラットフォーム都合など）、
+/// 起動できないよりは既定の大きさで開く方がよい。
+pub fn apply_window_settings(app: &tauri::AppHandle) {
+    let settings = read(app).window.normalized();
+    apply(app, settings);
+}
+
+fn apply(app: &tauri::AppHandle, window_settings: WindowSettings) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    match window_settings.mode {
+        WindowMode::Fullscreen => {
+            let _ = window.set_fullscreen(true);
+        }
+        WindowMode::Maximized => {
+            let _ = window.set_fullscreen(false);
+            let _ = window.maximize();
+        }
+        WindowMode::Windowed => {
+            let _ = window.set_fullscreen(false);
+            let _ = window.unmaximize();
+            let _ = window.set_size(tauri::LogicalSize::new(
+                window_settings.width,
+                window_settings.height,
+            ));
+            let _ = window.center();
+        }
+    }
+}
+
+/// 窓の見せ方を保存し、その場で反映する。
+///
+/// 保存だけして次の起動を待たせない。設定を変えた結果がその場で見えないと、
+/// 効いているのかどうかを確かめる手立てが無い。
+#[tauri::command]
+pub async fn set_window_settings(
+    app: tauri::AppHandle,
+    window: WindowSettings,
+) -> Result<AppSettings, AppError> {
+    let window = window.normalized();
+    let mut settings = read(&app);
+    settings.window = window;
+    write(&app, &settings)?;
+    apply(&app, window);
     Ok(settings)
 }

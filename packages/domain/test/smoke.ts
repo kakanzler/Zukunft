@@ -1,6 +1,6 @@
 import {
-  addDays, diffDays, inclusiveDays, startOfWeek, startOfNextMonth,
-  createTimeScale, timelineRange, monthTicks, subTicks,
+  addDays, addYears, diffDays, inclusiveDays, startOfWeek, startOfNextMonth,
+  createTimeScale, timelineRange, defaultTimelineEnd, monthTicks, subTicks,
   hitTest, applyDrag, diffDates,
   computeStats, groupByStatus, groupByLabel, groupByParentLabel, groupTasks, missingRequiredFields,
   initialState, applyLocalChange, markSyncing, markSynced, markFailed, markConflict,
@@ -24,6 +24,7 @@ eq("inclusiveDays same day", inclusiveDays("2026-09-01", "2026-09-01"), 1)
 eq("startOfWeek sunday->prev monday", startOfWeek("2026-09-06"), "2026-08-31")
 eq("startOfWeek monday is itself", startOfWeek("2026-08-31"), "2026-08-31")
 eq("startOfNextMonth december", startOfNextMonth("2026-12-15"), "2027-01-01")
+eq("addYears", addYears("2026-09-02", 1), "2027-09-02")
 
 // --- timescale ---
 const scale = createTimeScale("2026-09-01", "2026-09-30", "week")
@@ -33,6 +34,17 @@ eq("toX +10d", scale.toX("2026-09-11"), 120)
 eq("toDate rounds to day", scale.toDate(125), "2026-09-11")
 eq("toDays rounds", scale.toDays(30), 3)
 eq("range pads to week start", timelineRange(["2026-09-10"], "2026-09-01").origin, "2026-08-31")
+eq("default end falls back to one year out", defaultTimelineEnd([], "2026-09-02"), "2027-09-02")
+eq(
+  "default end keeps the horizon when active issues end sooner",
+  defaultTimelineEnd(["2026-10-01", "2027-01-15"], "2026-09-02"),
+  "2027-09-02",
+)
+eq(
+  "default end stretches past the horizon for a longer active issue",
+  defaultTimelineEnd(["2026-10-01", "2028-03-31"], "2026-09-02"),
+  "2028-03-31",
+)
 eq("month ticks count", monthTicks(scale).length, 1)
 eq("week subticks label", subTicks(scale)[0]!.label, "WEEK 1")
 

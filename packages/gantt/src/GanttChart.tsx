@@ -6,14 +6,15 @@ import {
   type GroupMode,
   type ScheduleTask,
   type ZoomLevel,
+  type ISODate,
   collectMilestones,
-  computeStats,
   createTimeScale,
+  defaultTimelineEnd,
   isScheduled,
+  maxDate,
   timelineRange,
   today,
 } from "@zukunft/domain"
-import { KpiBar, StatusLegend } from "./KpiBar"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
 import { buildRows, visibleRange } from "./rows"
@@ -50,6 +51,9 @@ export function GanttChart({
   onTaskDatesChange, readOnly = false, onTaskOpen, emptyMessage, toolbar,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
+  // 読み込みより先に開くので、タスクから初期値を作らず null から始める。
+  const [endOverride, setEndOverride] = useState<ISODate | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(600)
   const paneRef = useRef<HTMLDivElement>(null)
@@ -59,13 +63,26 @@ export function GanttChart({
     [tasks, statusOrder, collapsed, groupBy, parentLabels],
   )
 
+  /**
+   * 横軸の既定の右端。今日から 1 年先と、進行中（open）の Issue のいちばん先の日付の、
+   * 遠いほう。閉じた Issue は数えないので、終わった仕事のために軸が伸び続けることはない。
+   */
+  const defaultEnd = useMemo(() => {
+    const activeEnds = tasks
+      .filter(isScheduled)
+      .filter((t) => t.issueState === "OPEN")
+      .map((t) => t.endDate)
+    return defaultTimelineEnd(activeEnds, today())
+  }, [tasks])
+
   const scale = useMemo(() => {
     const dates = tasks.filter(isScheduled).flatMap((t) => [t.startDate, t.endDate])
-    const { origin, end } = timelineRange(dates, today())
+    const { origin } = timelineRange(dates, today())
+    // 左端より手前を右端にはできない。幅が 0 以下になると目盛りも当たり判定も壊れる。
+    const end = maxDate(endOverride ?? defaultEnd, origin)
     return createTimeScale(origin, end, zoom)
-  }, [tasks, zoom])
+  }, [tasks, zoom, endOverride, defaultEnd])
 
-  const stats = useMemo(() => computeStats(tasks), [tasks])
   const milestones = useMemo(() => collectMilestones(tasks), [tasks])
   const visible = useMemo(
     () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
@@ -95,7 +112,25 @@ export function GanttChart({
       <div className="zk-header">
         {toolbar}
         <div className="zk-header-spacer" />
-        <StatusLegend statuses={statusOrder} />
+        <label className="zk-axis-end">
+          <span className="zk-axis-end-label">表示終了日</span>
+          <input
+            type="date"
+            className="zk-input zk-axis-end-input"
+            value={scale.end}
+            min={scale.origin}
+            onChange={(e) => setEndOverride(e.target.value || null)}
+          />
+          {/* 手で決めた右端は、タスクが増えても動かない。既定に戻す口を残しておく。 */}
+          <button
+            className="zk-button"
+            onClick={() => setEndOverride(null)}
+            disabled={endOverride === null}
+            title="今日から 1 年先か、進行中の Issue のいちばん先の日付まで"
+          >
+            自動
+          </button>
+        </label>
       </div>
 
       {tasks.length === 0 ? (
@@ -131,8 +166,6 @@ export function GanttChart({
         />
       </div>
       )}
-
-      <KpiBar stats={stats} />
     </>
   )
 }

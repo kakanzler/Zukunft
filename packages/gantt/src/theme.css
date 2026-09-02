@@ -21,7 +21,8 @@
 
   color: var(--text-primary);
   background: var(--bg-base);
-  font-family: "Inter", "Segoe UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  /* --font-sawarabi は next/font が <html> に載せる。読めない場合に備えて和文の控えを残す。 */
+  font-family: var(--font-sawarabi), "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 13px;
   display: flex;
   flex-direction: column;
@@ -50,6 +51,23 @@
 }
 .zk-header-title { font-weight: 600; letter-spacing: 0.04em; }
 .zk-header-spacer { flex: 1; }
+
+/* ---- 横軸の右端 ---- */
+.zk-axis-end {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+  flex: 0 0 auto;
+}
+.zk-axis-end-label {
+  color: var(--text-secondary);
+  font-size: 11px; letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* ネイティブのカレンダーアイコンは暗い盤面では黒く潰れるので明るく戻す。 */
+.zk-axis-end-input { width: 140px; }
+.zk-axis-end-input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
+.zk-axis-end-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
 .zk-legend { display: flex; gap: calc(var(--space) * 3); align-items: center; }
 .zk-legend-item {
@@ -302,6 +320,84 @@
    1 行目に status / title / label / 閉じる、2 行目に日付と Milestone、
    その下に本文、最下段に Parent Issue と操作ボタンを置く。
    本文だけが伸び、モーダルの高さは画面に収める。 */
+/* ---- マニュアル（Alt+M） ---- */
+.zk-modal--manual {
+  width: min(880px, 100%);
+  /* 節を切り替えても枠が跳ねないよう、高さは内容で変えない。 */
+  height: min(600px, 86vh);
+  max-height: 86vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.zk-manual {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+}
+.zk-manual-toc {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space));
+  padding: calc(var(--space) * 3);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  overflow-y: auto;
+}
+.zk-manual-toc-item {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  text-align: left;
+  padding: calc(var(--space) * 2) calc(var(--space) * 2.5);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.zk-manual-toc-item:hover { border-color: rgba(45, 107, 255, 0.6); }
+.zk-manual-toc-item[aria-pressed="true"] {
+  background: var(--bg-elevated);
+  border-color: var(--border-glow);
+}
+.zk-manual-toc-title { font-size: 13px; font-weight: 600; }
+.zk-manual-toc-summary { font-size: 10px; color: var(--text-secondary); }
+
+.zk-manual-body {
+  padding: calc(var(--space) * 4);
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: calc(var(--space) * 5);
+}
+.zk-manual-block { display: grid; gap: calc(var(--space) * 2); }
+.zk-manual-heading {
+  margin: 0;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.zk-manual-text { margin: 0; font-size: 12px; line-height: 1.7; color: var(--text-primary); }
+.zk-manual-list { margin: 0; display: grid; gap: calc(var(--space) * 2); font-size: 12px; }
+.zk-manual-list dt { font-weight: 600; }
+.zk-manual-list dd { margin: 2px 0 0; line-height: 1.7; color: var(--text-secondary); }
+/* ホットキー表はキーと説明を横に並べる。縦読みで対応が追えるようにするため。 */
+.zk-manual-row { display: grid; grid-template-columns: 180px 1fr; align-items: baseline; gap: calc(var(--space) * 3); }
+.zk-manual-row dd { margin: 0; }
+.zk-kbd {
+  display: inline-block;
+  padding: 2px calc(var(--space) * 1.5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
 .zk-modal--task {
   width: min(760px, 100%);
   /* 本文が主役なので、短い Issue でも枠の高さは変えない（モックと同じ縦長）。 */
@@ -649,6 +745,12 @@
   font-size: 9px; letter-spacing: 0.06em;
   color: var(--text-secondary);
 }
+/* 設定はビューの下、プロジェクト名の上。ここで下端に寄せる。 */
+.zk-sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; }
+.zk-sidebar-bottom .zk-sidebar-item { padding: calc(var(--space) * 2); }
+/* 設定が居るときは、そちらが下端を取る。 */
+.zk-sidebar-bottom + .zk-sidebar-foot { margin-top: 0; }
+
 .zk-sidebar-foot {
   margin-top: auto;
   font-size: 10px;

@@ -17,6 +17,7 @@
         "height": 900,
         "minWidth": 960,
         "minHeight": 600,
+        "fullscreen": true,
         "theme": "Dark"
       }
     ],

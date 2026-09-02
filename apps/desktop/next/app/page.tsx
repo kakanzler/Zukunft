@@ -20,12 +20,28 @@ import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
 import { SignIn } from "@/SignIn"
 import { CategorySettings } from "@/CategorySettings"
+import { ManualModal } from "@/ManualModal"
+import { SettingsModal } from "@/SettingsModal"
 import { LogPane } from "@/LogPane"
 import { NewTaskModal } from "@/NewTaskModal"
 import { TaskModal } from "@/TaskModal"
+import type { LogInput } from "@/log"
 import { useLog } from "@/log"
-import { loadParentLabels, saveParentLabels } from "@/settings"
+import type { WindowSettings } from "@/settings"
+import {
+  DEFAULT_WINDOW_SETTINGS,
+  loadParentLabels,
+  loadWindowSettings,
+  saveParentLabels,
+  saveWindowSettings,
+} from "@/settings"
 import { useSchedule } from "@/useSchedule"
+
+/**
+ * 同期状況のログはこのキーで 1 行に畳む。
+ * 状態が変わるたびに積み増すと、直近の状況を探すのに古い行を読み飛ばすことになる。
+ */
+const SYNC_LOG_KEY = "sync"
 
 export default function Page() {
   const [repository, setRepository] = useState<GitHubScheduleRepository | null>(null)
@@ -41,6 +57,9 @@ export default function Page() {
   // null = 判定前。ブラウザ（モック）ではサインインを要求しない。
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [authSource, setAuthSource] = useState<string>("none")
+  // 認証判定のやり直し用トリガ。レート制限などで判定できなかったとき、
+  // アプリを起動し直さずに再試行できるようにする。
+  const [authNonce, setAuthNonce] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -56,14 +75,23 @@ export default function Page() {
           setSignedIn(status.signedIn)
           setAuthSource(status.source)
         }
-      } catch {
-        if (alive) setSignedIn(false)
+      } catch (error) {
+        if (!alive) return
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        // サインイン画面へ送るのは、GitHub がトークンを受け付けなかったときだけ。
+        // レート制限や通信断まで未サインインとして扱うと、有効なトークンを持ったまま
+        // サインアウトさせてしまうので、それ以外は起動時のエラーとして見せる。
+        if (err.kind === "unauthorized") {
+          setSignedIn(false)
+        } else {
+          setBootError(err)
+        }
       }
     })()
     return () => {
       alive = false
     }
-  }, [])
+  }, [authNonce])
 
   useEffect(() => {
     if (signedIn !== true) return
@@ -140,7 +168,13 @@ export default function Page() {
           onReloadSchema={() => setSchemaNonce((n) => n + 1)}
         />
       ) : bootError ? (
-        <ErrorPanel error={bootError} />
+        <ErrorPanel
+          error={bootError}
+          onRetry={() => {
+            setBootError(null)
+            setAuthNonce((n) => n + 1)
+          }}
+        />
       ) : (
         <div className="zk-empty">読み込み中…</div>
       )}
@@ -182,6 +216,11 @@ function Workspace({
   // 親カテゴリとして扱うラベル名。GitHub ではなくアプリ側の設定（Project ごと）。
   const [parentLabels, setParentLabels] = useState<string[]>([])
   const [savingCategories, setSavingCategories] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  // ウィンドウの見せ方。Project に依らないアプリ全体の設定。
+  const [windowSettings, setWindowSettings] = useState<WindowSettings>(DEFAULT_WINDOW_SETTINGS)
+  const [savingWindow, setSavingWindow] = useState(false)
   // ログだけを見るモード（Alt+L）。Gantt を描かないので、長い hint も折り返さず読める。
   const [logFull, setLogFull] = useState(false)
   const [repositories, setRepositories] = useState<RepositorySummary[]>([])
@@ -228,6 +267,63 @@ function Workspace({
       dedupeKey: key,
     })
   }, [schema, missing, log])
+
+  /**
+   * いまの同期状況。ヘッダの常時表示をやめた代わりに、これをログへ流す（企画書 §19）。
+   * 未解決の競合・失敗があるうちは「同期されています」とは言わない。
+   */
+  const standing = useMemo((): { kind: "synced" | "pending" | "problem"; entry: LogInput } => {
+    const problems = schedule.queue.filter(
+      (m) => m.state === "failed" || m.state === "conflict",
+    ).length
+    if (problems > 0) {
+      return {
+        kind: "problem",
+        entry: {
+          level: "warn",
+          message: `要対応 ${problems} 件`,
+          hint: "送信に失敗した、または競合した変更があります。下のログの各エントリから対処してください。",
+          dedupeKey: SYNC_LOG_KEY,
+        },
+      }
+    }
+    if (schedule.pending > 0) {
+      return {
+        kind: "pending",
+        entry: {
+          level: "warn",
+          message: `未同期 ${schedule.pending} 件`,
+          hint: "GitHub へ送信していない変更があります。送信は自動で進みます。",
+          dedupeKey: SYNC_LOG_KEY,
+        },
+      }
+    }
+    return {
+      kind: "synced",
+      entry: { level: "info", message: "同期されています。", dedupeKey: SYNC_LOG_KEY },
+    }
+  }, [schedule.queue, schedule.pending])
+
+  /**
+   * 同期状況の変化だけをログに出す。
+   *
+   * 未同期のまま件数が増えても行を増やさない（「発覚時に 1 度だけ」）。
+   * 最初の読み込みが終わるまで黙っているのは、まだ何も取れていない時点の
+   * 「同期されています」が状況を語っていないため。
+   */
+  const lastStanding = useRef<string | null>(null)
+  useEffect(() => {
+    if (schedule.load.phase !== "ready" && lastStanding.current === null) return
+    if (lastStanding.current === standing.kind) return
+    lastStanding.current = standing.kind
+    log.append(standing.entry)
+  }, [standing, schedule.load.phase, log])
+
+  /** 「再読み込み」から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
+  const logSyncStanding = useCallback(() => {
+    lastStanding.current = standing.kind
+    log.append(standing.entry)
+  }, [standing, log])
 
   // 同期の失敗と競合をログへ。解決したエントリは取り下げる（企画書 §18）。
   useEffect(() => {
@@ -298,6 +394,18 @@ function Workspace({
       alive = false
     }
   }, [repository, projectId, log])
+
+  // ウィンドウの設定は起動時に一度だけ読む。窓への反映は Rust 側が起動時に済ませて
+  // いるので、ここで読むのは設定画面に今の値を出すためだけ。
+  useEffect(() => {
+    let alive = true
+    void loadWindowSettings().then((loaded) => {
+      if (alive) setWindowSettings(loaded)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // 親カテゴリの設定を読む。ラベル名の意味は Project ごとに違うので、
   // 切り替えたらいったん空に戻してから読み直す。前の Project の指定で
@@ -436,6 +544,43 @@ function Workspace({
       }
     },
     [projectId, log],
+  )
+
+  /**
+   * ウィンドウ設定の保存。Rust 側が保存と同時に窓へ反映する。
+   * 反映まで含めて成功したときだけ画面の値を進める。
+   */
+  const saveWindow = useCallback(
+    async (next: WindowSettings) => {
+      setSavingWindow(true)
+      try {
+        await saveWindowSettings(next)
+        setWindowSettings(next)
+        setSettingsOpen(false)
+        log.append({
+          level: "info",
+          message:
+            next.mode === "windowed"
+              ? `ウィンドウを ${next.width}×${next.height} にしました`
+              : next.mode === "maximized"
+                ? "ウィンドウを最大化しました"
+                : "フルスクリーンにしました",
+        })
+      } catch (error) {
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        log.append({
+          level: "error",
+          message: "ウィンドウの設定を保存できませんでした",
+          hint: detail,
+        })
+      } finally {
+        setSavingWindow(false)
+      }
+    },
+    [log],
   )
 
   const createLabel = useCallback(
@@ -632,6 +777,9 @@ function Workspace({
       if (e.code === "KeyL") {
         e.preventDefault()
         setLogFull((v) => !v)
+      } else if (e.code === "KeyM") {
+        e.preventDefault()
+        setManualOpen((v) => !v)
       } else if (e.code === "KeyA") {
         // 作成先の Project が決まっていないと起票できない。
         if (!projectId) return
@@ -671,6 +819,7 @@ function Workspace({
         onClick={() => {
           onReloadSchema()
           schedule.reload()
+          logSyncStanding()
         }}
       >
         再読み込み
@@ -689,12 +838,9 @@ function Workspace({
       >
         カテゴリ設定
       </button>
-      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
-        {/* 未解決の競合・失敗を「同期済み」と表示しない（企画書 §19）。 */}
-        {summarize(schedule.pending, schedule.queue)}
-        {!isTauri() && "　/　モックデータ"}
-        {authSource === "env" && "　/　環境変数のトークン"}
-      </span>
+      <button className="zk-button" onClick={() => setManualOpen(true)}>
+        マニュアル (Alt+M)
+      </button>
     </>
   )
 
@@ -705,6 +851,7 @@ function Workspace({
       <Sidebar
         active={groupBy}
         onSelect={onGroupBy}
+        onOpenSettings={() => setSettingsOpen(true)}
         footer={project ? project.title : undefined}
       />
       <div className="zk-main">
@@ -755,6 +902,18 @@ function Workspace({
           onClose={() => setCategoryOpen(false)}
         />
       )}
+      {manualOpen && (
+        <ManualModal statuses={statuses} onClose={() => setManualOpen(false)} />
+      )}
+      {settingsOpen && (
+        <SettingsModal
+          settings={windowSettings}
+          busy={savingWindow}
+          applies={isTauri()}
+          onSave={saveWindow}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {openTask && (
         <TaskModal
           task={openTask}
@@ -778,14 +937,6 @@ function Workspace({
       )}
     </div>
   )
-}
-
-/** ヘッダの同期サマリ。解決待ちがあるうちは「同期済み」と言わない。 */
-function summarize(pending: number, queue: { state: string }[]): string {
-  const problems = queue.filter((m) => m.state === "failed" || m.state === "conflict").length
-  if (problems > 0) return `要対応 ${problems} 件`
-  if (pending > 0) return `未同期 ${pending} 件`
-  return "同期済み"
 }
 
 function ErrorPanel({ error, onRetry }: { error: GitHubError; onRetry?: () => void }) {

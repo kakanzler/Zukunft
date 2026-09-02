@@ -1,7 +1,9 @@
 import {
   type ISODate,
   addDays,
+  addYears,
   diffDays,
+  maxDate,
   startOfMonth,
   startOfNextMonth,
   startOfWeek,
@@ -76,6 +78,28 @@ export function timelineRange(
     origin: startOfWeek(addDays(first, -paddingDays)),
     end: addDays(last, paddingDays),
   }
+}
+
+/** 既定の表示期間が今日から先に確保する長さ。 */
+export const DEFAULT_HORIZON_YEARS = 1
+
+/**
+ * 横軸の既定の右端。
+ *
+ * 「今日から 1 年先」と「進行中の Issue のいちばん先の日付」のうち、遠いほうを採る。
+ * 前者だけだと 1 年より先まで伸びている Issue のバーが切れて見えなくなり、
+ * 後者だけだと予定が詰まっていない Project で軸がすぐ終わってしまう。
+ *
+ * `activeEnds` に渡すのは open な Issue の終了日だけ。閉じた Issue の分まで
+ * 見込むと、終わった仕事のために軸が伸びたままになる。
+ */
+export function defaultTimelineEnd(
+  activeEnds: ISODate[],
+  todayDate: ISODate,
+  horizonYears = DEFAULT_HORIZON_YEARS,
+): ISODate {
+  const horizon = addYears(todayDate, horizonYears)
+  return activeEnds.reduce((farthest, date) => maxDate(farthest, date), horizon)
 }
 
 export type Tick = {
