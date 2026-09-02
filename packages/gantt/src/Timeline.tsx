@@ -28,11 +28,15 @@ type Props = {
   readOnly?: boolean
   onTaskOpen?: (taskId: string) => void
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void
+  /** j / k で選ばれている行。帯を敷いて示す */
+  selectedTaskId?: string | null
+  /** 選択を追って縦スクロールさせるために、親が掴んでおくスクローラ */
+  scrollRef?: React.RefObject<HTMLDivElement>
 }
 
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, onTaskDatesChange, readOnly = false,
-  onTaskOpen, onScroll,
+  onTaskOpen, onScroll, selectedTaskId = null, scrollRef,
 }: Props) {
   const { drag, begin, move, end } = useBarDrag({
     scale,
@@ -49,7 +53,7 @@ export function Timeline({
   const bodyHeight = rows.length * rowHeight
 
   return (
-    <div className="zk-timeline" onScroll={onScroll}>
+    <div className="zk-timeline" onScroll={onScroll} ref={scrollRef}>
       <div className="zk-thead" style={{ width: scale.width }}>
         {months.map((t) => (
           <div key={`m-${t.date}`} className="zk-thead-month" style={{ left: t.x, width: t.width }}>
@@ -80,6 +84,20 @@ export function Timeline({
             x1={t.x} y1={0} x2={t.x} y2={bodyHeight}
           />
         ))}
+
+        {/* 選択行の帯。バーの無い（日付未設定の）タスクも選べるので、
+            バーではなく行そのものを示す。 */}
+        {rows.slice(visible.start, visible.end).map((row, i) => {
+          const index = visible.start + i
+          if (row.kind !== "task" || row.task.id !== selectedTaskId) return null
+          return (
+            <rect
+              key={`sel-${row.key}`}
+              className="zk-row-selected-band"
+              x={0} y={index * rowHeight} width={scale.width} height={rowHeight}
+            />
+          )
+        })}
 
         {todayX !== null && (
           <line className="zk-today-line" x1={todayX} y1={0} x2={todayX} y2={bodyHeight} />

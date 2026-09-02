@@ -9,9 +9,13 @@ type Props = {
   visible: { start: number; end: number }
   onToggleGroup: (key: string) => void
   onTaskOpen?: (taskId: string) => void
+  /** j / k で選ばれている行。クリックでも動く */
+  selectedTaskId?: string | null
 }
 
-export function TaskPane({ rows, rowHeight, visible, onToggleGroup, onTaskOpen }: Props) {
+export function TaskPane({
+  rows, rowHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
+}: Props) {
   return (
     <div style={{ height: rows.length * rowHeight, position: "relative" }}>
       {rows.slice(visible.start, visible.end).map((row, i) => {
@@ -56,10 +60,14 @@ export function TaskPane({ rows, rowHeight, visible, onToggleGroup, onTaskOpen }
 
         const task = row.task
         const assignee = task.assignees[0]
+        const classes = ["zk-row"]
+        if (!isScheduled(task)) classes.push("zk-row--unscheduled")
+        if (task.id === selectedTaskId) classes.push("zk-row--selected")
         return (
           <div
             key={row.key}
-            className={isScheduled(task) ? "zk-row" : "zk-row zk-row--unscheduled"}
+            className={classes.join(" ")}
+            aria-selected={task.id === selectedTaskId}
             style={{ ...style, cursor: onTaskOpen ? "pointer" : undefined }}
             title={`#${task.issueNumber} ${task.title}`}
             onClick={() => onTaskOpen?.(task.id)}

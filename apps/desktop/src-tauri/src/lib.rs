@@ -6,6 +6,7 @@ mod settings;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use error::{AppError, AppResult, ErrorKind};
 use github::GitHubClient;
@@ -29,6 +30,13 @@ impl AppState {
         Self {
             http: reqwest::Client::builder()
                 .user_agent(github::USER_AGENT)
+                // reqwest の既定は「待ち続ける」。スリープで死んだ接続がいつまでも
+                // 返らず、復帰してからようやく通信エラーになるのを止める。
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                // 既定の 90s だと、スリープ中に OS が閉じた keep-alive のソケットを
+                // 復帰後に使い回して 1 発目が必ず失敗する。張り直す方を常道にする。
+                .pool_idle_timeout(Duration::from_secs(30))
                 .build()
                 .unwrap_or_default(),
             field_ids: Mutex::new(HashMap::new()),

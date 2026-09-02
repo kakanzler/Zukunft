@@ -68,7 +68,19 @@ export function useLog() {
     return { warn, error, total: entries.length }
   }, [entries])
 
-  return { entries, counts, append, resolve, clear }
+  /**
+   * 返り値の identity を安定させる。LogPane に毎回新しい props を渡さないため。
+   *
+   * ただしこれは保険でしかない。`entries` が変われば identity も変わるので、
+   * effect の依存配列には**このオブジェクトではなく `append` / `resolve` を入れる**こと。
+   * ここをメモ化しただけで直った気になるのが一番危ない — ログを 1 行足すたびに
+   * 依存が変わり、その effect が通信をしていれば「ログを出す → 再実行 → また
+   * ログを出す」で回り続ける。実際にそれで GitHub を叩き続けていた。
+   */
+  return useMemo(
+    () => ({ entries, counts, append, resolve, clear }),
+    [entries, counts, append, resolve, clear],
+  )
 }
 
 export type Log = ReturnType<typeof useLog>

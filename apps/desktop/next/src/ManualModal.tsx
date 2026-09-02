@@ -27,6 +27,11 @@ const HOTKEYS: [string, string][] = [
   ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
   ["Alt+R", "スキーマとタスクを読み直す（Project 選択中のみ）"],
   ["Alt+↑ / Alt+↓", "サイドバーの表示を上下に切り替える"],
+  ["Ctrl++ / Ctrl+-", "Gantt の横軸を拡大 / 縮小する"],
+  ["Alt+Shift+← / →", "ズームを day / week / month の間で移す（Ctrl++/- と同じ）"],
+  ["j / k", "Issue の選択を下 / 上に動かす"],
+  ["Enter", "選択中の Issue の詳細を開く"],
+  ["e", "選択中の Issue を編集モードで開く。詳細を開いた画面でも編集に入る"],
   ["Alt+L", "ログだけの表示と Gantt を切り替える"],
   ["Ctrl+Z", "日付の変更を元に戻す"],
   ["Ctrl+Shift+Z / Ctrl+Y", "元に戻した変更をやり直す"],
@@ -170,6 +175,11 @@ function HotkeySection() {
           Alt のショートカットは物理キーで判定します。配列を切り替えていても、
           同じ位置のキーで同じ操作になります。文字入力を奪わないよう、
           Ctrl や Command と一緒に押したときは効きません。
+        </p>
+        <p className="zk-manual-text">
+          j / k / e / Enter は修飾キー無しの 1 打鍵です。文字を入力している間と、
+          モーダルが開いている間は効きません。裏の一覧が動くと、閉じたときに
+          どこを見ていたのか分からなくなるためです。
         </p>
         <p className="zk-manual-text">
           Esc でフルスクリーンを抜けても設定は変わりません。次の起動は Settings で

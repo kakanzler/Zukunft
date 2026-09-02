@@ -208,6 +208,13 @@
   background: rgba(18, 29, 61, 0.6);
   cursor: pointer;
 }
+/* j / k で選ばれている行。左ペインとタイムラインの両方に同じ帯を敷く。 */
+.zk-row--selected {
+  background: rgba(45, 107, 255, 0.18);
+  box-shadow: inset 2px 0 0 var(--accent-cyan);
+}
+.zk-row-selected-band { fill: rgba(45, 107, 255, 0.14); }
+
 .zk-row--unscheduled .zk-row-title { color: var(--text-secondary); font-style: italic; }
 
 .zk-avatar {
@@ -768,6 +775,7 @@
   overflow-y: auto;
 }
 .zk-sidebar-brand {
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-shadow: var(--glow-text-strong);
@@ -793,12 +801,12 @@
 }
 .zk-sidebar-item:hover { color: var(--text-primary); }
 .zk-sidebar-item[aria-pressed="true"] { color: var(--text-primary); }
-.zk-sidebar-icon { font-size: 15px; line-height: 1; color: inherit; }
+.zk-sidebar-icon { font-size: 20px; line-height: 1; color: inherit; }
 .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-icon {
   color: var(--accent-cyan);
   text-shadow: 0 0 8px rgba(34, 211, 238, 0.7);
 }
-.zk-sidebar-label { font-size: 12px; }
+.zk-sidebar-label { font-size: 17px; }
 .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label { font-weight: 600; text-shadow: var(--glow-text-strong); }
 /* 設定はビューの下、プロジェクト名の上。ここで下端に寄せる。 */
 .zk-sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { CSSProperties } from "react"
 import type {
   DateChange,
@@ -43,6 +43,8 @@ type Props = {
   onSetState: (taskId: string, issueId: string, state: IssueState) => void
   onDelete: (taskId: string, issueId: string) => void | Promise<void>
   onClose: () => void
+  /** 一覧で e から開いたときは編集モードで始める */
+  initialEditing?: boolean
 }
 
 const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
@@ -68,11 +70,13 @@ export function TaskModal({
   task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
   availableLabels, availableMilestones, onCreateLabel, onDeleteLabel,
   onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
+  initialEditing = false,
 }: Props) {
   const [start, setStart] = useState(task.startDate ?? "")
   const [end, setEnd] = useState(task.endDate ?? "")
 
-  const [editing, setEditing] = useState(false)
+  // 一覧で e を押して開いた場合は、最初から編集に入る。
+  const [editing, setEditing] = useState(initialEditing)
   // 削除は取り消せないので、ボタン列を確認に差し替える 2 段階にする。
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [title, setTitle] = useState(task.title)
@@ -101,8 +105,33 @@ export function TaskModal({
     setConfirmingDelete(false)
   }, [task.id])
 
+  /** 編集をやめて、開いたときの値に戻す。Esc とキャンセルボタンの両方から使う。 */
+  const cancelEdit = useCallback(() => {
+    setTitle(task.title)
+    setBody(task.body)
+    setLabels(task.labels)
+    setMilestoneId(task.milestone?.id ?? "")
+    setEditing(false)
+    setConfirmingDelete(false)
+  }, [task.title, task.body, task.labels, task.milestone])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // 詳細を見ているところから e で編集に入る。文字を打っている最中は拾わない。
+      if (e.code === "KeyE" && !editing && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const active = document.activeElement
+        const typing =
+          active instanceof HTMLElement &&
+          (active.isContentEditable ||
+            active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            active.tagName === "SELECT")
+        if (!typing) {
+          e.preventDefault()
+          setEditing(true)
+        }
+        return
+      }
       if (e.key !== "Escape") return
       // 削除の確認が出ているなら、まずそれを取り下げる
       if (confirmingDelete) {
@@ -118,7 +147,7 @@ export function TaskModal({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onClose, editing, confirmingDelete, task.title, task.body, task.milestone])
+  }, [onClose, editing, confirmingDelete, cancelEdit])
 
   // 日付入力は 6 桁の年など ISO から外れた値も受け付けるため、
   // 「形式が不正」と「前後関係が逆」を分けて扱う。
@@ -158,15 +187,6 @@ export function TaskModal({
       milestoneId: milestoneId === "" ? null : milestoneId,
     })
     setEditing(false)
-  }
-
-  const cancelEdit = () => {
-    setTitle(task.title)
-    setBody(task.body)
-    setLabels(task.labels)
-    setMilestoneId(task.milestone?.id ?? "")
-    setEditing(false)
-    setConfirmingDelete(false)
   }
 
   // 「update」は今そこにある変更をまとめて送る。編集モードなら本文なども、

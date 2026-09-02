@@ -16,11 +16,15 @@
     "build": "yarn build:desktop && yarn build:web",
     "build:desktop": "yarn workspace @zukunft/desktop build",
     "build:web": "yarn workspace @zukunft/web build",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit -p packages/domain && tsc --noEmit -p packages/gantt && tsc --noEmit -p packages/github && tsc --noEmit -p apps/desktop/next && tsc --noEmit -p apps/web/next",
     "test": "yarn workspace @zukunft/domain test",
-    "verify": "yarn typecheck && yarn test"
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
     "typescript": "^5.6.3"
   }
 }

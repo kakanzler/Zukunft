@@ -200,6 +200,25 @@ function Workspace({
   onReloadSchema: () => void
 }) {
   const schedule = useSchedule(repository, projectId)
+  /**
+   * useSchedule が返す操作は個別に useCallback 済みで identity が安定している。
+   * ここで取り出しておくのは、依存配列に `schedule` 全体を書かずに済ませるため。
+   * 全体を入れるとタスクが 1 件変わるだけで全部が作り直される。
+   */
+  const {
+    reload,
+    undo,
+    redo,
+    keepRemote,
+    keepLocal,
+    retry,
+    rollback,
+    updateContent,
+    updateStatus,
+    setTaskState,
+    deleteTask: sendDeleteTask,
+    createTask: sendCreateTask,
+  } = schedule
   const missing = useMemo(() => (schema ? missingRequiredFields(schema) : []), [schema])
   const statuses = useMemo(() => (schema ? statusOrder(schema) : []), [schema])
   // Status の変更には選択肢の ID が要る。名前だけの statuses とは別に持つ。
@@ -210,6 +229,8 @@ function Workspace({
   const editable = useMemo(() => canEditDates(schema), [schema])
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  // e から開いたときだけ編集モードで始める。Enter やクリックは見るだけ。
+  const [openTaskEditing, setOpenTaskEditing] = useState(false)
   const openTask = schedule.tasks.find((t) => t.id === openTaskId) ?? null
 
   const [creatingOpen, setCreatingOpen] = useState(false)
@@ -233,20 +254,37 @@ function Workspace({
   // Milestone 候補も同じくリポジトリ単位。
   const [milestonesByRepo, setMilestonesByRepo] = useState<Record<string, Milestone[]>>({})
   const log = useLog()
+  // 依存配列に入れてよいのはこちら。log そのものは entries が変わるたびに
+  // identity が変わるので、通信する effect の依存に入れると回り続ける。
+  const { append: logAppend, resolve: logResolve } = log
   const logged = useRef<Set<string>>(new Set())
+  // 取りに行ったリポジトリのメタ情報。失敗しても再描画のたびに叩き直さないため。
+  const attempted = useRef<Set<string>>(new Set())
 
-  // 読み込み失敗をログへ
+  /**
+   * 読み込み失敗をログへ。
+   *
+   * ガードを持たないのは意図。schedule.load は setLoad でしか変わらない state なので、
+   * 「読み込みの状態が本当に変わったときだけ 1 回」という正しい引き金になっている。
+   * 兄弟の effect がガードを要るのは、missing や queue が毎レンダリング作り直される
+   * 派生値だから。ここで依存に log そのものを入れると毎レンダリング流れ続ける。
+   */
   useEffect(() => {
+    // 再試行が通ったら古い失敗行は取り下げる（企画書 §18）。
+    if (schedule.load.phase === "ready") {
+      logResolve("load")
+      return
+    }
     if (schedule.load.phase !== "error") return
     const info = describeError(schedule.load.error)
-    log.append({
+    logAppend({
       level: "error",
       message: info.title,
       hint: `${schedule.load.error.message}　${info.hint}`,
       dedupeKey: "load",
-      actions: [{ label: "再試行", run: schedule.reload }],
+      actions: [{ label: "再試行", run: reload }],
     })
-  }, [schedule.load, schedule.reload, log])
+  }, [schedule.load, reload, logAppend, logResolve])
 
   // Project の設定不足を一度だけ警告する
   useEffect(() => {
@@ -257,7 +295,7 @@ function Workspace({
     // 実在するフィールド名も出す。名前が少しでも違うと一致しないため、
     // 「作ったのに認識されない」場合の切り分けに要る。
     const present = schema.fields.map((f) => `${f.name} (${f.dataType})`).join(", ")
-    log.append({
+    logAppend({
       level: "warn",
       message: "Project の設定が足りません",
       hint:
@@ -267,7 +305,7 @@ function Workspace({
         `　作成したら Alt+R で読み直してください。`,
       dedupeKey: key,
     })
-  }, [schema, missing, log])
+  }, [schema, missing, logAppend])
 
   /**
    * いまの同期状況。ヘッダの常時表示をやめた代わりに、これをログへ流す（企画書 §19）。
@@ -317,14 +355,14 @@ function Workspace({
     if (schedule.load.phase !== "ready" && lastStanding.current === null) return
     if (lastStanding.current === standing.kind) return
     lastStanding.current = standing.kind
-    log.append(standing.entry)
-  }, [standing, schedule.load.phase, log])
+    logAppend(standing.entry)
+  }, [standing, schedule.load.phase, logAppend])
 
   /** 再読み込み（Alt+R）から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
   const logSyncStanding = useCallback(() => {
     lastStanding.current = standing.kind
-    log.append(standing.entry)
-  }, [standing, log])
+    logAppend(standing.entry)
+  }, [standing, logAppend])
 
   // 同期の失敗と競合をログへ。解決したエントリは取り下げる（企画書 §18）。
   useEffect(() => {
@@ -339,7 +377,7 @@ function Workspace({
       const range = `${mutation.after.startDate} → ${mutation.after.endDate}`
       if (mutation.state === "conflict") {
         const remote = mutation.remote
-        log.append({
+        logAppend({
           level: "warn",
           message: "GitHub 側が更新されています",
           hint: remote
@@ -347,19 +385,19 @@ function Workspace({
             : range,
           dedupeKey: key,
           actions: [
-            { label: "GitHub 側を採用", run: () => schedule.keepRemote(mutation.id) },
-            { label: "ローカルで上書き", run: () => schedule.keepLocal(mutation.id) },
+            { label: "GitHub 側を採用", run: () => keepRemote(mutation.id) },
+            { label: "ローカルで上書き", run: () => keepLocal(mutation.id) },
           ],
         })
       } else {
-        log.append({
+        logAppend({
           level: "error",
           message: "GitHub に反映できませんでした",
           hint: `${range}　${mutation.error ?? ""}`,
           dedupeKey: key,
           actions: [
-            { label: "再試行", run: () => schedule.retry(mutation.id) },
-            { label: "取り消す", run: () => schedule.rollback(mutation.id), danger: true },
+            { label: "再試行", run: () => retry(mutation.id) },
+            { label: "取り消す", run: () => rollback(mutation.id), danger: true },
           ],
         })
       }
@@ -367,10 +405,18 @@ function Workspace({
     for (const key of [...logged.current]) {
       if (key.startsWith("mut:") && !active.has(key)) {
         logged.current.delete(key)
-        log.resolve(key)
+        logResolve(key)
       }
     }
-  }, [schedule.queue, schedule.keepRemote, schedule.keepLocal, schedule.retry, schedule.rollback, log])
+  }, [
+    schedule.queue,
+    keepRemote,
+    keepLocal,
+    retry,
+    rollback,
+    logAppend,
+    logResolve,
+  ])
 
   // Issue の作成先候補を取っておく
   useEffect(() => {
@@ -384,7 +430,7 @@ function Workspace({
       .catch((error) => {
         if (!alive) return
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-        log.append({
+        logAppend({
           level: "warn",
           message: "リポジトリ一覧を取得できませんでした",
           hint: `${err.message}　新規 Issue の作成先を選べません。`,
@@ -394,7 +440,7 @@ function Workspace({
     return () => {
       alive = false
     }
-  }, [repository, projectId, log])
+  }, [repository, projectId, logAppend])
 
   // ウィンドウの設定は起動時に一度だけ読む。窓への反映は Rust 側が起動時に済ませて
   // いるので、ここで読むのは設定画面に今の値を出すためだけ。
@@ -429,18 +475,23 @@ function Workspace({
    * リポジトリのラベルと Milestone を、まだ無ければ取っておく。
    * 詳細を開いたタスクだけでなく新規 Issue の作成先でも要るので、
    * 「どのリポジトリの分か」を引数にして両方から呼べる形にしている。
+   *
+   * 「取りに行ったか」は結果ではなく発行時点で記録する。取得できたかどうかで
+   * 判断すると、失敗したリポジトリを再描画のたびに叩き直すことになるため。
+   * 取り直したいときは Alt+R がある。
    */
   const ensureRepoMeta = useCallback(
     (repositoryId: string) => {
       if (!repositoryId) return
-      if (!labelsByRepo[repositoryId]) {
+      if (!labelsByRepo[repositoryId] && !attempted.current.has(`labels:${repositoryId}`)) {
+        attempted.current.add(`labels:${repositoryId}`)
         void repository
           .listLabels(repositoryId)
           .then((list) => setLabelsByRepo((prev) => ({ ...prev, [repositoryId]: list })))
           .catch((error) => {
             const err =
               error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-            log.append({
+            logAppend({
               level: "warn",
               message: "ラベル一覧を取得できませんでした",
               hint: `${err.message}　既存ラベルを選べません。`,
@@ -448,14 +499,18 @@ function Workspace({
             })
           })
       }
-      if (!milestonesByRepo[repositoryId]) {
+      if (
+        !milestonesByRepo[repositoryId] &&
+        !attempted.current.has(`milestones:${repositoryId}`)
+      ) {
+        attempted.current.add(`milestones:${repositoryId}`)
         void repository
           .listMilestones(repositoryId)
           .then((list) => setMilestonesByRepo((prev) => ({ ...prev, [repositoryId]: list })))
           .catch((error) => {
             const err =
               error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-            log.append({
+            logAppend({
               level: "warn",
               message: "Milestone 一覧を取得できませんでした",
               hint: `${err.message}　Milestone を付け替えられません。`,
@@ -464,7 +519,7 @@ function Workspace({
           })
       }
     },
-    [repository, labelsByRepo, milestonesByRepo, log],
+    [repository, labelsByRepo, milestonesByRepo, logAppend],
   )
 
   // 詳細を開いたタスクのリポジトリの分
@@ -521,7 +576,7 @@ function Workspace({
         await saveParentLabels(projectId, names)
         setParentLabels(names)
         setCategoryOpen(false)
-        log.append({
+        logAppend({
           level: "info",
           message:
             names.length > 0
@@ -535,7 +590,7 @@ function Workspace({
           typeof error === "object" && error !== null && "message" in error
             ? String((error as { message: unknown }).message)
             : String(error)
-        log.append({
+        logAppend({
           level: "error",
           message: "カテゴリ設定を保存できませんでした",
           hint: detail,
@@ -544,7 +599,7 @@ function Workspace({
         setSavingCategories(false)
       }
     },
-    [projectId, log],
+    [projectId, logAppend],
   )
 
   /**
@@ -558,7 +613,7 @@ function Workspace({
         await saveWindowSettings(next)
         setWindowSettings(next)
         setSettingsOpen(false)
-        log.append({
+        logAppend({
           level: "info",
           message:
             next.mode === "windowed"
@@ -572,7 +627,7 @@ function Workspace({
           typeof error === "object" && error !== null && "message" in error
             ? String((error as { message: unknown }).message)
             : String(error)
-        log.append({
+        logAppend({
           level: "error",
           message: "ウィンドウの設定を保存できませんでした",
           hint: detail,
@@ -581,7 +636,7 @@ function Workspace({
         setSavingWindow(false)
       }
     },
-    [log],
+    [logAppend],
   )
 
   const createLabel = useCallback(
@@ -592,12 +647,12 @@ function Workspace({
           ...prev,
           [repositoryId]: [...(prev[repositoryId] ?? []), created],
         }))
-        log.append({ level: "info", message: `ラベル「${created.name}」を作成しました` })
+        logAppend({ level: "info", message: `ラベル「${created.name}」を作成しました` })
         return created
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "ラベルを作成できませんでした",
           hint: `${err.message}　${info.hint}`,
@@ -605,7 +660,7 @@ function Workspace({
         return null
       }
     },
-    [repository, log],
+    [repository, logAppend],
   )
 
   const deleteLabel = useCallback(
@@ -616,16 +671,16 @@ function Workspace({
           ...prev,
           [repositoryId]: (prev[repositoryId] ?? []).filter((l) => l.id !== label.id),
         }))
-        log.append({ level: "info", message: `ラベル「${label.name}」を削除しました` })
+        logAppend({ level: "info", message: `ラベル「${label.name}」を削除しました` })
         // 消えたラベルは付いていた Issue すべてから外れる。手元のタスクは
         // そのラベルを持ったままなので、取り直さないと Gantt や Category
         // グループが存在しないラベルを表示し続ける。
-        schedule.reload()
+        reload()
         return true
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "ラベルを削除できませんでした",
           hint: `${err.message}　${info.hint}`,
@@ -633,14 +688,14 @@ function Workspace({
         return false
       }
     },
-    [repository, schedule, log],
+    [repository, reload, logAppend],
   )
 
   const saveContent = useCallback(
     async (taskId: string, issueId: string, content: TaskContent) => {
       try {
-        const updated = await schedule.updateContent(taskId, issueId, content)
-        log.append({
+        const updated = await updateContent(taskId, issueId, content)
+        logAppend({
           level: "info",
           message: `#${updated.issueNumber} の内容を保存しました`,
         })
@@ -648,7 +703,7 @@ function Workspace({
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "Issue の内容を保存できませんでした",
           hint: `${err.message}　${info.hint}`,
@@ -656,16 +711,16 @@ function Workspace({
         return null
       }
     },
-    [schedule, log],
+    [updateContent, logAppend],
   )
 
   /** Status の変更。選んだ時点で送るので、失敗はログでだけ知らせる。 */
   const changeStatus = useCallback(
     async (taskId: string, optionId: string) => {
       try {
-        const updated = await schedule.updateStatus(taskId, optionId)
+        const updated = await updateStatus(taskId, optionId)
         if (updated) {
-          log.append({
+          logAppend({
             level: "info",
             message: `#${updated.issueNumber} の Status を ${updated.status ?? "—"} にしました`,
           })
@@ -673,68 +728,68 @@ function Workspace({
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "Status を変更できませんでした",
           hint: `${err.message}　${info.hint}`,
         })
       }
     },
-    [schedule, log],
+    [updateStatus, logAppend],
   )
 
   /** クローズ / リオープン。押した時点で送るので、失敗はログでだけ知らせる。 */
   const changeIssueState = useCallback(
     async (taskId: string, issueId: string, state: IssueState) => {
       try {
-        const updated = await schedule.setTaskState(taskId, issueId, state)
-        log.append({
+        const updated = await setTaskState(taskId, issueId, state)
+        logAppend({
           level: "info",
           message: `#${updated.issueNumber} を${state === "CLOSED" ? "クローズ" : "リオープン"}しました`,
         })
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "Issue の状態を変更できませんでした",
           hint: `${err.message}　${info.hint}`,
         })
       }
     },
-    [schedule, log],
+    [setTaskState, logAppend],
   )
 
   /** Issue の削除。消えた行を開いたままにできないので、成功したら詳細を閉じる。 */
   const deleteTask = useCallback(
     async (taskId: string, issueId: string) => {
       try {
-        const removed = await schedule.deleteTask(taskId, issueId)
+        const removed = await sendDeleteTask(taskId, issueId)
         setOpenTaskId(null)
-        log.append({
+        logAppend({
           level: "info",
           message: removed ? `#${removed.issueNumber} を削除しました` : "Issue を削除しました",
         })
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "Issue を削除できませんでした",
           hint: `${err.message}　${info.hint}`,
         })
       }
     },
-    [schedule, log],
+    [sendDeleteTask, logAppend],
   )
 
   const createTask = useCallback(
     async (input: NewTaskInput) => {
       try {
-        const created = await schedule.createTask(input)
+        const created = await sendCreateTask(input)
         setCreatingOpen(false)
         if (created) {
-          log.append({
+          logAppend({
             level: "info",
             message: `#${created.issueNumber} ${created.title} を作成しました`,
           })
@@ -742,14 +797,28 @@ function Workspace({
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
         const info = describeError(err)
-        log.append({
+        logAppend({
           level: "error",
           message: "Issue を作成できませんでした",
           hint: `${err.message}　${info.hint}`,
         })
       }
     },
-    [schedule, log],
+    [sendCreateTask, logAppend],
+  )
+
+  /**
+   * ズームを 1 段動かす。delta が正で粗く（day → week → month）、負で細かく。
+   * 端では折り返さない — 押し続けて一周してしまう方が分かりにくい。
+   */
+  const stepZoom = useCallback(
+    (delta: number) => {
+      const current = ZOOM_LEVELS.indexOf(zoom)
+      const moved = current + delta
+      const next = ZOOM_LEVELS[Math.min(ZOOM_LEVELS.length - 1, Math.max(0, moved))]
+      if (next && next !== zoom) onZoom(next)
+    },
+    [zoom, onZoom],
   )
 
   // Undo / Redo のキーボードショートカット（企画書 §6.3.4）。
@@ -760,15 +829,23 @@ function Workspace({
       if (!(e.ctrlKey || e.metaKey)) return
       if (e.code === "KeyZ" && !e.shiftKey) {
         e.preventDefault()
-        schedule.undo()
+        undo()
       } else if ((e.code === "KeyZ" && e.shiftKey) || e.code === "KeyY") {
         e.preventDefault()
-        schedule.redo()
+        redo()
+      } else if (e.code === "Equal" || e.code === "NumpadAdd") {
+        // 拡大は粒度を細かくする向き（month → week → day）。
+        // preventDefault は必須で、外すと WebView 自身の画面拡大に取られる。
+        e.preventDefault()
+        stepZoom(-1)
+      } else if (e.code === "Minus" || e.code === "NumpadSubtract") {
+        e.preventDefault()
+        stepZoom(1)
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [schedule])
+  }, [undo, redo, stepZoom])
 
   /**
    * 再読み込み（Alt+R）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
@@ -777,9 +854,19 @@ function Workspace({
    */
   const reloadAll = useCallback(() => {
     onReloadSchema()
-    schedule.reload()
+    reload()
     logSyncStanding()
-  }, [onReloadSchema, schedule, logSyncStanding])
+  }, [onReloadSchema, reload, logSyncStanding])
+
+  // GanttChart の keydown リスナが毎レンダリング張り直されないよう、関数の identity を保つ。
+  const openTaskDetail = useCallback((taskId: string) => {
+    setOpenTaskEditing(false)
+    setOpenTaskId(taskId)
+  }, [])
+  const openTaskForEdit = useCallback((taskId: string) => {
+    setOpenTaskEditing(true)
+    setOpenTaskId(taskId)
+  }, [])
 
   /**
    * Esc でフルスクリーンを抜ける。
@@ -812,7 +899,14 @@ function Workspace({
       if (e.code === "KeyL") {
         e.preventDefault()
         setLogFull((v) => !v)
+      } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+        // Alt+Shift+←/→ でズームの粒度を移す。サイドバーの移動（Shift なし）と
+        // 押し分けられるよう、Shift が無いときは何もしない。
+        if (!e.shiftKey) return
+        e.preventDefault()
+        stepZoom(e.code === "ArrowRight" ? 1 : -1)
       } else if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+        if (e.shiftKey) return
         // サイドバーの項目を上下に移動する。端では折り返さない。
         // 一覧の端に着いたことが分かる方が、押し続けて行き過ぎるより迷わない。
         e.preventDefault()
@@ -837,7 +931,7 @@ function Workspace({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [projectId, reloadAll, groupBy, onGroupBy])
+  }, [projectId, reloadAll, groupBy, onGroupBy, stepZoom])
 
   const toolbar = (
     <>
@@ -899,7 +993,10 @@ function Workspace({
         parentLabels={parentLabels}
         onTaskDatesChange={schedule.changeDates}
         readOnly={!editable}
-        onTaskOpen={setOpenTaskId}
+        onTaskOpen={openTaskDetail}
+        onTaskEdit={openTaskForEdit}
+        // モーダルが開いている間は j / k で裏の一覧を動かさない。
+        keyboardEnabled={!anyModalOpen}
         emptyMessage={
           schedule.load.phase === "loading"
             ? "読み込み中…"
@@ -965,6 +1062,7 @@ function Workspace({
           onSaveContent={saveContent}
           onSetState={changeIssueState}
           onDelete={deleteTask}
+          initialEditing={openTaskEditing}
           onClose={() => setOpenTaskId(null)}
         />
       )}
