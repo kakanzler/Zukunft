@@ -99,10 +99,19 @@ pub struct AppSettings {
     /// 既定は有効 — 依存関係を書いた時点で守りたいという意思表示なので、そちらに倒す。
     #[serde(default = "default_true")]
     pub auto_reschedule: bool,
+    /// 盤面の意匠。既定は今までの見た目。
+    /// 値の妥当性は画面側（packages/gantt の isGanttTheme）で見る。ここは素通しにして、
+    /// 意匠が増えるたびに Rust を直さずに済ませる。
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_theme() -> String {
+    "default".to_owned()
 }
 
 /// Default は derive しない。bool の derive は false なので、設定ファイルが
@@ -113,6 +122,7 @@ impl Default for AppSettings {
             parent_labels: BTreeMap::new(),
             window: WindowSettings::default(),
             auto_reschedule: default_true(),
+            theme: default_theme(),
         }
     }
 }
@@ -211,6 +221,15 @@ pub async fn set_auto_reschedule(
 ) -> Result<AppSettings, AppError> {
     let mut settings = read(&app);
     settings.auto_reschedule = enabled;
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// 盤面の意匠を切り替える。Project に依らない設定なのでキーを持たない。
+#[tauri::command]
+pub async fn set_theme(app: tauri::AppHandle, theme: String) -> Result<AppSettings, AppError> {
+    let mut settings = read(&app);
+    settings.theme = theme;
     write(&app, &settings)?;
     Ok(settings)
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import type { GanttTheme } from "@zukunft/gantt"
 import {
   DEFAULT_WINDOW_SETTINGS,
   MIN_WINDOW_HEIGHT,
@@ -9,10 +10,18 @@ import {
   type WindowSettings,
 } from "@/settings"
 
+/** 意匠の選択肢。値は packages/gantt の GanttTheme と揃える。 */
+const THEMES: { theme: GanttTheme; label: string; note: string }[] = [
+  { theme: "default", label: "Default", note: "これまでの見た目" },
+  { theme: "blue-system", label: "BlueSystem", note: "青を基調に、今日とマイルストーンを赤で差す" },
+]
+
 type Props = {
   settings: WindowSettings
   /** 依存関係に合わせて日程を後ろへずらすか（企画書 §15.2） */
   autoReschedule: boolean
+  /** 盤面の意匠 */
+  theme: GanttTheme
   busy: boolean
   /** Tauri の外（モック）では反映する窓が無い。その旨を画面に出すために受け取る。 */
   applies: boolean
@@ -20,7 +29,7 @@ type Props = {
    * 保存先は窓の設定と別だが、押すボタンは 1 つにする。
    * 「保存して反映」で片方しか保存されない画面は説明が要る。
    */
-  onSave: (settings: WindowSettings, autoReschedule: boolean) => void
+  onSave: (settings: WindowSettings, autoReschedule: boolean, theme: GanttTheme) => void
   onClose: () => void
 }
 
@@ -59,10 +68,11 @@ const PRESETS: { width: number; height: number }[] = [
  * 書いておく。
  */
 export function SettingsModal({
-  settings, autoReschedule, busy, applies, onSave, onClose,
+  settings, autoReschedule, theme, busy, applies, onSave, onClose,
 }: Props) {
   const [draft, setDraft] = useState<WindowSettings>(settings)
   const [autoDraft, setAutoDraft] = useState(autoReschedule)
+  const [themeDraft, setThemeDraft] = useState<GanttTheme>(theme)
 
   // 保存済みの値は開いた後に届くことがある（Rust 側の読み取りを待つ）。
   useEffect(() => {
@@ -72,6 +82,10 @@ export function SettingsModal({
   useEffect(() => {
     setAutoDraft(autoReschedule)
   }, [autoReschedule])
+
+  useEffect(() => {
+    setThemeDraft(theme)
+  }, [theme])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -189,6 +203,32 @@ export function SettingsModal({
             </span>
           </div>
 
+          {/* 見た目は好みの話で、窓の大きさや日程の規則とは別のもの。節を分けて置く。 */}
+          <div className="zk-field">
+            <span className="zk-field-label">盤面の見た目</span>
+            <div style={{ display: "grid", gap: 4 }}>
+              {THEMES.map((option) => (
+                <label
+                  key={option.theme}
+                  style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}
+                >
+                  <input
+                    type="radio"
+                    name="zk-gantt-theme"
+                    checked={themeDraft === option.theme}
+                    disabled={busy}
+                    onChange={() => setThemeDraft(option.theme)}
+                  />
+                  <span style={{ fontWeight: 600 }}>{option.label}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{option.note}</span>
+                </label>
+              ))}
+            </div>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
+              変わるのは Gantt の盤面だけです。ログは同じままで、GitHub 側にも何も起きません。
+            </span>
+          </div>
+
           <div className="zk-field">
             <span className="zk-field-label">日程の自動調整</span>
             <label style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}>
@@ -214,6 +254,7 @@ export function SettingsModal({
             onClick={() => {
               setDraft(DEFAULT_WINDOW_SETTINGS)
               setAutoDraft(true)
+              setThemeDraft("default")
             }}
           >
             既定に戻す
@@ -222,7 +263,7 @@ export function SettingsModal({
           <button
             className="zk-button"
             disabled={busy || tooSmall}
-            onClick={() => onSave(draft, autoDraft)}
+            onClick={() => onSave(draft, autoDraft, themeDraft)}
           >
             {busy ? "保存中…" : "保存して反映"}
           </button>

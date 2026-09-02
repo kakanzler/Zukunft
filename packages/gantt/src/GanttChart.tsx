@@ -17,6 +17,7 @@ import {
   timelineRange,
   today,
 } from "@zukunft/domain"
+import type { GanttTheme } from "./theme"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
 import { buildRows, visibleRange } from "./rows"
@@ -40,6 +41,11 @@ export type GanttChartProps = {
    * 指定すると Category 表示が「親 → 残りのラベルの組み合わせ」の 2 階層になる。
    */
   parentLabels?: string[]
+  /**
+   * 盤面の意匠（Settings の Preference）。
+   * 既定は今までの見た目。渡さない読み取り専用ビューもそのまま。
+   */
+  theme?: GanttTheme
   onTaskDatesChange: (taskId: string, change: DateChange) => void
   /** Web 版（読み取り専用）では true にする（企画書 §9） */
   readOnly?: boolean
@@ -60,7 +66,7 @@ export type GanttChartProps = {
 
 export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
-  onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
+  theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
   emptyMessage, toolbar,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
@@ -281,6 +287,7 @@ export function GanttChart({
           milestones={milestones}
           dependencies={dependencies}
           cyclicEdges={cyclicEdges}
+          theme={theme}
           onTaskDatesChange={onTaskDatesChange}
           readOnly={readOnly}
           onTaskOpen={onTaskOpen ? openTask : undefined}

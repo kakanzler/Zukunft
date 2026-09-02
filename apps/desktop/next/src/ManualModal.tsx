@@ -126,6 +126,11 @@ function LegendSection({ statuses }: { statuses: string[] }) {
               バーの色は Issue の Status に対応します。色は Status の定義順に割り当てるので、
               Project 側で並べ替えると色も入れ替わります。
             </p>
+            <p className="zk-manual-text">
+              盤面の見た目は Settings で選べます。Default はこれまでの配色、BlueSystem は
+              青を基調にして今日とマイルストーンを赤で差したものです。選んだ見た目は
+              次の起動でも保たれ、GitHub 側には何も起きません。
+            </p>
           </>
         )}
       </Block>

@@ -1,5 +1,6 @@
 "use client"
 
+import { type GanttTheme, isGanttTheme } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
 
 /**
@@ -37,6 +38,7 @@ type AppSettings = {
   parentLabels?: Record<string, string[]>
   window?: Partial<WindowSettings>
   autoReschedule?: boolean
+  theme?: string
 }
 
 /**
@@ -47,6 +49,7 @@ type AppSettings = {
 const STORAGE_PREFIX = "zukunft.parentLabels."
 const WINDOW_STORAGE_KEY = "zukunft.window"
 const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
+const THEME_STORAGE_KEY = "zukunft.theme"
 
 async function invokeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   // Tauri の外では @tauri-apps/api の読み込み自体が失敗するため、動的に読む。
@@ -111,6 +114,31 @@ export async function saveAutoReschedule(enabled: boolean): Promise<void> {
     return
   }
   window.sessionStorage.setItem(AUTO_RESCHEDULE_STORAGE_KEY, String(enabled))
+}
+
+/**
+ * 盤面の意匠（Settings の Preference）。
+ *
+ * 既定は今までの見た目。知らない値・読めない値は既定に落とす — 意匠の設定 1 つで
+ * Gantt が開けなくなる方が困る。
+ */
+export async function loadTheme(): Promise<GanttTheme> {
+  try {
+    const raw = isTauri()
+      ? (await invokeCommand<AppSettings>("get_settings", {})).theme
+      : window.sessionStorage.getItem(THEME_STORAGE_KEY)
+    return isGanttTheme(raw) ? raw : "default"
+  } catch {
+    return "default"
+  }
+}
+
+export async function saveTheme(theme: GanttTheme): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("set_theme", { theme })
+    return
+  }
+  window.sessionStorage.setItem(THEME_STORAGE_KEY, theme)
 }
 
 /** 壊れた値でウィンドウ設定の画面が開けなくなるのを避ける。 */

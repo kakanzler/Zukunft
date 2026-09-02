@@ -54,6 +54,112 @@
   --status-3-glow: rgba(16, 185, 129, 0.75);
 }
 
+/* ---- BlueSystem（Settings の Preference で選ぶ意匠） ----
+
+   参照は specifications/apeearance/appearnace_bar_and_others.jpg。深い紺の地に
+   青い線が重なり、赤〜橙が数点だけ差さる画。
+
+   ここに書くのは blue-system のときだけ効く上書きで、共有トークンの値は変えない。
+   --border-subtle / --danger / --warning / --accent / --accent-cyan /
+   --text-secondary / --space / --glow-text / --bg-* はログペインが読んでいるため、
+   値を動かすと「ログペインは不変」という約束を破る。 */
+[data-gantt-theme="blue-system"] {
+  /* Status を青〜シアンの段階に寄せる。盤面が青で統一され、赤が唯一の差し色になる。
+     0→1 は明度差、1→2 は色相差、2→3 は大きく離す。
+     透明度はグラデーションの stopOpacity で付けるので、ここは色だけを持つ。 */
+  --status-0-from: #2b4bb0; --status-0-to: #2b4bb0;  /* Planning   深い青 */
+  --status-1-from: #4d94ff; --status-1-to: #4d94ff;  /* InProgress 青 */
+  --status-2-from: #8b7bf5; --status-2-to: #8b7bf5;  /* Review     青紫 */
+  --status-3-from: #22d3ee; --status-3-to: #22d3ee;  /* Complete   シアン */
+
+  /* 塗りが左で透けるぶん滲みも弱くなるので、既定（0.75）より上げる。 */
+  --status-0-glow: rgba(43, 75, 176, 0.85);
+  --status-1-glow: rgba(77, 148, 255, 0.9);
+  --status-2-glow: rgba(139, 123, 245, 0.85);
+  --status-3-glow: rgba(34, 211, 238, 0.95);
+
+  /* 差し色。--danger（#f43f5e のローズ）とは別に持つ。赤を飾りに使うと、
+     循環した依存の矢印と失敗の同期ドットという本物の警告が埋もれる。
+     暖かい赤橙と寒いローズで色相を離し、循環の矢印は破線のまま残す。 */
+  --zk-accent-red: #ff5a30;
+  --zk-today-halo: rgba(255, 90, 48, 0.07);
+  --zk-milestone-fill: rgba(255, 90, 48, 0.18);
+
+  /* 盤面に重ねる層。地の色（--bg-base）は動かさない — あの値は globals.css 2 本と
+     スクロールバーの溝、モーダルの幕、バーラベルの縁取りにも写しがある。 */
+  --zk-wash-blue: rgba(45, 107, 255, 0.16);
+  --zk-wash-red: rgba(255, 90, 48, 0.055);
+  --zk-hairline: rgba(150, 178, 235, 0.045);
+
+  --zk-grid-tick: rgba(140, 165, 215, 0.11);
+  --zk-grid-month: rgba(150, 180, 235, 0.3);
+  --zk-grid-month-wash: rgba(45, 107, 255, 0.07);
+
+  /* 左ペインの選択帯 rgba(45,107,255,0.18) を --bg-surface に重ねた合成色。 */
+  --zk-band-solid: #132555;
+  --zk-progress-edge: rgba(232, 240, 255, 0.34);
+}
+
+/* 盤面の環境光。::before ではなく要素自身の背景にするのが要点。
+
+   .zk-timeline は横に数千 px スクロールする器で、background-attachment の既定
+   （scroll）は内容と一緒には流れないため、層は自動的に視野の大きさになる。
+   ::before を inset: 0 で敷くと逆に横スクロールで流れ去り、scrollWidth を
+   自前で計算する羽目になる。要素自身の背景なら子より先に塗られるので、
+   z-index も pointer-events も要らず、.zk-pane は何もせず不透明のまま。
+
+   放射の中心を上端 0% ではなく 26% に置くのは、.zk-thead が 48px の不透明な帯で
+   上を覆っているため。右下の赤を 94% にするのは横スクロールバーのぶん。
+
+   ここに filter / backdrop-filter / transform / will-change を足してはいけない。
+   .zk-tooltip は position: fixed のまま .zk-timeline の子なので、祖先が
+   固定配置の包含ブロックになるとドラッグ中のツールチップが切られて位置もずれる。 */
+[data-gantt-theme="blue-system"] .zk-timeline {
+  background-image:
+    radial-gradient(115% 95% at 4% 26%, var(--zk-wash-blue) 0%, transparent 62%),
+    radial-gradient(95% 85% at 97% 94%, var(--zk-wash-red) 0%, transparent 58%),
+    repeating-linear-gradient(180deg, var(--zk-hairline) 0 1px, transparent 1px 16px);
+  background-repeat: no-repeat, no-repeat, repeat;
+}
+
+/* 線幅の階層。縦線はすべて整数 x に載るので、嘘のない太さは 1px（x+0.5 に描く）と
+   2px（x に描く）だけ。1.25 や 1.5 の縦線は常にぼやけ、階層ではなく粗に見える。
+   1px を超える重さは、1px の線に半透明の帯を添えて出す。小数の太さは曲線と斜線
+   （依存の矢印・マイルストーンの縁）にだけ使う。 */
+[data-gantt-theme="blue-system"] .zk-grid-line { stroke: var(--zk-grid-tick); }
+[data-gantt-theme="blue-system"] .zk-grid-line--month {
+  stroke: rgba(140, 160, 200, 0.22);
+}
+.zk-grid-month-line { stroke: var(--zk-grid-month); stroke-width: 1; }
+.zk-grid-month-wash { fill: var(--zk-grid-month-wash); }
+
+[data-gantt-theme="blue-system"] .zk-today-line {
+  stroke: var(--zk-accent-red);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.zk-today-halo { fill: var(--zk-today-halo); }
+
+[data-gantt-theme="blue-system"] .zk-dep-line--cyclic { stroke-width: 2; }
+
+[data-gantt-theme="blue-system"] .zk-milestone {
+  fill: var(--zk-milestone-fill);
+  stroke: var(--zk-accent-red);
+  stroke-width: 1.5;
+}
+
+/* 背景に層を敷くと、半透明の帯は下地の明るさに引きずられて横スクロールで色が
+   変わる。左ペイン側（不透明な --bg-surface の上）と揃わなくなるので、
+   盤面側も合成済みの不透明色にする。 */
+[data-gantt-theme="blue-system"] .zk-row-selected-band {
+  fill: var(--zk-band-solid);
+}
+
+/* バーの装飾。x は常に整数で幅も 2 なので、柱は crispEdges で画素に吸い付かせる。 */
+.zk-bar-outline { stroke-width: 1; }
+.zk-bar-riser { shape-rendering: crispEdges; }
+.zk-bar-progress-edge { fill: var(--zk-progress-edge); }
+
 /* ---- ヘッダ ---- */
 .zk-header {
   display: flex;

@@ -23,6 +23,7 @@ import {
   resolveField,
 } from "@zukunft/domain"
 import { DEFAULT_VIEWS, GanttChart, Sidebar } from "@zukunft/gantt"
+import type { GanttTheme } from "@zukunft/gantt"
 import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
@@ -41,8 +42,10 @@ import {
   exitFullscreen,
   loadAutoReschedule,
   loadParentLabels,
+  loadTheme,
   loadWindowSettings,
   saveAutoReschedule,
+  saveTheme,
   saveParentLabels,
   saveWindowSettings,
 } from "@/settings"
@@ -256,6 +259,8 @@ function Workspace({
   // 依存に合わせて日程を押し出すか。これも Project に依らないアプリ全体の設定。
   // 既定は ON。読み込みが返るまでの間も、企画書 §15.2 の既定で動かす。
   const [autoReschedule, setAutoReschedule] = useState(true)
+  // 盤面の意匠。Project に依らないアプリ全体の設定。
+  const [ganttTheme, setGanttTheme] = useState<GanttTheme>("default")
   const [savingWindow, setSavingWindow] = useState(false)
   // ログだけを見るモード（Alt+L）。Gantt を描かないので、長い hint も折り返さず読める。
   const [logFull, setLogFull] = useState(false)
@@ -467,6 +472,9 @@ function Workspace({
     void loadAutoReschedule().then((enabled) => {
       if (alive) setAutoReschedule(enabled)
     })
+    void loadTheme().then((loaded) => {
+      if (alive) setGanttTheme(loaded)
+    })
     return () => {
       alive = false
     }
@@ -654,7 +662,7 @@ function Workspace({
    * 設定なので、カテゴリと同じくログにも残す。変わっていなければ書かない。
    */
   const saveWindow = useCallback(
-    async (next: WindowSettings, nextAutoReschedule: boolean) => {
+    async (next: WindowSettings, nextAutoReschedule: boolean, nextTheme: GanttTheme) => {
       setSavingWindow(true)
       try {
         await saveWindowSettings(next)
@@ -668,6 +676,11 @@ function Workspace({
               ? "依存に合わせた日程の自動調整を有効にしました"
               : "依存に合わせた日程の自動調整をやめました",
           })
+        }
+        if (nextTheme !== ganttTheme) {
+          await saveTheme(nextTheme)
+          setGanttTheme(nextTheme)
+          logAppend({ level: "info", message: `盤面の見た目を ${nextTheme} にしました` })
         }
         setSettingsOpen(false)
         logAppend({
@@ -693,7 +706,7 @@ function Workspace({
         setSavingWindow(false)
       }
     },
-    [logAppend, autoReschedule],
+    [logAppend, autoReschedule, ganttTheme],
   )
 
   const createLabel = useCallback(
@@ -1045,7 +1058,7 @@ function Workspace({
   )
 
   return (
-    <div className="zk-shell">
+    <div className="zk-shell" data-gantt-theme={ganttTheme}>
       <Sidebar
         active={groupBy}
         onSelect={onGroupBy}
@@ -1061,6 +1074,7 @@ function Workspace({
         zoom={zoom}
         groupBy={groupBy}
         parentLabels={parentLabels}
+        theme={ganttTheme}
         onTaskDatesChange={changeTaskDates}
         readOnly={!editable}
         onTaskOpen={openTaskDetail}
@@ -1111,6 +1125,7 @@ function Workspace({
         <SettingsModal
           settings={windowSettings}
           autoReschedule={autoReschedule}
+          theme={ganttTheme}
           busy={savingWindow}
           applies={isTauri()}
           onSave={saveWindow}
