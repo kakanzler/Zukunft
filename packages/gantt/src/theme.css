@@ -66,9 +66,41 @@
   flex: 0 0 auto;
 }
 .zk-header-title { font-weight: 600; letter-spacing: 0.04em; text-shadow: var(--glow-text-strong); }
-.zk-header-spacer { flex: 1; }
+/* これを付けた要素から右端側になる。ヘッダのどこで切るかは toolbar 側が決める。 */
+.zk-header-push { margin-left: auto; }
 
 /* ---- 横軸の右端 ---- */
+/* ---- 連結ボタン（day | week | month） ---- */
+.zk-segmented {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  /* 角の内側までは背景が回り込まないので、子を切り取って丸みを揃える。 */
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.zk-segmented-item {
+  padding: calc(var(--space) * 2) calc(var(--space) * 3);
+  background: none;
+  border: 0;
+  /* 仕切りは項目の左辺。1 つめだけ消して二重線にしない。 */
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.zk-segmented-item:first-child { border-left: 0; }
+.zk-segmented-item:hover { color: var(--text-primary); }
+.zk-segmented-item[aria-pressed="true"] {
+  background: rgba(45, 107, 255, 0.22);
+  color: var(--text-primary);
+  text-shadow: var(--glow-text-strong);
+}
+
 .zk-axis-end {
   display: flex;
   align-items: center;
@@ -550,9 +582,11 @@
    高さはユーザーが境界をドラッグして決める。件数で伸び縮みさせないため
    max-height ではなく本文に固定の高さを与え、その中でスクロールさせる。 */
 .zk-log {
+  /* 端末の画面。Gantt の盤面より一段沈めて、ここだけ別の面であることを示す。 */
+  --log-text: #24f511;
   flex: 0 0 auto;
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
+  background: #080c14;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -579,10 +613,6 @@
   user-select: none;
   flex: 0 0 auto;
 }
-.zk-log-title {
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--text-secondary);
-}
 .zk-log-count {
   font-size: 10px; padding: 1px calc(var(--space) * 1.5);
   border-radius: 999px; border: 1px solid var(--border-subtle);
@@ -606,12 +636,15 @@
   border-top: 1px solid rgba(30, 42, 77, 0.5);
   line-height: 1.5;
 }
-.zk-log-time { color: var(--text-secondary); flex: 0 0 auto; }
+/* 日時と本文は端末の緑。level の色分けはそのまま残し、行の種類はそちらで読ませる。 */
+.zk-log-time { color: var(--log-text); flex: 0 0 auto; }
+/* 白い滲みは緑の上で濁るので、発光も文字色に合わせる。 */
+.zk-log-time, .zk-log-message { text-shadow: 0 0 9px rgba(36, 245, 17, 0.35); }
 .zk-log-level { flex: 0 0 auto; width: 42px; text-transform: uppercase; font-size: 10px; }
 .zk-log-level--info { color: var(--accent-cyan); }
 .zk-log-level--warn { color: var(--warning); }
 .zk-log-level--error { color: var(--danger); }
-.zk-log-message { flex: 1; min-width: 0; word-break: break-word; }
+.zk-log-message { color: var(--log-text); flex: 1; min-width: 0; word-break: break-word; }
 .zk-log-hint { color: var(--text-secondary); }
 .zk-log-actions { display: flex; gap: calc(var(--space) * 2); flex: 0 0 auto; }
 .zk-log-actions .zk-button { padding: 2px calc(var(--space) * 2); font-size: 10px; }
@@ -725,7 +758,7 @@
 
 .zk-sidebar {
   flex: 0 0 auto;
-  width: 128px;
+  width: 192px;
   display: flex;
   flex-direction: column;
   gap: calc(var(--space) * 3);
@@ -815,4 +848,38 @@
   width: 32px; height: 28px; padding: 0;
   background: none; border: 1px solid var(--border-subtle); border-radius: 6px;
   cursor: pointer;
+}
+
+/* ---- スクロールバー ----
+   既定のスクロールバーは明るい灰色の板で、暗い盤面の上では光っているバーより
+   目立ってしまう。盤面に沈む溝と、細く光るつまみに置き換える。
+
+   Chromium 系（Tauri の WebView2 と Chrome）は ::-webkit-scrollbar だけを使う。
+   標準の scrollbar-color / scrollbar-width を併記すると Chromium はそちらを
+   優先して疑似要素を無視するため、疑似要素を持たない Firefox 側だけに書く。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track {
+  background: rgba(6, 11, 26, 0.6);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb {
+  /* 透明な境界と background-clip で、つまみを溝より細く見せる。 */
+  border: 2px solid transparent;
+  background: linear-gradient(180deg, var(--accent, #3b82f6), var(--accent-cyan, #22d3ee)) padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #5b9bff, #67e8f9) padding-box;
+}
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--accent-cyan, #22d3ee), var(--accent-cyan, #22d3ee)) padding-box;
+}
+/* 縦横が交わる角。塗らないと既定の明るい四角がひとつだけ残る。 */
+::-webkit-scrollbar-corner { background: transparent; }
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent, #3b82f6) rgba(6, 11, 26, 0.6);
+  }
 }

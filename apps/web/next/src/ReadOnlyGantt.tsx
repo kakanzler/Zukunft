@@ -23,13 +23,17 @@ export function ReadOnlyGantt({
 
   const toolbar = (
     <>
-      {ZOOM_LEVELS.map((level) => (
-        <button key={level} className="zk-button" aria-pressed={zoom === level}
-                onClick={() => setZoom(level)}>
-          {level}
-        </button>
-      ))}
-      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>読み取り専用</span>
+      <div className="zk-segmented" role="group" aria-label="ズーム">
+        {ZOOM_LEVELS.map((level) => (
+          <button key={level} className="zk-segmented-item" aria-pressed={zoom === level}
+                  onClick={() => setZoom(level)}>
+            {level}
+          </button>
+        ))}
+      </div>
+      <span className="zk-header-push" style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        読み取り専用
+      </span>
     </>
   )
 

@@ -86,7 +86,6 @@ export function LogPane({ log, full, onToggleFull }: Props) {
       )}
 
       <div className="zk-log-head">
-        <span className="zk-log-title">Log</span>
         {counts.error > 0 && (
           <span className="zk-log-count zk-log-count--error">{counts.error} error</span>
         )}

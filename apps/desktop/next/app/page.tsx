@@ -14,7 +14,7 @@ import type {
   ZoomLevel,
 } from "@zukunft/domain"
 import { ZOOM_LEVELS, canEditDates, missingRequiredFields, resolveField } from "@zukunft/domain"
-import { GanttChart, Sidebar } from "@zukunft/gantt"
+import { DEFAULT_VIEWS, GanttChart, Sidebar } from "@zukunft/gantt"
 import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
@@ -753,13 +753,15 @@ function Workspace({
   )
 
   // Undo / Redo のキーボードショートカット（企画書 §6.3.4）。
+  // 判定は e.code（物理キー）で行う。Shift を押した e.key は "Z" になるため、
+  // "z" と比べていた間は Ctrl+Shift+Z が一度も一致していなかった。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
-      if (e.key === "z" && !e.shiftKey) {
+      if (e.code === "KeyZ" && !e.shiftKey) {
         e.preventDefault()
         schedule.undo()
-      } else if ((e.key === "z" && e.shiftKey) || e.key === "y") {
+      } else if ((e.code === "KeyZ" && e.shiftKey) || e.code === "KeyY") {
         e.preventDefault()
         schedule.redo()
       }
@@ -810,6 +812,15 @@ function Workspace({
       if (e.code === "KeyL") {
         e.preventDefault()
         setLogFull((v) => !v)
+      } else if (e.code === "ArrowUp" || e.code === "ArrowDown") {
+        // サイドバーの項目を上下に移動する。端では折り返さない。
+        // 一覧の端に着いたことが分かる方が、押し続けて行き過ぎるより迷わない。
+        e.preventDefault()
+        const modes = DEFAULT_VIEWS.map((view) => view.mode)
+        const current = modes.indexOf(groupBy)
+        const moved = current + (e.code === "ArrowDown" ? 1 : -1)
+        const next = modes[Math.min(modes.length - 1, Math.max(0, moved))]
+        if (next && next !== groupBy) onGroupBy(next)
       } else if (e.code === "KeyR") {
         if (!projectId) return
         e.preventDefault()
@@ -826,7 +837,7 @@ function Workspace({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [projectId, reloadAll])
+  }, [projectId, reloadAll, groupBy, onGroupBy])
 
   const toolbar = (
     <>
@@ -839,18 +850,18 @@ function Workspace({
           <option key={p.id} value={p.id}>{p.title}</option>
         ))}
       </select>
-      {ZOOM_LEVELS.map((level) => (
-        <button
-          key={level}
-          className="zk-button"
-          aria-pressed={zoom === level}
-          onClick={() => onZoom(level)}
-        >
-          {level}
-        </button>
-      ))}
-      <button className="zk-button" disabled={!schedule.canUndo} onClick={schedule.undo}>Undo</button>
-      <button className="zk-button" disabled={!schedule.canRedo} onClick={schedule.redo}>Redo</button>
+      <div className="zk-segmented" role="group" aria-label="ズーム">
+        {ZOOM_LEVELS.map((level) => (
+          <button
+            key={level}
+            className="zk-segmented-item"
+            aria-pressed={zoom === level}
+            onClick={() => onZoom(level)}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
       <button
         className="zk-button"
         onClick={() => setCreatingOpen(true)}
@@ -858,8 +869,9 @@ function Workspace({
       >
         New Issue
       </button>
+      {/* ここから右端側。起票までが日常の操作で、カテゴリ設定はたまにしか触らない。 */}
       <button
-        className="zk-button"
+        className="zk-button zk-header-push"
         onClick={() => setCategoryOpen(true)}
         disabled={!projectId}
       >

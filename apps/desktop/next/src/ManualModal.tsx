@@ -26,6 +26,7 @@ const HOTKEYS: [string, string][] = [
   ["Alt+M", "このマニュアルを開く / 閉じる"],
   ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
   ["Alt+R", "スキーマとタスクを読み直す（Project 選択中のみ）"],
+  ["Alt+↑ / Alt+↓", "サイドバーの表示を上下に切り替える"],
   ["Alt+L", "ログだけの表示と Gantt を切り替える"],
   ["Ctrl+Z", "日付の変更を元に戻す"],
   ["Ctrl+Shift+Z / Ctrl+Y", "元に戻した変更をやり直す"],

@@ -37,6 +37,23 @@ type Props = {
 }
 
 /**
+ * Body の下敷き。
+ *
+ * 起票の時点で「何を目指すのか」「何をするのか」「どうなったら終わりか」を
+ * 書き分けさせるための見出しだけを置く。空欄から書き始めると、
+ * だいたい「やること」だけが残って完了条件が抜ける。
+ *
+ * 見出しの下は空行にしておく。カーソルを置けばそのまま書ける方が、
+ * 例文を消してから書くより速い。
+ */
+const BODY_TEMPLATE = `## Aiming
+
+## What to do
+
+## Acceptance Criteria
+`
+
+/**
  * 新しい Issue を起票して Project に追加する。
  *
  * 日付は任意。GitHub で Issue を作ってから Project に追加して日付を入れる、
@@ -49,7 +66,7 @@ export function NewTaskModal({
   onCreate, onClose,
 }: Props) {
   const [title, setTitle] = useState("")
-  const [body, setBody] = useState("")
+  const [body, setBody] = useState(BODY_TEMPLATE)
   const [start, setStart] = useState("")
   const [end, setEnd] = useState("")
   const [statusOptionId, setStatusOptionId] = useState("")
@@ -186,7 +203,8 @@ export function NewTaskModal({
             <span className="zk-field-label">Body</span>
             <textarea
               className="zk-input"
-              rows={4}
+              // 3 つの見出しと、その下に書く余地が一度に見える高さ。
+              rows={10}
               value={body}
               placeholder="任意。Issue の本文"
               onChange={(e) => setBody(e.target.value)}

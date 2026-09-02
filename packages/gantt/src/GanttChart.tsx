@@ -111,7 +111,6 @@ export function GanttChart({
     <>
       <div className="zk-header">
         {toolbar}
-        <div className="zk-header-spacer" />
         <label className="zk-axis-end">
           <span className="zk-axis-end-label">表示終了日</span>
           <input
