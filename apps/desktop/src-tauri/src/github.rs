@@ -54,6 +54,33 @@ fn with_fragments(document: &str) -> String {
     format!("{FRAGMENTS}\n{document}")
 }
 
+/// GraphQL は HTTP 200 でエラーを返すため、本文を見て分類し直す。
+/// 認証状態の判定（auth::current_status）とデータ取得の両方から使う。
+///
+/// レート制限は type: "RATE_LIMITED" だけでなく type: "RATE_LIMIT" や
+/// code: "graphql_rate_limit" でも返ってくる。どれか一つしか見ていないと
+/// 残りが Unknown に落ち、「待てば直る」ことを UI に伝えられなくなるため、
+/// 併せて拾う。
+pub fn graphql_error(body: &Value) -> Option<AppError> {
+    let first = body.get("errors").and_then(Value::as_array)?.first()?;
+    let message = first
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("GitHub がエラーを返しました");
+    let kind = match (
+        first.get("type").and_then(Value::as_str),
+        first.get("code").and_then(Value::as_str),
+    ) {
+        (Some("RATE_LIMITED" | "RATE_LIMIT"), _)
+        | (_, Some("graphql_rate_limit" | "rate_limited")) => ErrorKind::RateLimited,
+        (Some("NOT_FOUND"), _) => ErrorKind::NotFound,
+        (Some("FORBIDDEN"), _) => ErrorKind::Forbidden,
+        (Some("UNAUTHORIZED"), _) => ErrorKind::Unauthorized,
+        _ => ErrorKind::Unknown,
+    };
+    Some(AppError::new(kind, message))
+}
+
 pub struct GitHubClient {
     http: reqwest::Client,
     token: String,
@@ -110,20 +137,8 @@ impl GitHubClient {
         let body: Value = response.json().await?;
 
         // GraphQL は HTTP 200 でエラーを返すため、ここでも分類し直す。
-        if let Some(errors) = body.get("errors").and_then(Value::as_array) {
-            if let Some(first) = errors.first() {
-                let message = first
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("GitHub がエラーを返しました");
-                let kind = match first.get("type").and_then(Value::as_str) {
-                    Some("RATE_LIMITED") => ErrorKind::RateLimited,
-                    Some("NOT_FOUND") => ErrorKind::NotFound,
-                    Some("FORBIDDEN") => ErrorKind::Forbidden,
-                    _ => ErrorKind::Unknown,
-                };
-                return Err(AppError::new(kind, message));
-            }
+        if let Some(error) = graphql_error(&body) {
+            return Err(error);
         }
 
         body.get("data")

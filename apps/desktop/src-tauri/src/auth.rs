@@ -94,21 +94,6 @@ struct AccessTokenResponse {
     error: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct Viewer {
-    login: String,
-}
-
-#[derive(Deserialize)]
-struct ViewerData {
-    viewer: Viewer,
-}
-
-#[derive(Deserialize)]
-struct ViewerEnvelope {
-    data: Option<ViewerData>,
-}
-
 /// Device Flow の開始（企画書 §11）。
 /// リダイレクト URI を用意せず、クライアントシークレットも埋め込まずに済む。
 pub async fn start_device_flow(http: &reqwest::Client) -> AppResult<DeviceCode> {
@@ -168,6 +153,11 @@ pub async fn poll_device_flow(http: &reqwest::Client, device_code: &str) -> AppR
 }
 
 /// 保存済みトークンで viewer を引き、サインイン状態を確認する。
+///
+/// data が無いことだけで「未サインイン」と決めてはいけない。GitHub はレート制限などを
+/// HTTP 200 + errors のみの本文で返すことがあり、それを未サインインと読むと、
+/// 有効なトークンを持ったままサインイン画面に戻してしまう。
+/// そのため、トークンが拒まれた場合（401）と GraphQL のエラーを分けて扱う。
 pub async fn current_status(http: &reqwest::Client) -> AppResult<AuthStatus> {
     let source = token_source();
     let token = match resolve_token() {
@@ -183,19 +173,34 @@ pub async fn current_status(http: &reqwest::Client) -> AppResult<AuthStatus> {
         .send()
         .await?;
 
+    // 401 はトークンそのものが受け付けられなかった場合。ここだけが未サインイン。
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Ok(AuthStatus { signed_in: false, login: None, source: source.into() });
     }
 
-    let envelope: ViewerEnvelope = response.json().await?;
-    Ok(match envelope.data {
-        Some(data) => AuthStatus {
+    let body: serde_json::Value = response.json().await?;
+
+    // レート制限などはサインイン状態の問題ではないので、エラーのまま呼び出し元へ返す。
+    // ここでサインアウト扱いにすると、待てば直るものを再サインインで直そうとさせてしまう。
+    if let Some(error) = crate::github::graphql_error(&body) {
+        return Err(error);
+    }
+
+    if let Some(login) = body
+        .get("data")
+        .and_then(|data| data.get("viewer"))
+        .and_then(|viewer| viewer.get("login"))
+        .and_then(serde_json::Value::as_str)
+    {
+        return Ok(AuthStatus {
             signed_in: true,
-            login: Some(data.viewer.login),
+            login: Some(login.to_owned()),
             source: source.into(),
-        },
-        None => AuthStatus { signed_in: false, login: None, source: source.into() },
-    })
+        });
+    }
+
+    // data も errors も無い応答。viewer を名乗れていない以上、未サインインとして扱う。
+    Ok(AuthStatus { signed_in: false, login: None, source: source.into() })
 }
 
 /// プロトタイプ用の PAT 直接入力（企画書 §11）。
@@ -206,6 +211,10 @@ pub async fn sign_in_with_token(http: &reqwest::Client, token: &str) -> AppResul
         return Err(AppError::new(ErrorKind::Unauthorized, "トークンが空です"));
     }
     store_token(trimmed)?;
+    // current_status が Err を返すのはレート制限や通信断など、トークンの有効性を
+    // 判断できなかった場合。`?` でそのまま抜けて clear_token に進ませないのは意図で、
+    // 保存したトークンを消すのは GitHub が受け付けなかったと確定した
+    // （signed_in == false になった）ときだけにする。
     let status = current_status(http).await?;
     if !status.signed_in {
         clear_token()?;
