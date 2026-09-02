@@ -1,6 +1,6 @@
 [package]
 name = "zukunft"
-version = "0.1.8"
+version = "0.1.9"
 description = "GitHub Issue × Gantt schedule editor"
 edition = "2021"
 rust-version = "1.77"
