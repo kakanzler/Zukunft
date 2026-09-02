@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { type CSSProperties, useMemo } from "react"
 import {
   type DateChange,
   type ISODate,
@@ -12,7 +12,7 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { gradientId } from "./colors"
+import { glowVar, gradientId } from "./colors"
 import type { Row } from "./rows"
 import { useBarDrag } from "./useBarDrag"
 
@@ -167,7 +167,9 @@ function Bar({
       <rect
         x={x} y={y + BAR_INSET} width={width} height={height} rx={height / 2}
         fill={`url(#${gradientId(statusIndex)})`}
-        style={ghost ? undefined : { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.45))" }}
+        className={ghost ? undefined : "zk-bar-glow"}
+        // 発光色は Status ごと。塗りと同じ色で滲ませないと、色分けが光に埋もれる。
+        style={ghost ? undefined : ({ "--bar-glow": glowVar(statusIndex) } as CSSProperties)}
       />
       {progress !== null && progress > 0 && (
         <rect

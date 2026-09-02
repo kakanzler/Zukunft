@@ -25,10 +25,11 @@ const SECTIONS: Section[] = [
 const HOTKEYS: [string, string][] = [
   ["Alt+M", "このマニュアルを開く / 閉じる"],
   ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
+  ["Alt+R", "スキーマとタスクを読み直す（Project 選択中のみ）"],
   ["Alt+L", "ログだけの表示と Gantt を切り替える"],
   ["Ctrl+Z", "日付の変更を元に戻す"],
   ["Ctrl+Shift+Z / Ctrl+Y", "元に戻した変更をやり直す"],
-  ["Esc", "開いているモーダルを閉じる"],
+  ["Esc", "モーダルを閉じる。開いていなければフルスクリーンを抜ける"],
 ]
 
 /**
@@ -169,6 +170,10 @@ function HotkeySection() {
           同じ位置のキーで同じ操作になります。文字入力を奪わないよう、
           Ctrl や Command と一緒に押したときは効きません。
         </p>
+        <p className="zk-manual-text">
+          Esc でフルスクリーンを抜けても設定は変わりません。次の起動は Settings で
+          選んだ見せ方に戻ります。
+        </p>
       </Block>
     </>
   )
@@ -197,7 +202,7 @@ function SyncSection() {
       <Block title="いつログに出るか">
         <p className="zk-manual-text">
           状態が変わったときに 1 行だけ出ます。未同期のまま件数が増えても行は増えません。
-          いま同期できているかを確かめたいときは「再読み込み」を押すと、そのときの状態を
+          いま同期できているかを確かめたいときは Alt+R で読み直すと、そのときの状態を
           あらためてログに出します。
         </p>
       </Block>

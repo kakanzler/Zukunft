@@ -13,3 +13,8 @@ export function gradientId(statusIndex: number): string {
 export function statusVar(statusIndex: number): string {
   return `var(--status-${statusSlot(statusIndex)}-to)`
 }
+
+/** バーの発光色。塗りと同じ系統の色で滲ませ、Status ごとの色分けを光に埋もれさせない。 */
+export function glowVar(statusIndex: number): string {
+  return `var(--status-${statusSlot(statusIndex)}-glow)`
+}

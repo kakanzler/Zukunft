@@ -214,6 +214,29 @@ fn apply(app: &tauri::AppHandle, window_settings: WindowSettings) {
     }
 }
 
+/// フルスクリーンだけを解除する（Esc）。
+///
+/// 設定は書き換えない。Esc はその場から抜けるための操作であって、
+/// 「次からは窓で開く」という意思表示ではないため、次の起動は保存済みの見せ方に戻る。
+/// 抜けた先は保存済みの幅・高さ。フルスクリーンを外しただけだと、
+/// プラットフォームによっては直前の中途半端な大きさが残る。
+#[tauri::command]
+pub async fn exit_fullscreen(app: tauri::AppHandle) -> Result<(), AppError> {
+    let settings = read(&app).window.normalized();
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let is_fullscreen = window.is_fullscreen().unwrap_or(false);
+    if !is_fullscreen {
+        return Ok(());
+    }
+    let _ = window.set_fullscreen(false);
+    let _ = window.unmaximize();
+    let _ = window.set_size(tauri::LogicalSize::new(settings.width, settings.height));
+    let _ = window.center();
+    Ok(())
+}
+
 /// 窓の見せ方を保存し、その場で反映する。
 ///
 /// 保存だけして次の起動を待たせない。設定を変えた結果がその場で見えないと、

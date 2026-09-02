@@ -14,6 +14,10 @@
   --danger: #f43f5e;
   --warning: #f59e0b;
 
+  /* 発光。文字は「にじんで読めない」手前で止め、見出しとバーだけ強く光らせる。 */
+  --glow-text: 0 0 10px rgba(232, 238, 255, 0.28);
+  --glow-text-strong: 0 0 6px rgba(232, 238, 255, 0.5), 0 0 18px rgba(45, 107, 255, 0.45);
+
   --row-height: 32px;
   --pane-width: 280px;
   --header-height: 56px;
@@ -24,11 +28,17 @@
   /* --font-sawarabi は next/font が <html> に載せる。読めない場合に備えて和文の控えを残す。 */
   font-family: var(--font-sawarabi), "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 13px;
+  text-shadow: var(--glow-text);
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
+
+/* 入力欄の中身は光らせない。カーソルと文字が溶けて、どこを編集しているのか見失う。 */
+.zk-root input,
+.zk-root textarea,
+.zk-root select { text-shadow: none; }
 
 /* ---- ステータス色（企画書 §6.4.1） ---- */
 .zk-root {
@@ -36,6 +46,12 @@
   --status-1-from: #06b6d4; --status-1-to: #22d3ee;  /* In Progress */
   --status-2-from: #7c3aed; --status-2-to: #a855f7;  /* Review */
   --status-3-from: #059669; --status-3-to: #10b981;  /* Complete */
+
+  /* バーの発光色。塗りの終端色と同じ色で滲ませ、Status ごとに違う色で光らせる。 */
+  --status-0-glow: rgba(59, 130, 246, 0.75);
+  --status-1-glow: rgba(34, 211, 238, 0.75);
+  --status-2-glow: rgba(168, 85, 247, 0.75);
+  --status-3-glow: rgba(16, 185, 129, 0.75);
 }
 
 /* ---- ヘッダ ---- */
@@ -49,7 +65,7 @@
   border-bottom: 1px solid var(--border-subtle);
   flex: 0 0 auto;
 }
-.zk-header-title { font-weight: 600; letter-spacing: 0.04em; }
+.zk-header-title { font-weight: 600; letter-spacing: 0.04em; text-shadow: var(--glow-text-strong); }
 .zk-header-spacer { flex: 1; }
 
 /* ---- 横軸の右端 ---- */
@@ -201,12 +217,19 @@
 /* ---- バー ---- */
 .zk-bar { cursor: grab; }
 .zk-bar--dragging { cursor: grabbing; }
-.zk-bar-ghost { opacity: 0.28; pointer-events: none; }
+/* ドラッグ中に残る元の位置は光らせない。動かしている先と見分けが付かなくなる。 */
+.zk-bar-ghost { opacity: 0.28; pointer-events: none; filter: none; }
+/* 近い滲みと広い滲みを重ねる。1 段だけだと縁が硬く、光っているというより線が太く見える。 */
+.zk-bar-glow {
+  filter: drop-shadow(0 0 3px var(--bar-glow)) drop-shadow(0 0 9px var(--bar-glow));
+}
 .zk-bar-label {
   fill: var(--text-primary);
   font-size: 11px;
   pointer-events: none;
   dominant-baseline: middle;
+  /* SVG の text に text-shadow は効かないので、こちらも drop-shadow で滲ませる。 */
+  filter: drop-shadow(0 0 4px rgba(6, 11, 26, 0.9));
 }
 .zk-grid-line { stroke: var(--border-subtle); stroke-width: 1; }
 .zk-grid-line--month { stroke: rgba(140, 160, 200, 0.35); }
@@ -552,7 +575,7 @@
 .zk-log-head {
   display: flex; align-items: center; gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 2) calc(var(--space) * 4);
-  cursor: pointer;
+  /* 畳む操作をやめたので、押せるように見せない。 */
   user-select: none;
   flex: 0 0 auto;
 }
@@ -714,40 +737,38 @@
 .zk-sidebar-brand {
   font-weight: 600;
   letter-spacing: 0.08em;
+  text-shadow: var(--glow-text-strong);
   padding: calc(var(--space) * 2) calc(var(--space));
   color: var(--text-primary);
 }
-.zk-sidebar-views { display: flex; flex-direction: column; gap: calc(var(--space) * 2); }
+.zk-sidebar-views { display: flex; flex-direction: column; gap: calc(var(--space) * 0.5); }
 
+/* アイコンと名前だけの 1 行。枠も影も付けず、選択中は色で示す。 */
 .zk-sidebar-item {
-  display: grid;
-  justify-items: center;
-  gap: calc(var(--space));
-  padding: calc(var(--space) * 3) calc(var(--space) * 2);
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-.zk-sidebar-item:hover {
-  border-color: rgba(45, 107, 255, 0.6);
-}
-.zk-sidebar-item[aria-pressed="true"] {
-  border-color: var(--border-glow);
-  box-shadow: 0 0 0 1px rgba(45, 107, 255, 0.3), 0 0 14px rgba(45, 107, 255, 0.35);
-}
-.zk-sidebar-icon { font-size: 18px; color: var(--accent-cyan); line-height: 1; }
-.zk-sidebar-label { font-size: 12px; font-weight: 600; }
-.zk-sidebar-desc {
-  font-size: 9px; letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+  width: 100%;
+  padding: calc(var(--space) * 1.5) calc(var(--space));
+  background: none;
+  border: 0;
   color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease;
 }
+.zk-sidebar-item:hover { color: var(--text-primary); }
+.zk-sidebar-item[aria-pressed="true"] { color: var(--text-primary); }
+.zk-sidebar-icon { font-size: 15px; line-height: 1; color: inherit; }
+.zk-sidebar-item[aria-pressed="true"] .zk-sidebar-icon {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.7);
+}
+.zk-sidebar-label { font-size: 12px; }
+.zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label { font-weight: 600; text-shadow: var(--glow-text-strong); }
 /* 設定はビューの下、プロジェクト名の上。ここで下端に寄せる。 */
 .zk-sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; }
-.zk-sidebar-bottom .zk-sidebar-item { padding: calc(var(--space) * 2); }
 /* 設定が居るときは、そちらが下端を取る。 */
 .zk-sidebar-bottom + .zk-sidebar-foot { margin-top: 0; }
 

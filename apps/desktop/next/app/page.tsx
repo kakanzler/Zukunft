@@ -30,6 +30,7 @@ import { useLog } from "@/log"
 import type { WindowSettings } from "@/settings"
 import {
   DEFAULT_WINDOW_SETTINGS,
+  exitFullscreen,
   loadParentLabels,
   loadWindowSettings,
   saveParentLabels,
@@ -263,7 +264,7 @@ function Workspace({
         `${missing.map((f) => `${f.name} (${f.expectedType})`).join(" / ")} が必要です。` +
         `　現在のフィールド: ${present || "なし"}` +
         `　大文字小文字と空白は無視するので Start date / End date / Due date なども可。` +
-        `　作成したら「再読み込み」を押してください。`,
+        `　作成したら Alt+R で読み直してください。`,
       dedupeKey: key,
     })
   }, [schema, missing, log])
@@ -319,7 +320,7 @@ function Workspace({
     log.append(standing.entry)
   }, [standing, schedule.load.phase, log])
 
-  /** 「再読み込み」から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
+  /** 再読み込み（Alt+R）から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
   const logSyncStanding = useCallback(() => {
     lastStanding.current = standing.kind
     log.append(standing.entry)
@@ -767,6 +768,38 @@ function Workspace({
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [schedule])
 
+  /**
+   * 再読み込み（Alt+R）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
+   * スキーマも一緒に取り直すのは、GitHub 側でフィールドを足した直後に
+   * タスクだけ取り直しても編集が閉じたままになるため。
+   */
+  const reloadAll = useCallback(() => {
+    onReloadSchema()
+    schedule.reload()
+    logSyncStanding()
+  }, [onReloadSchema, schedule, logSyncStanding])
+
+  /**
+   * Esc でフルスクリーンを抜ける。
+   *
+   * モーダルが開いているときは何もしない。Esc はまずモーダルを閉じるキーで、
+   * 各モーダルが自前で拾っている。ここでも反応すると、閉じると同時に窓まで
+   * 縮んでしまい、どちらを取り消したのか分からなくなる。
+   *
+   * 設定は書き換えないので、次の起動は保存済みの見せ方に戻る。
+   */
+  const anyModalOpen =
+    creatingOpen || categoryOpen || settingsOpen || manualOpen || openTaskId !== null
+  useEffect(() => {
+    if (anyModalOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      void exitFullscreen()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [anyModalOpen])
+
   // 画面の切り替えと起票の Alt ショートカット。
   // 文字入力を奪わないよう Alt 単独の組み合わせに限り、Ctrl / Meta との併用は見送る。
   // キー判定は e.code（物理キー）で行う。Alt を押した状態の e.key は配列によって
@@ -777,6 +810,10 @@ function Workspace({
       if (e.code === "KeyL") {
         e.preventDefault()
         setLogFull((v) => !v)
+      } else if (e.code === "KeyR") {
+        if (!projectId) return
+        e.preventDefault()
+        reloadAll()
       } else if (e.code === "KeyM") {
         e.preventDefault()
         setManualOpen((v) => !v)
@@ -789,7 +826,7 @@ function Workspace({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [projectId])
+  }, [projectId, reloadAll])
 
   const toolbar = (
     <>
@@ -816,20 +853,10 @@ function Workspace({
       <button className="zk-button" disabled={!schedule.canRedo} onClick={schedule.redo}>Redo</button>
       <button
         className="zk-button"
-        onClick={() => {
-          onReloadSchema()
-          schedule.reload()
-          logSyncStanding()
-        }}
-      >
-        再読み込み
-      </button>
-      <button
-        className="zk-button"
         onClick={() => setCreatingOpen(true)}
         disabled={!projectId}
       >
-        ＋ 新規 Issue (Alt+A)
+        New Issue
       </button>
       <button
         className="zk-button"
@@ -838,13 +865,8 @@ function Workspace({
       >
         カテゴリ設定
       </button>
-      <button className="zk-button" onClick={() => setManualOpen(true)}>
-        マニュアル (Alt+M)
-      </button>
     </>
   )
-
-  const project = projects.find((p) => p.id === projectId)
 
   return (
     <div className="zk-shell">
@@ -852,7 +874,6 @@ function Workspace({
         active={groupBy}
         onSelect={onGroupBy}
         onOpenSettings={() => setSettingsOpen(true)}
-        footer={project ? project.title : undefined}
       />
       <div className="zk-main">
       {/* ログだけを見るモードでは Gantt を描かない。畳んで隅に寄せるのではなく

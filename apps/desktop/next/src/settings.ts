@@ -131,3 +131,16 @@ export async function saveWindowSettings(settings: WindowSettings): Promise<void
   }
   window.sessionStorage.setItem(WINDOW_STORAGE_KEY, JSON.stringify(normalized))
 }
+
+/**
+ * フルスクリーンを解除する（Esc）。設定は書き換えないので、次の起動は保存済みの見せ方に戻る。
+ * Tauri の外では解除する窓が無いので何もしない。
+ */
+export async function exitFullscreen(): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invokeCommand<void>("exit_fullscreen", {})
+  } catch {
+    // 抜けられなくてもアプリは使える。失敗をログに出しても打つ手が無い。
+  }
+}
