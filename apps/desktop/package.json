@@ -1,6 +1,6 @@
 {
   "name": "@zukunft/desktop-app",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "//": "Tauri CLI は cwd から src-tauri を探すため、スクリプトはこの階層に置く。UI は apps/desktop/next（@zukunft/desktop）。",
   "scripts": {
