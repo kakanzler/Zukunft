@@ -660,7 +660,12 @@ function Workspace({
   )
   const truncatedKey = truncated.join(",")
   useEffect(() => {
-    if (truncated.length === 0) return
+    // 読み切れるようになったら行を消す。残しておくと、直したのに直っていないように
+    // 見える。dedupeKey は出し直したときに差し替えるだけで、消しはしない。
+    if (truncated.length === 0) {
+      logResolve("fields-truncated")
+      return
+    }
     logAppend({
       level: "warn",
       message: `${truncated.map((n) => `#${n}`).join(", ")} はフィールドを読み切れていません`,
@@ -672,19 +677,37 @@ function Workspace({
     // 中身が変わったときだけ出し直す。tasks は同期のたびに新しくなるので、
     // 配列そのものを依存にすると警告がログの中を飛び回る。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [truncatedKey, logAppend])
+  }, [truncatedKey, logAppend, logResolve])
 
   const cycles = useMemo(() => detectCycles(schedule.tasks).cycles, [schedule.tasks])
   // 前に出した循環の一覧。同じ内容なら出し直さない。
   //
   // dedupeKey は行を積み増さないだけで、出し直せば時刻が更新されて末尾に動く。
   // tasks は同期のたびに新しくなるので、それだけで警告がログの中を飛び回る。
-  const loggedCycles = useRef("")
+  //
+  // 保持するのは「前に出した循環の dedupeKey」。件数や連結文字列ではなく個々の鍵を
+  // 覚えておかないと、2 つあった循環の片方だけを直したときに、残った方まで
+  // 消してしまうか、直した方が残り続けるかのどちらかになる。
+  const loggedCycles = useRef<string[]>([])
   useEffect(() => {
-    const key = cycles.map((c) => c.taskIds.join(">")).join("|")
-    if (key === loggedCycles.current) return
-    loggedCycles.current = key
+    const keys = cycles.map((c) => `cycle:${c.taskIds.join(">")}`)
+    const same =
+      keys.length === loggedCycles.current.length &&
+      keys.every((k, i) => k === loggedCycles.current[i])
+    if (same) return
+
+    // 消えた循環の行を取り下げる。blocked-by を外して直したのに警告が残っていると、
+    // 直っていないのか、ログが古いだけなのかが画面から区別できない。
+    for (const old of loggedCycles.current) {
+      if (!keys.includes(old)) logResolve(old)
+    }
+    const before = loggedCycles.current
+    loggedCycles.current = keys
+
+    // 前から出ている循環は出し直さない。出し直すと時刻が更新されてログの末尾へ
+    // 動くので、直っていない古い循環が「たったいま起きた」ように見える。
     for (const cycle of cycles) {
+      if (before.includes(`cycle:${cycle.taskIds.join(">")}`)) continue
       logAppend({
         level: "warn",
         message: formatCycle(cycle),
@@ -694,7 +717,7 @@ function Workspace({
         dedupeKey: `cycle:${cycle.taskIds.join(">")}`,
       })
     }
-  }, [cycles, logAppend])
+  }, [cycles, logAppend, logResolve])
 
   /**
    * 親カテゴリの保存。
