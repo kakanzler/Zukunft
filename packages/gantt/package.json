@@ -8,6 +8,9 @@
     ".": "./src/index.ts",
     "./theme.css": "./src/theme.css"
   },
+  "scripts": {
+    "test": "tsc -p tsconfig.test.json && node test/run.js"
+  },
   "dependencies": {
     "@zukunft/domain": "0.1.10"
   },

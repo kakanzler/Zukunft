@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-out",
+    "rootDir": "../..",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "skipLibCheck": true
+  },
+  "include": ["test/**/*", "src/**/*", "../domain/src/**/*"]
+}

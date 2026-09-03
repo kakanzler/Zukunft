@@ -327,7 +327,14 @@ export function Timeline({
   )
 }
 
-function barWidth(task: ScheduledTask, scale: TimeScale): number {
+/**
+ * バーの幅（px）。1 日のタスクでも 2px は残す — 0 幅だと盤面から消えてしまう。
+ *
+ * この関数と barPath / buildLinks を export しているのは、盤面の座標計算が
+ * 壊れたことに描画を目で見るまで気づけないため。DOM 無しで確かめられる形に
+ * 出しておき、test/smoke.ts から座標そのものを見る。呼び出しは Timeline 内だけ。
+ */
+export function barWidth(task: ScheduledTask, scale: TimeScale): number {
   return Math.max(inclusiveDays(task.startDate, task.endDate) * scale.pxPerDay, 2)
 }
 
@@ -339,7 +346,7 @@ function barWidth(task: ScheduledTask, scale: TimeScale): number {
  * rect の rx を使わないのは、横と縦が別々に丸められるため — 幅 2px のバーが
  * 高さ 22px の楕円（レンズ）になってしまう。
  */
-function barPath(x: number, y: number, w: number, h: number): string {
+export function barPath(x: number, y: number, w: number, h: number): string {
   const r = Math.min(h / 2, w / 2)
   // 左はごく小さく丸める。完全な角にすると光る塊ではなく「箱」に見える。
   const l = Math.min(2, r)
@@ -480,9 +487,9 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
   )
 }
 
-type Placement = { index: number; statusIndex: number; task: ScheduledTask }
+export type Placement = { index: number; statusIndex: number; task: ScheduledTask }
 
-type Link = {
+export type Link = {
   id: string
   cyclic: boolean
   path: string
@@ -503,7 +510,7 @@ type Link = {
  * そこで端点は常に近い側の端に取り、外向きの制御点で膨らませて、
  * バーの上を横切らずに回り込ませる。
  */
-function buildLinks(
+export function buildLinks(
   dependencies: Dependency[],
   placed: Map<string, Placement>,
   scale: TimeScale,
