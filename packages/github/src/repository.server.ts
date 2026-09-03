@@ -4,6 +4,7 @@ import type {
   IssueState,
   Label,
   Milestone,
+  NewMilestoneInput,
   NewTaskInput,
   ProjectSchema,
   ProjectSummary,
@@ -248,6 +249,12 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
   ): Promise<ScheduleTask> {
     return Promise.reject(
       new GitHubError("unsupported", "Web 版は読み取り専用です。Progress の変更はデスクトップアプリから行ってください"),
+    )
+  }
+
+  createMilestone(_nameWithOwner: string, _input: NewMilestoneInput): Promise<Milestone> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。マイルストーンの作成はデスクトップアプリから行ってください"),
     )
   }
 

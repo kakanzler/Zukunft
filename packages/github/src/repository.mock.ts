@@ -4,6 +4,7 @@ import {
   type IssueState,
   type Label,
   type Milestone,
+  type NewMilestoneInput,
   type NewTaskInput,
   type ParentIssue,
   type ProjectSchema,
@@ -285,6 +286,30 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
   async listMilestones(_repositoryId: string): Promise<Milestone[]> {
     await this.#delay()
     return this.#milestones.map((m) => ({ ...m }))
+  }
+
+  /**
+   * マイルストーンを作る。作ったものは自分の一覧に加えるので、
+   * 以後の listMilestones にも出る（実物と同じく、作成しただけでは Issue には付かない）。
+   */
+  async createMilestone(
+    _nameWithOwner: string,
+    input: NewMilestoneInput,
+  ): Promise<Milestone> {
+    await this.#delay()
+    const title = input.title.trim()
+    // 実物の REST は同じ題を 422 で弾く。ここで通してしまうと、
+    // モックでだけ通って実機で失敗する経路ができる。
+    if (this.#milestones.some((m) => m.title.toLowerCase() === title.toLowerCase())) {
+      throw new GitHubError("unknown", `「${title}」という題のマイルストーンは既にあります`)
+    }
+    const created: Milestone = {
+      id: `ms-${title}-${Date.now()}`,
+      title,
+      dueOn: input.dueOn,
+    }
+    this.#milestones = [...this.#milestones, created]
+    return { ...created }
   }
 
   async createLabel(_repositoryId: string, name: string, color: string): Promise<Label> {

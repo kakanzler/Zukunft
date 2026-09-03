@@ -4,6 +4,7 @@ import type {
   IssueState,
   Label,
   Milestone,
+  NewMilestoneInput,
   NewTaskInput,
   ParentIssue,
   ProjectSchema,
@@ -127,6 +128,16 @@ export interface GitHubScheduleRepository {
 
   /** Issue に設定できる Milestone の候補（OPEN のみ） */
   listMilestones(repositoryId: string): Promise<Milestone[]>
+
+  /**
+   * マイルストーンを新規作成する。作成しただけでは Issue には付かない。
+   *
+   * 他のメソッドが node id を取るのに、ここだけ `nameWithOwner` を取る。
+   * GitHub の GraphQL スキーマには milestone を作る mutation が 1 つも無く、
+   * 作成は REST（POST /repos/{owner}/{repo}/milestones）でしか行えないため。
+   * REST は owner/repo でリポジトリを引くもので、node id では引けない。
+   */
+  createMilestone(nameWithOwner: string, input: NewMilestoneInput): Promise<Milestone>
 
   /** ラベルを新規作成する。作成しただけでは Issue には付かない */
   createLabel(repositoryId: string, name: string, color: string): Promise<Label>

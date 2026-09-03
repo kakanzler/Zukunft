@@ -8,6 +8,7 @@ import type {
   IssueState,
   Label,
   Milestone,
+  NewMilestoneInput,
   NewTaskInput,
   TaskContent,
   ProjectSchema,
@@ -40,6 +41,7 @@ import { FilterBar } from "@/FilterBar"
 import { ManualModal } from "@/ManualModal"
 import { SettingsModal } from "@/SettingsModal"
 import { LogPane } from "@/LogPane"
+import { NewMilestoneModal } from "@/NewMilestoneModal"
 import { NewTaskModal } from "@/NewTaskModal"
 import { TaskModal } from "@/TaskModal"
 import type { LogInput } from "@/log"
@@ -301,6 +303,10 @@ function Workspace({
   const choices = useMemo(() => filterChoices(schedule.tasks), [schedule.tasks])
 
   const [creatingOpen, setCreatingOpen] = useState(false)
+  const [milestoneOpen, setMilestoneOpen] = useState(false)
+  // マイルストーンの作成は useSchedule のキューを通さない。Projects v2 の
+  // フィールドでも Issue でもないので、取り消しや競合の対象にならない。
+  const [creatingMilestone, setCreatingMilestone] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
   // 親カテゴリとして扱うラベル名。GitHub ではなくアプリ側の設定（Project ごと）。
   const [parentLabels, setParentLabels] = useState<string[]>([])
@@ -321,6 +327,9 @@ function Workspace({
   // 新規 Issue の作成先。ラベルと Milestone の候補を先に取りに行くため、
   // モーダルの中ではなくここで持つ。
   const [newTaskRepositoryId, setNewTaskRepositoryId] = useState("")
+  // マイルストーンの作成先。Issue の作成先とは別に持つ。片方を変えたときに
+  // もう片方の作成先まで動くと、直前に選んだ先が黙って入れ替わる。
+  const [newMilestoneRepositoryId, setNewMilestoneRepositoryId] = useState("")
   // ラベル候補はリポジトリ単位。開いたタスクのリポジトリの分を取りに行く。
   const [labelsByRepo, setLabelsByRepo] = useState<Record<string, Label[]>>({})
   // Milestone 候補も同じくリポジトリ単位。
@@ -641,6 +650,21 @@ function Workspace({
     if (!creatingOpen) return
     ensureRepoMeta(newTaskRepositoryId)
   }, [ensureRepoMeta, creatingOpen, newTaskRepositoryId])
+
+  // マイルストーンの作成先の分
+  useEffect(() => {
+    if (!newMilestoneRepositoryId && repositories[0]) {
+      setNewMilestoneRepositoryId(repositories[0].id)
+    }
+  }, [repositories, newMilestoneRepositoryId])
+
+  // 作成した分は既存の一覧に足す形で持つ。開いた時点で取りに行かせておかないと、
+  // 一度も候補を引いていないリポジトリでは「作ったものだけが一覧」になり、
+  // 取得済みと見なされて既存のマイルストーンが二度と読まれない。
+  useEffect(() => {
+    if (!milestoneOpen) return
+    ensureRepoMeta(newMilestoneRepositoryId)
+  }, [ensureRepoMeta, milestoneOpen, newMilestoneRepositoryId])
 
   // カテゴリ設定の候補は Project 全体のラベル。開いたときに揃っていない分を取りに行く。
   useEffect(() => {
@@ -1013,6 +1037,55 @@ function Workspace({
     [repository, logAppend],
   )
 
+  /**
+   * マイルストーンを作る。
+   *
+   * リポジトリの指定だけ node id ではなく nameWithOwner を渡す。GraphQL に
+   * milestone の mutation が無く、作成は REST（owner/repo で引く）でしか行えないため。
+   * 作ったものは候補一覧に足す — 盤面の固定行と TaskModal の選択肢は
+   * どちらもここを見ているので、取り直さなくても両方に出る。
+   */
+  const createMilestone = useCallback(
+    async (repositoryId: string, input: NewMilestoneInput) => {
+      const repo = repositories.find((r) => r.id === repositoryId)
+      if (!repo) {
+        logAppend({
+          level: "error",
+          message: "マイルストーンを作成できませんでした",
+          hint: "作成先のリポジトリが分かりません。再読み込みしてください。",
+        })
+        return
+      }
+      setCreatingMilestone(true)
+      try {
+        const created = await repository.createMilestone(repo.nameWithOwner, input)
+        setMilestonesByRepo((prev) => ({
+          ...prev,
+          [repositoryId]: [...(prev[repositoryId] ?? []), created],
+        }))
+        setMilestoneOpen(false)
+        logAppend({
+          level: "info",
+          message: `マイルストーン「${created.title}」を作成しました`,
+          hint: created.dueOn
+            ? undefined
+            : "期日が無いため盤面には出ません。GitHub 上で期日を設定すると出ます。",
+        })
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        logAppend({
+          level: "error",
+          message: "マイルストーンを作成できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      } finally {
+        setCreatingMilestone(false)
+      }
+    },
+    [repository, repositories, logAppend],
+  )
+
   const deleteLabel = useCallback(
     async (repositoryId: string, label: Label): Promise<boolean> => {
       try {
@@ -1225,7 +1298,12 @@ function Workspace({
   // 判定は e.code（物理キー）で行う。Shift を押した e.key は "Z" になるため、
   // "z" と比べていた間は Ctrl+Shift+Z が一度も一致していなかった。
   const anyModalOpen =
-    creatingOpen || categoryOpen || settingsOpen || manualOpen || openTaskId !== null
+    creatingOpen ||
+    milestoneOpen ||
+    categoryOpen ||
+    settingsOpen ||
+    manualOpen ||
+    openTaskId !== null
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1415,6 +1493,15 @@ function Workspace({
       >
         New Issue
       </button>
+      {/* 起票の隣に置く。どちらも「盤面に無いものを作る」操作で、
+          マイルストーンだけカテゴリ設定側に置くと探すことになる。 */}
+      <button
+        className="zk-button"
+        onClick={() => setMilestoneOpen(true)}
+        disabled={!projectId}
+      >
+        New Milestone
+      </button>
       {/* ここから右端側。起票までが日常の操作で、カテゴリ設定はたまにしか触らない。 */}
       <button
         className="zk-button zk-header-push"
@@ -1490,6 +1577,16 @@ function Workspace({
           onDeleteLabel={deleteLabel}
           onCreate={createTask}
           onClose={() => setCreatingOpen(false)}
+        />
+      )}
+      {milestoneOpen && (
+        <NewMilestoneModal
+          repositories={repositories}
+          repositoryId={newMilestoneRepositoryId}
+          onChangeRepository={setNewMilestoneRepositoryId}
+          busy={creatingMilestone}
+          onCreate={createMilestone}
+          onClose={() => setMilestoneOpen(false)}
         />
       )}
       {categoryOpen && (

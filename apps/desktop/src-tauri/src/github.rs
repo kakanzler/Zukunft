@@ -6,6 +6,11 @@ use crate::model::*;
 pub const ENDPOINT: &str = "https://api.github.com/graphql";
 pub const USER_AGENT: &str = "zukunft-desktop";
 
+/// REST の入口。GraphQL には milestone を作る mutation が 1 つも無いため、
+/// 作成だけは REST で行う（create_milestone）。
+const REST_ENDPOINT: &str = "https://api.github.com";
+const REST_ACCEPT: &str = "application/vnd.github+json";
+
 /// GraphQL の文面は packages/github/src/queries/*.graphql が正本。
 /// TypeScript 側（Web の読み取り実装）と同じファイルを読むことで、
 /// 2 言語に別々の文字列を持たせて食い違わせないようにする（企画書 §7.3）。
@@ -104,6 +109,49 @@ fn rate_limit_message(retry_after: Option<u64>) -> String {
     }
 }
 
+/// HTTP のステータスを分類する。成功なら None、それ以外は返すべき AppError。
+///
+/// GraphQL と REST（milestone の作成）の両方から使う。分類を呼び出し側に直書きすると、
+/// 「403 は権限とは限らず二次レート制限でもある」といった扱いが片方だけ古くなり、
+/// 待てば直るものを失敗として捨てる経路が復活する。
+///
+/// 403 / 404 の文言だけは呼び出し側から受け取る。同じステータスでも、対象が
+/// Project なのかリポジトリなのかで案内すべきことが変わるため。
+///
+/// 本文は読まない。読むと response を消費してしまい、呼び出し側が
+/// GraphQL のエラーや REST の 422 の理由を読めなくなる。
+fn http_status_error(
+    response: &reqwest::Response,
+    forbidden: &str,
+    not_found: &str,
+) -> Option<AppError> {
+    let status = response.status();
+    let retry_after = read_retry_after(response);
+    let rate_limited = is_rate_limited(response);
+
+    match status.as_u16() {
+        401 => Some(AppError::new(ErrorKind::Unauthorized, "トークンが無効です")),
+        // GitHub は二次レート制限も 403 で返す。全部を権限の問題にすると、
+        // 「待てば直る」ものに「権限を確認してください」と案内してしまい、
+        // しかも再送されないまま失敗として残る。
+        403 if rate_limited => {
+            Some(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after)))
+        }
+        403 => Some(AppError::new(ErrorKind::Forbidden, forbidden)),
+        404 => Some(AppError::new(ErrorKind::NotFound, not_found)),
+        429 => Some(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after))),
+        // 5xx は GitHub 側の一時的な不調。待てば直るものとして再送に載せる。
+        code if (500..600).contains(&code) => Some(AppError::new(
+            ErrorKind::Network,
+            format!("GitHub が {status} を返しました。時間をおいて再試行します"),
+        )),
+        _ if !status.is_success() => {
+            Some(AppError::new(ErrorKind::Unknown, format!("GitHub が {status} を返しました")))
+        }
+        _ => None,
+    }
+}
+
 /// GraphQL は HTTP 200 でエラーを返すため、本文を見て分類し直す。
 /// 認証状態の判定（auth::current_status）とデータ取得の両方から使う。
 ///
@@ -165,43 +213,13 @@ impl GitHubClient {
             .send()
             .await?;
 
-        let status = response.status();
-        // 分類の前にヘッダを読む。本文を読むと response を消費してしまう。
-        let retry_after = read_retry_after(&response);
-        let rate_limited = is_rate_limited(&response);
-
-        match status.as_u16() {
-            401 => return Err(AppError::new(ErrorKind::Unauthorized, "トークンが無効です")),
-            // GitHub は二次レート制限も 403 で返す。全部を権限の問題にすると、
-            // 「待てば直る」ものに「権限を確認してください」と案内してしまい、
-            // しかも再送されないまま失敗として残る。
-            403 if rate_limited => {
-                return Err(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after)))
-            }
-            403 => {
-                return Err(AppError::new(
-                    ErrorKind::Forbidden,
-                    "この Project を操作する権限がありません",
-                ))
-            }
-            404 => return Err(AppError::new(ErrorKind::NotFound, "Project が見つかりません")),
-            429 => {
-                return Err(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after)))
-            }
-            // 5xx は GitHub 側の一時的な不調。待てば直るものとして再送に載せる。
-            code if (500..600).contains(&code) => {
-                return Err(AppError::new(
-                    ErrorKind::Network,
-                    format!("GitHub が {status} を返しました。時間をおいて再試行します"),
-                ))
-            }
-            _ if !status.is_success() => {
-                return Err(AppError::new(
-                    ErrorKind::Unknown,
-                    format!("GitHub が {status} を返しました"),
-                ))
-            }
-            _ => {}
+        // 分類はヘッダだけで行う。本文を読むと response を消費してしまう。
+        if let Some(error) = http_status_error(
+            &response,
+            "この Project を操作する権限がありません",
+            "Project が見つかりません",
+        ) {
+            return Err(error);
         }
 
         let body: Value = response.json().await?;
@@ -451,6 +469,94 @@ impl GitHubClient {
             milestones.extend(nodes.into_iter().flatten().filter_map(read_milestone));
         }
         Ok(milestones)
+    }
+
+    /// マイルストーンを作る。ここだけ GraphQL ではなく REST を叩く。
+    ///
+    /// GitHub の GraphQL スキーマには milestone を作る mutation が存在しない（実 API で確認済み）。
+    /// REST は node id では引けず owner/repo で引くものなので、他の作成系と違って
+    /// リポジトリの node id ではなく owner と repo を受け取る。
+    ///
+    /// `due_on` は UI と揃えて `YYYY-MM-DD` で受け取り、REST が要求する ISO 8601 の
+    /// 日時に伸ばして送る。日付のまま送ると GitHub に弾かれる。
+    pub async fn create_milestone(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        due_on: Option<&str>,
+        description: Option<&str>,
+    ) -> AppResult<Milestone> {
+        let mut body = json!({ "title": title });
+        if let Some(due) = due_on {
+            body["due_on"] = json!(format!("{due}T00:00:00Z"));
+        }
+        if let Some(description) = description {
+            body["description"] = json!(description);
+        }
+
+        let response = self
+            .http
+            .post(format!("{REST_ENDPOINT}/repos/{owner}/{repo}/milestones"))
+            .bearer_auth(&self.token)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", REST_ACCEPT)
+            .json(&body)
+            .send()
+            .await?;
+
+        // 422 は入力の問題で、中でも「同じ題のマイルストーンが既にある」が実際によく起きる。
+        // 共通の分類に任せるとステータス番号しか出ず、題を変えれば通ることが伝わらないので、
+        // ここだけ本文を読んで理由を出す。
+        if response.status().as_u16() == 422 {
+            let body: Value = response.json().await.unwrap_or(Value::Null);
+            let first = body
+                .get("errors")
+                .and_then(Value::as_array)
+                .and_then(|errors| errors.first());
+            let code = first.and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("");
+            let message = match code {
+                "already_exists" => {
+                    format!("「{title}」という題のマイルストーンは既にあります")
+                }
+                "missing_field" => "マイルストーンの題を入力してください".to_owned(),
+                _ => {
+                    let detail = body
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("入力を受け付けられませんでした");
+                    format!("マイルストーンを作成できませんでした: {detail}")
+                }
+            };
+            return Err(AppError::new(ErrorKind::Unknown, message));
+        }
+
+        if let Some(error) = http_status_error(
+            &response,
+            "このリポジトリにマイルストーンを作る権限がありません",
+            "リポジトリが見つかりません",
+        ) {
+            return Err(error);
+        }
+
+        let created: Value = response.json().await?;
+        // id ではなく node_id を採る。REST の id はリポジトリ内の連番で、
+        // Issue への設定に使う GraphQL の node id とは別物。
+        let id = created
+            .get("node_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorKind::Unknown,
+                    "作成したマイルストーンの識別子を読めませんでした",
+                )
+            })?
+            .to_owned();
+        Ok(Milestone {
+            id,
+            title: created.get("title").and_then(Value::as_str).unwrap_or(title).to_owned(),
+            due_on: read_date(created.get("due_on").and_then(Value::as_str)),
+        })
     }
 
     /// この Issue の親（sub-issue 関係）。設定が無ければ None。

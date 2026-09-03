@@ -6,6 +6,7 @@ import type {
   IssueState,
   Label,
   Milestone,
+  NewMilestoneInput,
   NewTaskInput,
   ProjectSchema,
   ProjectSummary,
@@ -133,6 +134,19 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
 
   listMilestones(repositoryId: string): Promise<Milestone[]> {
     return call<Milestone[]>("list_milestones", { repositoryId })
+  }
+
+  /**
+   * リポジトリの指定が node id ではなく `owner/repo` なのは、
+   * Rust 側が GraphQL ではなく REST を叩くため（repository.ts の宣言を参照）。
+   */
+  createMilestone(nameWithOwner: string, input: NewMilestoneInput): Promise<Milestone> {
+    return call<Milestone>("create_milestone", {
+      nameWithOwner,
+      title: input.title,
+      dueOn: input.dueOn,
+      description: input.description,
+    })
   }
 
   createLabel(repositoryId: string, name: string, color: string): Promise<Label> {

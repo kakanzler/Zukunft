@@ -181,6 +181,19 @@ export type NewTaskInput = {
   endDate?: ISODate
 }
 
+/**
+ * アプリからマイルストーンを作るときの入力。
+ *
+ * 期日は任意。GitHub では期日なしのマイルストーンも正当なもので、
+ * 盤面に出ないことと作れないことは別なので、ここでは必須にしない。
+ */
+export type NewMilestoneInput = {
+  title: string
+  /** 期日。null なら設定しない */
+  dueOn: ISODate | null
+  description: string
+}
+
 export type ProjectSummary = {
   id: string
   number: number

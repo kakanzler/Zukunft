@@ -278,6 +278,62 @@ async fn list_milestones(
     state.client()?.repository_milestones(&repository_id).await
 }
 
+/// マイルストーンを新規作成する。作成しただけでは Issue には付かないので、
+/// 呼び出し側が update_task_content で付け直す。
+///
+/// 引数がリポジトリの node id ではなく `owner/repo` なのは、GraphQL に milestone の
+/// mutation が無く REST を使うため（github.rs の create_milestone）。REST は
+/// owner/repo で引くもので、node id では引けない。
+#[tauri::command]
+async fn create_milestone(
+    state: State<'_>,
+    name_with_owner: String,
+    title: String,
+    due_on: Option<String>,
+    description: Option<String>,
+) -> Result<Milestone, AppError> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(AppError::new(ErrorKind::Unknown, "マイルストーンの題を入力してください"));
+    }
+
+    // owner と repo に割れない値は、そのまま送っても GitHub 側で 404 になるだけで
+    // 「どこに作ろうとしたのか」が分からない。ここで理由の分かる形で弾く。
+    let (owner, repo) = name_with_owner.split_once('/').ok_or_else(|| {
+        AppError::new(
+            ErrorKind::NotFound,
+            format!("リポジトリの指定が owner/repo の形ではありません（{name_with_owner}）"),
+        )
+    })?;
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return Err(AppError::new(
+            ErrorKind::NotFound,
+            format!("リポジトリの指定が owner/repo の形ではありません（{name_with_owner}）"),
+        ));
+    }
+
+    // 期日は任意。空文字は「未指定」として扱う — UI の日付欄は未入力を空文字で返す。
+    let due_on = due_on.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    if let Some(due) = due_on {
+        // 形を確かめてから送る。崩れた値でも GitHub は 422 を返すが、
+        // どの項目が悪いのかは応答から読み取れない。
+        let shaped = due.len() == 10
+            && due.as_bytes().iter().enumerate().all(|(i, byte)| match i {
+                4 | 7 => *byte == b'-',
+                _ => byte.is_ascii_digit(),
+            });
+        if !shaped {
+            return Err(AppError::new(
+                ErrorKind::Unknown,
+                "期日は YYYY-MM-DD の形で指定してください",
+            ));
+        }
+    }
+    let description = description.as_deref().map(str::trim).filter(|value| !value.is_empty());
+
+    state.client()?.create_milestone(owner, repo, title, due_on, description).await
+}
+
 /// ラベルを新規作成する。作成しただけでは Issue には付かないので、
 /// 呼び出し側が update_task_content で付け直す。
 #[tauri::command]
@@ -725,6 +781,7 @@ pub fn run() {
             list_labels,
             list_assignable_users,
             list_milestones,
+            create_milestone,
             create_label,
             delete_label,
             update_task_dates,
