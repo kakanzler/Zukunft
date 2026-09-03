@@ -21,6 +21,12 @@ export type MutationState = "pending" | "syncing" | "failed" | "conflict"
 
 export type Mutation = {
   id: string
+  /**
+   * どの操作から出たか。1 ドラッグで複数タスクが動くカスケードでは、
+   * その全部が同じ id を持つ。取り消しをまとめて効かせるために要る。
+   * グループを持たない単発の変更は、自分の id がそのまま入る。
+   */
+  groupId: string
   taskId: string
   change: DateChange
   /** ロールバック用に、送信前の値を保持する（企画書 §16.2 手順 2） */
@@ -121,6 +127,8 @@ export function applyLocalChange(
 
   const mutation: Mutation = {
     id: mutationId,
+    // 畳み込んだ場合も、元の操作のグループを引き継ぐ。
+    groupId: options.undoGroupId ?? superseded?.groupId ?? mutationId,
     taskId,
     change: superseded ? diffFrom(superseded.before, after) : change,
     // ロールバック先と競合判定の基準は、最初の変更前のものを引き継ぐ
@@ -276,40 +284,47 @@ export function markConflict(
  * 保存しておいた変更前の値へ戻し、キューからも取り除く。
  * Undo スタックからも消す — 失敗した操作を Undo で復活させないため（§6.3.4）。
  *
- * 失敗したタスクを含むエントリは、**グループごと**捨てる。一部だけ残すと、
- * 押し出された側だけが元に戻り、依存先より前に始まる日程 — 利用者が一度も
- * 見ていない状態 — を Undo で作れてしまう。
+ * **操作 1 回ぶんをまとめて戻す。** 依存に合わせて押し出した分だけが適用された
+ * まま残ると、依存先より前に始まる日程 — 利用者が一度も意図していない状態 —
+ * が盤面に残り、しかも Undo からも消えているので手で直すしかなくなる。
+ *
+ * 同じグループのうち、
+ * - まだ送っていない分は、キューから外してローカルだけ戻す
+ * - 既に送信が通っている分は、GitHub にも戻しに行く（新しい変更として積む）
+ *
+ * 送信中のものは止められないので、キューから外すだけにする。返ってきても
+ * 対象が無く何も起きない。ずれは次の再読み込みで揃う。
  */
-export function rollback(state: ScheduleState, mutationId: string): ScheduleState {
+export function rollback(
+  state: ScheduleState,
+  mutationId: string,
+  nextMutationId: () => string,
+): ScheduleState {
   const mutation = state.queue.find((m) => m.id === mutationId)
   if (!mutation) return state
-  return {
-    ...state,
-    queue: state.queue.filter((m) => m.id !== mutationId),
-    tasks: replaceTask(state.tasks, mutation.taskId, (t) => ({
-      ...t,
-      ...mutation.before,
-      syncState: "synced",
-    })),
-    undo: dropUndoGroup(state.undo, mutation.taskId, mutation.after),
-  }
-}
+  const groupId = mutation.groupId
+  const members = state.queue.filter((m) => m.groupId === groupId)
+  const entry = state.undo.find((e) => e.id === groupId)
 
-/**
- * 失敗した変更を含むエントリを 1 つだけ落とす。
- *
- * 末尾から探すのは、失敗が届くまでに別の編集が入りうるうえ、同じ
- * (taskId, after) の組を持つエントリが正当に 2 つ存在しうるため。
- * 直近のものが、その失敗したミューテーションの属するエントリ。
- */
-function dropUndoGroup(undo: UndoEntry[], taskId: string, after: Dates): UndoEntry[] {
-  for (let i = undo.length - 1; i >= 0; i--) {
-    const hit = undo[i]!.items.some(
-      (item) => item.taskId === taskId && sameDates(item.after, after),
-    )
-    if (hit) return [...undo.slice(0, i), ...undo.slice(i + 1)]
+  const reverted: ScheduleState = {
+    ...state,
+    queue: state.queue.filter((m) => m.groupId !== groupId),
+    tasks: members.reduce(
+      (tasks, m) =>
+        replaceTask(tasks, m.taskId, (t) => ({ ...t, ...m.before, syncState: "synced" })),
+      state.tasks,
+    ),
+    undo: state.undo.filter((e) => e.id !== groupId),
   }
-  return undo
+
+  // 送信が通ってしまった分は、GitHub 側も戻さないと画面と食い違う。
+  const stillQueued = new Set(members.map((m) => m.taskId))
+  return (entry?.items ?? []).reduce((acc, item) => {
+    if (stillQueued.has(item.taskId)) return acc
+    const change = toChange(item.before)
+    if (!change) return acc
+    return applyLocalChange(acc, item.taskId, change, nextMutationId(), { recordUndo: false })
+  }, reverted)
 }
 
 /** 競合を「GitHub 側を採用」で解決する（企画書 §16.3）。 */

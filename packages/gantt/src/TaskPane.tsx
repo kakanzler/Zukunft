@@ -1,6 +1,7 @@
 "use client"
 
 import { isScheduled } from "@zukunft/domain"
+import { MILESTONE_LANE } from "./rows"
 import type { Row } from "./rows"
 
 type Props = {
@@ -17,12 +18,14 @@ export function TaskPane({
   rows, rowHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
 }: Props) {
   return (
-    <div style={{ height: rows.length * rowHeight, position: "relative" }}>
+    // 盤面はマイルストーンの帯のぶん行が下がっている。ここも同じだけ空けないと
+    // 左の行名と右のバーが横にずれる。
+    <div style={{ height: rows.length * rowHeight + MILESTONE_LANE, position: "relative" }}>
       {rows.slice(visible.start, visible.end).map((row, i) => {
         const index = visible.start + i
         const style = {
           position: "absolute" as const,
-          top: index * rowHeight,
+          top: MILESTONE_LANE + index * rowHeight,
           left: 0,
           right: 0,
           height: rowHeight,

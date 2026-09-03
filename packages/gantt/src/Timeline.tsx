@@ -1,6 +1,6 @@
 "use client"
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react"
+import { type CSSProperties, useEffect, useId, useMemo, useState } from "react"
 import {
   type DateChange,
   type Dependency,
@@ -14,8 +14,9 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { glowVar, gradientId, statusSlot, statusVar } from "./colors"
+import { glowVar, statusSlot, statusVar } from "./colors"
 import type { GanttTheme } from "./theme"
+import { MILESTONE_LANE } from "./rows"
 import type { Row } from "./rows"
 import { type DragState, useBarDrag } from "./useBarDrag"
 
@@ -93,8 +94,20 @@ export function Timeline({
     [scale, currentDay],
   )
 
-  const bodyHeight = rows.length * rowHeight
+  // 上にマイルストーンの帯を空けるぶん、盤面は行の合計より高い。
+  const bodyHeight = rows.length * rowHeight + MILESTONE_LANE
   const blue = theme === "blue-system"
+
+  /**
+   * この Timeline だけの id の接頭辞。
+   *
+   * SVG の id は文書全体で一意でないといけない。固定文字列だと、盤面が 2 つ
+   * 載った時点で url(#…) の参照が混線して、片方のバーが別の色で塗られる。
+   * useId のコロンは url(#…) や querySelector と相性が悪いので落とす。
+   */
+  const uid = useId().replace(/:/g, "")
+  const gradId = (slot: number) => `${uid}-grad-${slot}`
+  const edgeId = (slot: number) => `${uid}-edge-${slot}`
 
   /** 矢印を引くのに要る、タスクごとの行番号・色・バーの位置。 */
   const placed = useMemo(() => {
@@ -110,8 +123,8 @@ export function Timeline({
   // drag を placed の依存に入れると、ポインタが動くたびに全行の Map を作り直すことに
   // なる。辺の数はたかが知れているので、buildLinks の中で 1 本ずつ差し替える。
   const links = useMemo(
-    () => buildLinks(dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag),
-    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag],
+    () => buildLinks(dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid),
+    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid],
   )
 
   return (
@@ -141,14 +154,14 @@ export function Timeline({
               真の 0 にすると左端＝開始日が完全に消えるため。 */}
           {[0, 1, 2, 3].map((i) =>
             blue ? (
-              <linearGradient key={i} id={`zk-grad-${i}`} x1="0" y1="0" x2="1" y2="0">
+              <linearGradient key={i} id={gradId(i)} x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stopColor={`var(--status-${i}-from)`} stopOpacity="0.06" />
                 <stop offset="22%" stopColor={`var(--status-${i}-from)`} stopOpacity="0.26" />
                 <stop offset="60%" stopColor={`var(--status-${i}-to)`} stopOpacity="0.66" />
                 <stop offset="100%" stopColor={`var(--status-${i}-to)`} stopOpacity="1" />
               </linearGradient>
             ) : (
-              <linearGradient key={i} id={`zk-grad-${i}`} x1="0" y1="0" x2="1" y2="0">
+              <linearGradient key={i} id={gradId(i)} x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stopColor={`var(--status-${i}-from)`} />
                 <stop offset="100%" stopColor={`var(--status-${i}-to)`} />
               </linearGradient>
@@ -157,7 +170,7 @@ export function Timeline({
           {/* 輪郭。塗りが手放した左端をここで取り返すので、左をいちばん明るくする。 */}
           {blue &&
             [0, 1, 2, 3].map((i) => (
-              <linearGradient key={`e${i}`} id={`zk-edge-${i}`} x1="0" y1="0" x2="1" y2="0">
+              <linearGradient key={`e${i}`} id={edgeId(i)} x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stopColor={`var(--status-${i}-to)`} stopOpacity="0.32" />
                 <stop offset="45%" stopColor={`var(--status-${i}-to)`} stopOpacity="0.14" />
                 <stop offset="100%" stopColor={`var(--status-${i}-to)`} stopOpacity="0.6" />
@@ -190,7 +203,8 @@ export function Timeline({
             <rect
               key={`sel-${row.key}`}
               className="zk-row-selected-band"
-              x={0} y={index * rowHeight} width={scale.width} height={rowHeight}
+              x={0} y={MILESTONE_LANE + index * rowHeight}
+              width={scale.width} height={rowHeight}
             />
           )
         })}
@@ -232,7 +246,7 @@ export function Timeline({
 
         {rows.slice(visible.start, visible.end).map((row, i) => {
           const index = visible.start + i
-          const y = index * rowHeight
+          const y = MILESTONE_LANE + index * rowHeight
           if (row.kind === "group") return null
           const task = row.task
           if (!isScheduled(task)) return null
@@ -245,7 +259,8 @@ export function Timeline({
           return (
             <g key={row.key}>
               {dragging && <Bar task={task} y={y} scale={scale} rowHeight={rowHeight}
-                                statusIndex={row.statusIndex} index={index} blue={blue} ghost />}
+                                statusIndex={row.statusIndex} index={index} blue={blue}
+                                uid={uid} ghost />}
               <g
                 className={dragging ? "zk-bar zk-bar--dragging" : "zk-bar"}
                 {...(readOnly
@@ -266,7 +281,7 @@ export function Timeline({
                 style={{ cursor: readOnly ? "pointer" : undefined }}
               >
                 <Bar task={shown} y={y} scale={scale} rowHeight={rowHeight}
-                     statusIndex={row.statusIndex} index={index} blue={blue} />
+                     statusIndex={row.statusIndex} index={index} blue={blue} uid={uid} />
               </g>
             </g>
           )
@@ -343,6 +358,8 @@ type BarProps = {
   statusIndex: number
   /** 行番号。バーごとに要るグラデーションの id に使う */
   index: number
+  /** この Timeline だけの id 接頭辞 */
+  uid: string
   blue: boolean
   ghost?: boolean
 }
@@ -352,7 +369,7 @@ function Bar(props: BarProps) {
 }
 
 /** 今までの見た目（default）。ドラッグ中のゴーストも常にこちらで描く。 */
-function PlainBar({ task, y, scale, rowHeight, statusIndex, ghost = false }: BarProps) {
+function PlainBar({ task, y, scale, rowHeight, statusIndex, uid, ghost = false }: BarProps) {
   const x = scale.toX(task.startDate)
   const width = barWidth(task, scale)
   const height = rowHeight - BAR_INSET * 2
@@ -361,7 +378,7 @@ function PlainBar({ task, y, scale, rowHeight, statusIndex, ghost = false }: Bar
     <g className={ghost ? "zk-bar-ghost" : undefined}>
       <rect
         x={x} y={y + BAR_INSET} width={width} height={height} rx={height / 2}
-        fill={`url(#${gradientId(statusIndex)})`}
+        fill={`url(#${uid}-grad-${statusSlot(statusIndex)})`}
         className={ghost ? undefined : "zk-bar-glow"}
         // 発光色は Status ごと。塗りと同じ色で滲ませないと、色分けが光に埋もれる。
         style={ghost ? undefined : ({ "--bar-glow": glowVar(statusIndex) } as CSSProperties)}
@@ -387,7 +404,7 @@ function PlainBar({ task, y, scale, rowHeight, statusIndex, ghost = false }: Bar
  * 発光（.zk-bar-glow）は塗りではなく全体を包む <g> に掛ける。塗りだけを光らせると、
  * くっきりした柱が光る塊の上に貼り付いて見える。
  */
-function BlueBar({ task, y, scale, rowHeight, statusIndex, index }: BarProps) {
+function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProps) {
   const x = scale.toX(task.startDate)
   const width = barWidth(task, scale)
   const height = rowHeight - BAR_INSET * 2
@@ -417,7 +434,7 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index }: BarProps) {
           進捗 20% のときバーの 2 割の位置で白が最大になり、結局板に戻ってしまう。 */}
       {filled >= 3 && (
         <linearGradient
-          id={`zk-prog-${index}`}
+          id={`${uid}-prog-${index}`}
           gradientUnits="userSpaceOnUse"
           x1={x} y1="0" x2={x + width} y2="0"
         >
@@ -427,11 +444,11 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index }: BarProps) {
         </linearGradient>
       )}
 
-      <path d={barPath(x, top, width, height)} fill={`url(#zk-grad-${slot})`} />
+      <path d={barPath(x, top, width, height)} fill={`url(#${uid}-grad-${slot})`} />
 
       {filled >= 3 && (
         <>
-          <path d={barPath(x, top, filled, height)} fill={`url(#zk-prog-${index})`} />
+          <path d={barPath(x, top, filled, height)} fill={`url(#${uid}-prog-${index})`} />
           {/* 滲みだけでは割合が読めないので、境目に細い線を立てる。
               右端に寄りすぎると丸い縁とぶつかるので、そこでは出さない。 */}
           {width - filled >= 4 && (
@@ -447,7 +464,7 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index }: BarProps) {
       {width >= W_OUTLINE && (
         <path className="zk-bar-outline"
               d={barPath(x + 0.5, top + 0.5, width - 1, height - 1)}
-              fill="none" stroke={`url(#zk-edge-${slot})`} />
+              fill="none" stroke={`url(#${uid}-edge-${slot})`} />
       )}
 
       {/* 開始日の柱。塗りがどれだけ透けても、ここだけは色で立たせる。 */}
@@ -494,6 +511,7 @@ function buildLinks(
   visible: { start: number; end: number },
   cyclicEdges: ReadonlySet<string>,
   drag: DragState | null,
+  uid: string,
 ): Link[] {
   // ドラッグ中のタスクは仮の日付で描く。確定するまで線が元の位置に残ると、
   // 依存先を見ながら日程を動かすことができない。
@@ -516,8 +534,8 @@ function buildLinks(
     const fw = barWidth(from.task, scale)
     const tx = scale.toX(to.task.startDate)
     const tw = barWidth(to.task, scale)
-    const y1 = from.index * rowHeight + rowHeight / 2
-    const y2 = to.index * rowHeight + rowHeight / 2
+    const y1 = MILESTONE_LANE + from.index * rowHeight + rowHeight / 2
+    const y2 = MILESTONE_LANE + to.index * rowHeight + rowHeight / 2
 
     // 依存先が手前にあるか。あるなら左端から出て、依存先の右端に刺す。
     const backwards = tx + tw <= fx + fw
@@ -528,7 +546,7 @@ function buildLinks(
     const bend = Math.max(18, Math.min(64, Math.abs(x2 - x1) / 2))
 
     links.push({
-      id: `zk-dep-${i}`,
+      id: `${uid}-dep-${i}`,
       cyclic: cyclicEdges.has(edgeKey(dep.fromTaskId, dep.toTaskId)),
       path: `M ${x1} ${y1} C ${x1 + out1 * bend} ${y1}, ${x2 + out2 * bend} ${y2}, ${x2} ${y2}`,
       head: `M ${x2} ${y2} L ${x2 + out2 * ARROW} ${y2 - ARROW / 2} L ${x2 + out2 * ARROW} ${y2 + ARROW / 2} Z`,

@@ -129,6 +129,9 @@ pub struct TaskContent {
     pub label_ids: Option<Vec<String>>,
     /// 付け替え後の Milestone の node id。None は「マイルストーンを外す」
     pub milestone_id: Option<String>,
+    /// 編集を始めた時点の updatedAt。空なら競合を見ない（企画書 §16.3）
+    #[serde(default)]
+    pub expected_updated_at: String,
 }
 
 /// 親 Issue（GitHub の sub-issue 関係）。

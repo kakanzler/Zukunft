@@ -223,7 +223,8 @@ export function useSchedule(
       // 呼ぶ前に決まらない。id そのものではなく生成関数を渡す。
       undo: () => setState((prev) => undoAction(prev, nextMutationId)),
       redo: () => setState((prev) => redoAction(prev, nextMutationId)),
-      rollback: (mutationId: string) => setState((prev) => rollbackAction(prev, mutationId)),
+      rollback: (mutationId: string) =>
+        setState((prev) => rollbackAction(prev, mutationId, nextMutationId)),
       keepRemote: (mutationId: string) => setState((prev) => resolveWithRemote(prev, mutationId)),
       keepLocal: (mutationId: string) =>
         setState((prev) => resolveWithLocal(prev, mutationId, nextMutationId())),

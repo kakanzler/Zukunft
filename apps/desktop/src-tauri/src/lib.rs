@@ -174,8 +174,12 @@ async fn list_repositories(
 /// Issue のタイトル・本文を書き換える。
 ///
 /// 日付フィールドと違い Issue 本体への書き込みなので、キュー（企画書 §16）は通さず
-/// 直接送る。競合検出も行わない — 本文の同時編集は日付ほど衝突しないうえ、
-/// updatedAt での判定では本文以外の変更でも弾いてしまうため。
+/// 直接送る。ただし競合は見る — updateIssue はタイトル・本文・ラベルを丸ごと
+/// 置き換えるので、編集を始めてから GitHub 側が変わっていた場合、そのまま送ると
+/// 相手の変更が消える。編集中に再読み込みが走ると実際にそうなっていた。
+///
+/// updatedAt での判定は本文以外の変更でも弾くが、書き換える範囲が広いぶん
+/// 「弾きすぎ」の方を選ぶ。expected_updated_at が空なら見ない。
 #[tauri::command]
 async fn update_task_content(
     state: State<'_>,
@@ -195,6 +199,18 @@ async fn update_task_content(
     }
 
     let client = state.client()?;
+
+    // 書き込み直前に取り直して、読み取り時点から変わっていないか確かめる。
+    if !content.expected_updated_at.is_empty() {
+        let current = client.item(&task_id).await?;
+        if current.updated_at != content.expected_updated_at {
+            return Err(AppError::conflict(
+                "GitHub 側でこの Issue が更新されています",
+                current,
+            ));
+        }
+    }
+
     client
         .update_issue(
             &issue_id,

@@ -21,7 +21,7 @@ import type { GanttTheme } from "./theme"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
 import { isTyping } from "./keyboard"
-import { buildRows, visibleRange } from "./rows"
+import { MILESTONE_LANE, buildRows, visibleRange } from "./rows"
 
 const ROW_HEIGHT = 32
 /** タイムラインの上に貼り付く月・週ヘッダの高さ。選択行がこの下に隠れないようにする。 */
@@ -117,7 +117,9 @@ export function GanttChart({
     [tasks, dependencies],
   )
   const visible = useMemo(
-    () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
+    // 上の帯のぶんを引いてから行番号に直す。引かないと、いちばん上まで
+    // 戻したときに 1 行目が描画の範囲から外れる。
+    () => visibleRange(scrollTop - MILESTONE_LANE, viewportHeight, ROW_HEIGHT, rows.length),
     [scrollTop, viewportHeight, rows.length],
   )
 
@@ -141,7 +143,7 @@ export function GanttChart({
   const revealRow = useCallback((rowIndex: number) => {
     const el = timelineRef.current
     if (!el) return
-    const top = rowIndex * ROW_HEIGHT
+    const top = MILESTONE_LANE + rowIndex * ROW_HEIGHT
     const viewHeight = el.clientHeight - THEAD_HEIGHT
     if (top < el.scrollTop) el.scrollTop = top
     else if (top + ROW_HEIGHT > el.scrollTop + viewHeight) {

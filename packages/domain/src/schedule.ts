@@ -135,6 +135,14 @@ export type TaskContent = {
    * `null` は「マイルストーンを外す」を表す（未指定ではなく明示的な解除）。
    */
   milestoneId: string | null
+  /**
+   * 編集を始めた時点の Issue の updatedAt（企画書 §16.3）。
+   *
+   * 送る前に GitHub 側が変わっていないかを確かめるのに使う。空文字なら
+   * 確かめない。編集中に再読み込みが走ると、こちらの下書きは古い内容を
+   * 元にしているので、そのまま送ると相手の変更を丸ごと消してしまう。
+   */
+  expectedUpdatedAt: string
 }
 
 /** アプリから新しい Issue を起票するときの入力。 */

@@ -301,6 +301,10 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     if (Math.random() < this.#options.failureRate) {
       throw new GitHubError("network", "GitHub に接続できませんでした")
     }
+    // 日付と同じく、送る前に読み取り時点から変わっていないかを見る。
+    if (content.expectedUpdatedAt !== "" && content.expectedUpdatedAt !== current.updatedAt) {
+      throw new GitHubError("conflict", "GitHub 側でこの Issue が更新されています", current)
+    }
     const updated: ScheduleTask = {
       ...current,
       title: content.title,

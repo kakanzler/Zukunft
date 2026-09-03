@@ -26,6 +26,13 @@ type Props = {
   /** Tauri の外（モック）では反映する窓が無い。その旨を画面に出すために受け取る。 */
   applies: boolean
   /**
+   * トークンの入手元。"env" は環境変数で、サインアウトしても効き続ける。
+   * 押しても何も変わらないボタンを出さないために受け取る。
+   */
+  authSource: string
+  /** サインアウト。渡さなければその節ごと出さない（ブラウザのモックなど） */
+  onSignOut?: () => Promise<void> | void
+  /**
    * 保存先は窓の設定と別だが、押すボタンは 1 つにする。
    * 「保存して反映」で片方しか保存されない画面は説明が要る。
    */
@@ -68,11 +75,14 @@ const PRESETS: { width: number; height: number }[] = [
  * 書いておく。
  */
 export function SettingsModal({
-  settings, autoReschedule, theme, busy, applies, onSave, onClose,
+  settings, autoReschedule, theme, busy, applies, authSource, onSignOut, onSave, onClose,
 }: Props) {
   const [draft, setDraft] = useState<WindowSettings>(settings)
   const [autoDraft, setAutoDraft] = useState(autoReschedule)
   const [themeDraft, setThemeDraft] = useState<GanttTheme>(theme)
+  // サインアウトは取り消せない（トークンを資格情報ストアから消す）ので、
+  // 削除と同じく確認を 1 段挟む。
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
 
   // 保存済みの値は開いた後に届くことがある（Rust 側の読み取りを待つ）。
   useEffect(() => {
@@ -228,6 +238,54 @@ export function SettingsModal({
               変わるのは Gantt の盤面だけです。ログは同じままで、GitHub 側にも何も起きません。
             </span>
           </div>
+
+          {onSignOut && (
+            <div className="zk-field">
+              <span className="zk-field-label">アカウント</span>
+              {confirmingSignOut ? (
+                <div className="zk-label-confirm">
+                  <span>
+                    サインアウトすると保存したトークンを消します。次の起動でサインインし直しになります
+                  </span>
+                  <button
+                    type="button"
+                    className="zk-button zk-button--danger"
+                    disabled={busy}
+                    onClick={() => {
+                      setConfirmingSignOut(false)
+                      void onSignOut()
+                    }}
+                  >
+                    サインアウトする
+                  </button>
+                  <button
+                    type="button"
+                    className="zk-button"
+                    disabled={busy}
+                    onClick={() => setConfirmingSignOut(false)}
+                  >
+                    やめる
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="zk-button zk-button--danger"
+                    disabled={busy || authSource === "env"}
+                    onClick={() => setConfirmingSignOut(true)}
+                  >
+                    サインアウト
+                  </button>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                    {authSource === "env"
+                      ? "環境変数のトークンで動いています。消せるのは資格情報ストアの分だけなので、まず ZUKUNFT_GITHUB_TOKEN を外してください。"
+                      : "アカウントを切り替えるときに使います。"}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="zk-field">
             <span className="zk-field-label">日程の自動調整</span>

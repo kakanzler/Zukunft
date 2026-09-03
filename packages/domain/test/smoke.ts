@@ -222,7 +222,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   st = applyLocalChange(st, "i1", { endDate: "2026-09-20" }, "m1")
   st = markFailed(st, "m1", "boom")
   eq("failed state", findTask(st, "i1")!.syncState, "failed")
-  st = rollback(st, "m1")
+  st = rollback(st, "m1", () => "r1")
   eq("rollback restores endDate", findTask(st, "i1")!.endDate, "2026-09-07")
   eq("rollback clears queue", pendingCount(st), 0)
   eq("rollback drops undo entry", canUndo(st), false)
@@ -269,7 +269,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   eq("coalesced keeps newest id", m.id, "m2")
   eq("coalesced rolls back to the original value", m.before, { startDate: "2026-09-01", endDate: "2026-09-07" })
   eq("coalesced targets the newest value", m.after, { startDate: "2026-09-05", endDate: "2026-09-11" })
-  st = rollback(st, "m2")
+  st = rollback(st, "m2", () => "r1")
   eq("rollback after coalescing restores the original", findTask(st, "i1")!.startDate, "2026-09-01")
 }
 
@@ -297,7 +297,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   // 元の「未設定」へ戻す手段が無いので Undo には積まない
   eq("initial scheduling is not undoable", canUndo(st), false)
 
-  st = rollback(st, "m1")
+  st = rollback(st, "m1", () => "r1")
   eq("rollback returns to undated", findTask(st, "i1")!.startDate, null)
 }
 
@@ -560,9 +560,48 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   ])
   st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next)
   const pushed = st.queue.find((m) => m.taskId === "i2")!
-  st = rollback(st, pushed.id)
+  st = rollback(st, pushed.id, next)
   eq("rollback reverts the failed task", findTask(st, "i2")!.startDate, "2026-09-03")
+  // 操作 1 回ぶんをまとめて戻す。押し出した分だけが適用されたまま残ると、
+  // 依存先より前に始まる日程が盤面に残り、Undo からも消えて手で直すしかなくなる。
+  eq("rollback reverts the rest of the group too", findTask(st, "i1")!.endDate, "2026-09-05")
+  eq("rollback empties the queue for the group", pendingCount(st), 0)
   eq("rollback drops the whole group", canUndo(st), false)
+}
+
+// --- store: 送信済みの分は GitHub にも戻しに行く ---
+{
+  const dep = (n: number, refs: number[], start: string, end: string) => ({
+    ...mk(n, "Planning", start, end, null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+  })
+  let seq = 0
+  const next = () => `g${++seq}`
+  let st = initialState([
+    dep(1, [], "2026-09-01", "2026-09-05"),
+    dep(2, [1], "2026-09-03", "2026-09-04"),
+  ])
+  st = applyChangeWithCascade(st, "i1", { endDate: "2026-09-10" }, next)
+
+  // 先頭（i1）だけ送信が通った状態にする。
+  const head = st.queue.find((m) => m.taskId === "i1")!
+  st = markSyncing(st, head.id)
+  st = markSynced(st, head.id, {
+    ...findTask(st, "i1")!,
+    endDate: "2026-09-10",
+    updatedAt: "2026-09-05T00:00:00Z",
+  })
+
+  const pushed = st.queue.find((m) => m.taskId === "i2")!
+  st = rollback(st, pushed.id, next)
+
+  eq("queued member is reverted locally", findTask(st, "i2")!.startDate, "2026-09-03")
+  eq("sent member is reverted too", findTask(st, "i1")!.endDate, "2026-09-05")
+  // 送信が通った分はローカルで戻すだけでは食い違う。書き戻しを積む。
+  eq("sent member is queued for write-back", pendingCount(st), 1)
+  eq("the write-back targets the sent member", nextPending(st)!.taskId, "i1")
+  eq("the group is gone from undo", canUndo(st), false)
 }
 
 // --- filter: 絞り込み ---

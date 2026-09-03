@@ -774,15 +774,51 @@ function Workspace({
    * 自動の日程調整は保存先が別なので続けて書く。以後の日付操作が黙って変わる
    * 設定なので、カテゴリと同じくログにも残す。変わっていなければ書かない。
    */
+  /**
+   * 設定画面の保存。
+   *
+   * 3 つの設定は保存先が別なので、1 つ失敗しても残りは試す。ひとつの try で
+   * 直列に書くと、最初の 1 件が失敗した時点で残りが実行されず、しかも画面には
+   * 「設定を保存できませんでした」としか出ない — どれが保存されてどれが
+   * されなかったのかが分からなかった。
+   *
+   * 成功したものはその場で画面に反映し、失敗したものだけを名指しで出す。
+   */
   const saveWindow = useCallback(
     async (next: WindowSettings, nextAutoReschedule: boolean, nextTheme: GanttTheme) => {
       setSavingWindow(true)
-      try {
+      const failed: string[] = []
+      const details: string[] = []
+
+      /** 1 件ぶんの保存。失敗しても投げず、名前を控えて次へ進む。 */
+      const attempt = async (name: string, save: () => Promise<void>) => {
+        try {
+          await save()
+          return true
+        } catch (error) {
+          failed.push(name)
+          details.push(
+            `${name}: ${
+              typeof error === "object" && error !== null && "message" in error
+                ? String((error as { message: unknown }).message)
+                : String(error)
+            }`,
+          )
+          return false
+        }
+      }
+
+      const savedWindow = await attempt("ウィンドウ", async () => {
         await saveWindowSettings(next)
         setWindowSettings(next)
-        if (nextAutoReschedule !== autoReschedule) {
+      })
+
+      if (nextAutoReschedule !== autoReschedule) {
+        const ok = await attempt("日程の自動調整", async () => {
           await saveAutoReschedule(nextAutoReschedule)
           setAutoReschedule(nextAutoReschedule)
+        })
+        if (ok) {
           logAppend({
             level: "info",
             message: nextAutoReschedule
@@ -790,12 +826,19 @@ function Workspace({
               : "依存に合わせた日程の自動調整をやめました",
           })
         }
-        if (nextTheme !== ganttTheme) {
+      }
+
+      if (nextTheme !== ganttTheme) {
+        const ok = await attempt("盤面の見た目", async () => {
           await saveTheme(nextTheme)
           setGanttTheme(nextTheme)
+        })
+        if (ok) {
           logAppend({ level: "info", message: `盤面の見た目を ${nextTheme} にしました` })
         }
-        setSettingsOpen(false)
+      }
+
+      if (savedWindow) {
         logAppend({
           level: "info",
           message:
@@ -805,19 +848,20 @@ function Workspace({
                 ? "ウィンドウを最大化しました"
                 : "フルスクリーンにしました",
         })
-      } catch (error) {
-        const detail =
-          typeof error === "object" && error !== null && "message" in error
-            ? String((error as { message: unknown }).message)
-            : String(error)
+      }
+
+      if (failed.length > 0) {
         logAppend({
           level: "error",
-          message: "設定を保存できませんでした",
-          hint: detail,
+          message: `${failed.join(" / ")} を保存できませんでした`,
+          hint: `${details.join(" / ")}　他の設定は保存されています。`,
         })
-      } finally {
-        setSavingWindow(false)
+      } else {
+        // 全部保存できたときだけ閉じる。失敗が残っているのに畳むと、
+        // 何が保存されなかったのかを確かめる場所が無くなる。
+        setSettingsOpen(false)
       }
+      setSavingWindow(false)
     },
     [logAppend, autoReschedule, ganttTheme],
   )
@@ -854,6 +898,30 @@ function Workspace({
     },
     [repository, logAppend],
   )
+
+  /**
+   * サインアウト。資格情報ストアのトークンを消す。
+   *
+   * 消したあとはサインイン画面へ戻す必要があるが、その状態は上位が持っている。
+   * ここでは消したことをログに残し、再読み込みで判定をやり直させる。
+   */
+  const signOut = useCallback(async () => {
+    try {
+      const { auth } = await import("@zukunft/github/tauri")
+      await auth.signOut()
+      logAppend({ level: "info", message: "サインアウトしました" })
+      window.location.reload()
+    } catch (error) {
+      logAppend({
+        level: "error",
+        message: "サインアウトできませんでした",
+        hint:
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error),
+      })
+    }
+  }, [logAppend])
 
   const createLabel = useCallback(
     async (repositoryId: string, name: string, color: string): Promise<Label | null> => {
@@ -1314,6 +1382,8 @@ function Workspace({
           theme={ganttTheme}
           busy={savingWindow}
           applies={isTauri()}
+          authSource={authSource}
+          onSignOut={isTauri() ? signOut : undefined}
           onSave={saveWindow}
           onClose={() => setSettingsOpen(false)}
         />

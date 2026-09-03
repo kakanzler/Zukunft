@@ -109,6 +109,14 @@ export function TaskModal({
 
   // 一覧で e を押して開いた場合は、最初から編集に入る。
   const [editing, setEditing] = useState(initialEditing)
+  /**
+   * 編集を始めた時点の updatedAt。競合の判定に使う（企画書 §16.3）。
+   *
+   * 送るときの task.updatedAt ではなく、編集に入った時点の値を掴む。
+   * 編集中に再読み込みが走ると task は新しくなるが、こちらの下書きは古い内容を
+   * 元にしているので、新しい値で照合すると素通ししてしまう。
+   */
+  const [editingBase, setEditingBase] = useState(task.updatedAt)
   // 削除は取り消せないので、ボタン列を確認に差し替える 2 段階にする。
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [title, setTitle] = useState(task.title)
@@ -173,6 +181,7 @@ export function TaskModal({
             active.tagName === "SELECT")
         if (!typing) {
           e.preventDefault()
+          setEditingBase(task.updatedAt)
           setEditing(true)
         }
         return
@@ -192,7 +201,7 @@ export function TaskModal({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onClose, editing, confirmingDelete, cancelEdit])
+  }, [onClose, editing, confirmingDelete, cancelEdit, task.updatedAt])
 
   // 日付入力は 6 桁の年など ISO から外れた値も受け付けるため、
   // 「形式が不正」と「前後関係が逆」を分けて扱う。
@@ -234,6 +243,7 @@ export function TaskModal({
       title: title.trim(),
       // 依存関係は本文の中の宣言なので、本文と一緒に 1 回で送る。
       body: withDependencyRefs(body, dependsOn),
+      expectedUpdatedAt: editingBase,
       // ラベルを読み切れていない Issue では触らない。置き換え集合として送ると、
       // 読めなかった分が Issue から永久に外れる。
       labelIds: task.labelsComplete ? labels.map((l) => l.id) : null,
@@ -256,6 +266,8 @@ export function TaskModal({
       body: toggleTaskListItem(task.body, index),
       labelIds: task.labelsComplete ? task.labels.map((l) => l.id) : null,
       milestoneId: task.milestone?.id ?? null,
+      // いま見えているものへの即時操作なので、基準は今の値でよい。
+      expectedUpdatedAt: task.updatedAt,
     })
   }
 
@@ -586,7 +598,14 @@ export function TaskModal({
                   cancel
                 </button>
               ) : (
-                <button className="zk-button" onClick={() => setEditing(true)} disabled={busy}>
+                <button
+                  className="zk-button"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditingBase(task.updatedAt)
+                    setEditing(true)
+                  }}
+                >
                   edit
                 </button>
               )}
