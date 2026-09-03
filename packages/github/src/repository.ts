@@ -4,6 +4,7 @@ import type {
   Label,
   Milestone,
   NewTaskInput,
+  ParentIssue,
   ProjectSchema,
   ProjectSummary,
   RepositorySummary,
@@ -33,6 +34,21 @@ export interface GitHubScheduleRepository {
     change: DateChange,
     expectedUpdatedAt: string,
   ): Promise<ScheduleTask>
+
+  /**
+   * この Issue の親（sub-issue 関係）。設定が無ければ null。
+   *
+   * 一覧の取得には混ぜない。sub-issue のフィールドが使えない GitHub では
+   * クエリごと失敗するので、混ぜると盤面が丸ごと出なくなる。詳細を開いたときに
+   * 単独で引き、失敗したらその欄を出さないだけにする。
+   */
+  getParentIssue(issueId: string): Promise<ParentIssue | null>
+
+  /**
+   * 親を付け替える。`parentIssueId` が null なら外す。
+   * 既に別の親が付いていても付け替える（GitHub 側の replaceParent）。
+   */
+  setParentIssue(issueId: string, parentIssueId: string | null): Promise<void>
 
   /**
    * Issue 本体（タイトル・本文）を書き換える。

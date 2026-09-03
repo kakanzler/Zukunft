@@ -1,0 +1,12 @@
+# この Issue の親（GitHub の sub-issue 関係）。
+#
+# projectItems の選択には混ぜない。sub-issue のフィールドはこの GitHub で
+# 使えないことがあり、混ぜると一覧の取得そのものが失敗して盤面が真っ白になる。
+# 詳細を開いたときだけ引けば、失敗してもその欄が出ないだけで済む。
+query IssueParent($issueId: ID!) {
+  node(id: $issueId) {
+    ... on Issue {
+      parent { id number title url }
+    }
+  }
+}

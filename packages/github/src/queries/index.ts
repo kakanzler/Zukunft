@@ -25,6 +25,9 @@ import clearDateField from "./clearDateField.graphql"
 import closeIssue from "./closeIssue.graphql"
 import reopenIssue from "./reopenIssue.graphql"
 import deleteIssue from "./deleteIssue.graphql"
+import issueParent from "./issueParent.graphql"
+import addSubIssue from "./addSubIssue.graphql"
+import removeSubIssue from "./removeSubIssue.graphql"
 
 export const LIST_PROJECTS = listProjects
 export const PROJECT_SCHEMA = projectSchema
@@ -65,3 +68,8 @@ export const REOPEN_ISSUE = reopenIssue
 
 /** Issue ごと消す。取り消せないので、呼ぶ前に UI 側で確認を取る。 */
 export const DELETE_ISSUE = deleteIssue
+
+/** sub-issue（親子関係）。使えない GitHub もあるので一覧の選択には混ぜない。 */
+export const ISSUE_PARENT = issueParent
+export const ADD_SUB_ISSUE = addSubIssue
+export const REMOVE_SUB_ISSUE = removeSubIssue

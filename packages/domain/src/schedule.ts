@@ -99,6 +99,19 @@ export type DateChange = {
   endDate?: ISODate
 }
 
+/**
+ * 親 Issue（GitHub の sub-issue 関係）。
+ *
+ * Projects v2 のフィールドではなく Issue そのものの関係なので、item ではなく
+ * Issue の node id で扱う。
+ */
+export type ParentIssue = {
+  issueId: string
+  number: number
+  title: string
+  url: string
+}
+
 /** Issue の作成先候補（Project にリンクされたリポジトリ）。 */
 export type RepositorySummary = {
   id: string

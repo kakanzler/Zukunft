@@ -1,0 +1,6 @@
+# 親子関係を外す。issueId が親、subIssueId が子。
+mutation RemoveSubIssue($issueId: ID!, $subIssueId: ID!) {
+  removeSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId }) {
+    subIssue { id }
+  }
+}

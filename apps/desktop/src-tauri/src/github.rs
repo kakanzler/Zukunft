@@ -49,6 +49,12 @@ const CLOSE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/closeIssue.graphql");
 const REOPEN_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/reopenIssue.graphql");
+const ISSUE_PARENT: &str =
+    include_str!("../../../../packages/github/src/queries/issueParent.graphql");
+const ADD_SUB_ISSUE: &str =
+    include_str!("../../../../packages/github/src/queries/addSubIssue.graphql");
+const REMOVE_SUB_ISSUE: &str =
+    include_str!("../../../../packages/github/src/queries/removeSubIssue.graphql");
 const DELETE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/deleteIssue.graphql");
 
@@ -407,6 +413,48 @@ impl GitHubClient {
             milestones.extend(nodes.into_iter().flatten().filter_map(read_milestone));
         }
         Ok(milestones)
+    }
+
+    /// この Issue の親（sub-issue 関係）。設定が無ければ None。
+    ///
+    /// 一覧の取得とは別のクエリにしてある。sub-issue のフィールドが使えない
+    /// GitHub ではここが失敗するが、その場合も詳細の 1 欄が出ないだけで済む。
+    pub async fn issue_parent(&self, issue_id: &str) -> AppResult<Option<ParentIssue>> {
+        let data = self
+            .graphql(ISSUE_PARENT, json!({ "issueId": issue_id }))
+            .await?;
+        let parent = data
+            .get("node")
+            .and_then(|n| n.get("parent"))
+            .filter(|p| !p.is_null());
+        Ok(parent.and_then(|p| {
+            Some(ParentIssue {
+                issue_id: p.get("id")?.as_str()?.to_owned(),
+                number: p.get("number").and_then(Value::as_i64).unwrap_or(0),
+                title: p.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
+                url: p.get("url").and_then(Value::as_str).unwrap_or("").to_owned(),
+            })
+        }))
+    }
+
+    /// 親を付ける。既に別の親が付いていても付け替える（replaceParent）。
+    pub async fn add_sub_issue(&self, parent_issue_id: &str, issue_id: &str) -> AppResult<()> {
+        self.graphql(
+            ADD_SUB_ISSUE,
+            json!({ "issueId": parent_issue_id, "subIssueId": issue_id }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// 親を外す。
+    pub async fn remove_sub_issue(&self, parent_issue_id: &str, issue_id: &str) -> AppResult<()> {
+        self.graphql(
+            REMOVE_SUB_ISSUE,
+            json!({ "issueId": parent_issue_id, "subIssueId": issue_id }),
+        )
+        .await
+        .map(|_| ())
     }
 
     /// ラベルの新規作成。preview の Accept が必要（LABELS_PREVIEW_ACCEPT）。

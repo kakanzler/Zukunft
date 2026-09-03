@@ -188,6 +188,17 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
     return milestones
   }
 
+  /** 読み取り専用ビューは親子関係を出さない。無いものとして扱う。 */
+  getParentIssue(): Promise<null> {
+    return Promise.resolve(null)
+  }
+
+  setParentIssue(): Promise<never> {
+    return Promise.reject(
+      new GitHubError("unsupported", "読み取り専用ビューでは変更できません"),
+    )
+  }
+
   updateTaskStatus(
     _projectId: string,
     _taskId: string,

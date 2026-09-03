@@ -702,6 +702,37 @@ function Workspace({
    * この設定は以後の Gantt の並び全体を黙って変えるので、いつ誰が変えたのかを
    * 追えるようログにも残す。
    */
+  /**
+   * 親カテゴリの増減だけを保存する。
+   *
+   * saveCategories と保存先は同じだが、あちらはカテゴリ設定のモーダルを
+   * 閉じるところまでやる。詳細モーダルから呼ぶと関係ないモーダルが閉じるので、
+   * 保存とログだけを行う経路を分ける。
+   */
+  const designateParentLabels = useCallback(
+    async (names: string[]) => {
+      if (!projectId) return
+      try {
+        await saveParentLabels(projectId, names)
+        setParentLabels(names)
+        logAppend({
+          level: "info",
+          message:
+            names.length > 0
+              ? `親カテゴリを ${names.join(" / ")} にしました`
+              : "親カテゴリを解除しました",
+        })
+      } catch (error) {
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        logAppend({ level: "error", message: "親カテゴリを保存できませんでした", hint: detail })
+      }
+    },
+    [projectId, logAppend],
+  )
+
   const saveCategories = useCallback(
     async (names: string[]) => {
       if (!projectId) return
@@ -789,6 +820,39 @@ function Workspace({
       }
     },
     [logAppend, autoReschedule, ganttTheme],
+  )
+
+  /**
+   * 親 Issue（sub-issue）の読み書き。
+   *
+   * 一覧の取得には混ぜていないので、詳細を開いたときにここから引く。
+   * sub-issue が使えない GitHub では失敗するが、その場合は欄が出ないだけ。
+   */
+  const loadParentIssue = useCallback(
+    (issueId: string) => repository.getParentIssue(issueId),
+    [repository],
+  )
+
+  const changeParentIssue = useCallback(
+    async (issueId: string, parentIssueId: string | null) => {
+      try {
+        await repository.setParentIssue(issueId, parentIssueId)
+        logAppend({
+          level: "info",
+          message: parentIssueId ? "親 Issue を設定しました" : "親 Issue を外しました",
+        })
+      } catch (error) {
+        logAppend({
+          level: "error",
+          message: "親 Issue を変更できませんでした",
+          hint: describeError(
+            error instanceof GitHubError ? error : new GitHubError("unknown", String(error)),
+          ).hint,
+        })
+        throw error
+      }
+    },
+    [repository, logAppend],
   )
 
   const createLabel = useCallback(
@@ -1266,6 +1330,9 @@ function Workspace({
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
           parentLabels={parentLabels}
           labelCatalog={labelCandidates}
+          onDesignateParentLabels={designateParentLabels}
+          onLoadParentIssue={loadParentIssue}
+          onChangeParentIssue={changeParentIssue}
           allTasks={schedule.tasks}
           availableMilestones={milestonesByRepo[openTask.repositoryId] ?? []}
           onCreateLabel={createLabel}

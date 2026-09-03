@@ -207,6 +207,36 @@ async fn update_task_content(
     client.item(&task_id).await
 }
 
+/// この Issue の親（sub-issue 関係）。
+#[tauri::command]
+async fn get_parent_issue(
+    state: State<'_>,
+    issue_id: String,
+) -> Result<Option<ParentIssue>, AppError> {
+    state.client()?.issue_parent(&issue_id).await
+}
+
+/// 親を付け替える。parent_issue_id が None なら外す。
+///
+/// 外すには今の親が要る（GitHub の removeSubIssue は親を指定する）ので、
+/// まず引き直してから外す。付けるときは replaceParent に任せる。
+#[tauri::command]
+async fn set_parent_issue(
+    state: State<'_>,
+    issue_id: String,
+    parent_issue_id: Option<String>,
+) -> Result<(), AppError> {
+    let client = state.client()?;
+    match parent_issue_id {
+        Some(parent) => client.add_sub_issue(&parent, &issue_id).await,
+        None => match client.issue_parent(&issue_id).await? {
+            Some(current) => client.remove_sub_issue(&current.issue_id, &issue_id).await,
+            // 元から親が無いなら何もしない。外す操作が失敗したことにはしない。
+            None => Ok(()),
+        },
+    }
+}
+
 #[tauri::command]
 async fn list_labels(state: State<'_>, repository_id: String) -> Result<Vec<Label>, AppError> {
     state.client()?.repository_labels(&repository_id).await
@@ -567,6 +597,8 @@ pub fn run() {
             list_repositories,
             create_task,
             update_task_content,
+            get_parent_issue,
+            set_parent_issue,
             list_labels,
             list_milestones,
             create_label,

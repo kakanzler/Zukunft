@@ -609,9 +609,9 @@
 }
 
 .zk-modal--task {
-  width: min(760px, 100%);
+  width: min(1140px, 100%);
   /* 本文が主役なので、短い Issue でも枠の高さは変えない（モックと同じ縦長）。 */
-  height: min(620px, 86vh);
+  height: min(930px, 86vh);
   max-height: 86vh;
   overflow: hidden;
   display: flex;
@@ -634,15 +634,14 @@
 
 /* Status は「編集」に入らず変えられる。ドットが見えたまま select を重ねて、
    意匠（色の丸）と操作（選択肢）を両立させる。 */
+/* 枠も地も持たない。色の丸そのものが Status の表示なので、箱で囲うと
+   「入力欄の中の飾り」に見えてしまう。押せることはカーソルと発光で示す。 */
 .zk-status-picker {
   position: relative;
   display: grid; place-items: center;
   width: 56px; height: 40px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
 }
-.zk-status-picker:focus-within { border-color: var(--border-glow); }
+.zk-status-picker:focus-within .zk-status-dot { box-shadow: 0 0 16px currentColor; }
 .zk-status-dot {
   width: 20px; height: 20px; border-radius: 50%;
   box-shadow: 0 0 10px currentColor;
@@ -656,8 +655,22 @@
 }
 .zk-status-select:disabled { cursor: not-allowed; }
 
-.zk-title-input { width: 100%; font-size: 16px; font-weight: 600; }
-/* 表示だけのときも入力欄と同じ枠にして、行の高さを揃える。 */
+/* タイトルは枠で囲わず、下線で編集できる場所だと示す。文字が主役なので
+   16px から 1.5 倍にする。枠を消したぶん、行の高さは下線の位置で決まる。 */
+.zk-title-input {
+  width: 100%;
+  font-size: 24px; font-weight: 600;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: calc(var(--space)) 0;
+  text-decoration: underline;
+  text-decoration-color: var(--border-subtle);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
+.zk-title-input:focus { outline: none; text-decoration-color: var(--border-glow); }
+/* 表示だけのときも入力欄と同じ高さにして、編集への切り替えで行がずれないようにする。 */
 .zk-input--static,
 .zk-title-input--static {
   display: flex; align-items: center;
@@ -666,14 +679,12 @@
 }
 .zk-muted { color: var(--text-secondary); }
 
+/* ラベルは色の付いたチップ自体が形を持っているので、外側の枠は要らない。 */
 .zk-label-row {
   display: flex; align-items: center; gap: calc(var(--space) * 2);
   flex-wrap: wrap;
   min-height: 36px;
-  padding: calc(var(--space)) calc(var(--space) * 2);
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  padding: calc(var(--space)) 0;
 }
 /* ラベルはラベル色で塗る。文字色は JS 側が地の明度から決める。 */
 .zk-chip--label { padding: calc(var(--space)) calc(var(--space) * 3); font-weight: 600; }
@@ -913,6 +924,14 @@
 /* デスクトップでは GitHub 以外のリンクを開けない。押せないことを見せる。 */
 .zk-md-link--inert { color: var(--text-secondary); cursor: default; text-decoration-style: dotted; }
 .zk-md-image { color: var(--text-secondary); font-style: italic; }
+/* 本文のタスクリスト。読むだけの場面では押せないので、押せるときだけ
+   カーソルで示す。送信中は触らせない。 */
+.zk-md-task {
+  margin-right: calc(var(--space) * 1.5);
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+}
+.zk-md-task:disabled { cursor: default; }
 
 /* ---- サイドバー（意匠は Appearance_button.jpg に準拠） ---- */
 .zk-shell { display: flex; flex: 1 1 auto; min-height: 0; }

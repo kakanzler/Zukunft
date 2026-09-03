@@ -9,6 +9,7 @@ import {
   normalizeFieldName, resolveField, canEditDates,
   filterTasks, filterChoices, isFilterActive, EMPTY_FILTER, type TaskFilter,
   parseDependencyRefs, resolveDependencies, withDependencyRefs,
+  countTaskListItems, toggleTaskListItem, isTaskListItemChecked,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
   type ScheduleTask, type ProjectSchema,
 } from "../src/index"
@@ -611,6 +612,34 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   eq("choices list labels", choices.labels, ["design"])
   eq("choices list assignees", choices.assignees, ["dev1"])
   eq("choices list milestones", choices.milestones, ["v1", "v2"])
+}
+
+// --- tasklist: 本文のチェックボックス ---
+{
+  const body = "作業\n\n- [ ] 実装\n- [x] 動作確認\n"
+  eq("counts task list items", countTaskListItems(body), 2)
+  eq("counts nothing when there is none", countTaskListItems("ただの本文"), 0)
+
+  eq("toggles the first item on",
+     toggleTaskListItem(body, 0), "作業\n\n- [x] 実装\n- [x] 動作確認\n")
+  eq("toggles the second item off",
+     toggleTaskListItem(body, 1), "作業\n\n- [ ] 実装\n- [ ] 動作確認\n")
+  // 範囲外は何もしない。描画とずれていたときに別の行を書き換えない。
+  eq("out of range leaves the body alone", toggleTaskListItem(body, 5), body)
+  eq("negative index leaves the body alone", toggleTaskListItem(body, -1), body)
+
+  eq("reads the checked state", [
+    isTaskListItemChecked(body, 0), isTaskListItemChecked(body, 1), isTaskListItemChecked(body, 9),
+  ], [false, true, false])
+
+  // 箇条書きの記号と番号付き、入れ子の字下げも数える
+  const mixed = "* [ ] a\n+ [X] b\n1. [ ] c\n  - [ ] d\n"
+  eq("accepts every marker", countTaskListItems(mixed), 4)
+  eq("uppercase X counts as checked", isTaskListItemChecked(mixed, 1), true)
+  eq("toggles a nested item", toggleTaskListItem(mixed, 3), "* [ ] a\n+ [X] b\n1. [ ] c\n  - [x] d\n")
+
+  // 行頭でない [ ] は対象外。本文の文章を壊さない。
+  eq("ignores brackets inside a line", countTaskListItems("これは - [ ] ではない"), 0)
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)

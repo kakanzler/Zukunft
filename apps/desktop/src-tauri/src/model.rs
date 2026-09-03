@@ -131,6 +131,16 @@ pub struct TaskContent {
     pub milestone_id: Option<String>,
 }
 
+/// 親 Issue（GitHub の sub-issue 関係）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParentIssue {
+    pub issue_id: String,
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+}
+
 /// アプリから新しい Issue を起票するときの入力。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

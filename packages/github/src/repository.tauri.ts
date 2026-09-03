@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type {
+  ParentIssue,
   DateChange,
   IssueState,
   Label,
@@ -75,6 +76,14 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
       change,
       expectedUpdatedAt,
     })
+  }
+
+  getParentIssue(issueId: string): Promise<ParentIssue | null> {
+    return call<ParentIssue | null>("get_parent_issue", { issueId })
+  }
+
+  setParentIssue(issueId: string, parentIssueId: string | null): Promise<void> {
+    return call<void>("set_parent_issue", { issueId, parentIssueId })
   }
 
   updateTaskContent(

@@ -1,0 +1,7 @@
+# 親子関係を付ける。subIssueId 側（この Issue）が子になる。
+# 既に別の親が付いている場合は replaceParent で付け替える。
+mutation AddSubIssue($issueId: ID!, $subIssueId: ID!) {
+  addSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId, replaceParent: true }) {
+    subIssue { id }
+  }
+}

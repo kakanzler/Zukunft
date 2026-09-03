@@ -19,6 +19,11 @@ type Props = {
   onChange: (labels: Label[]) => void
   /** リポジトリにラベルを作る。作れたら実体を返す */
   onCreate: (name: string, color: string) => Promise<Label | null>
+  /**
+   * 親カテゴリとして扱う名前の集合を差し替える（カテゴリ設定と同じ保存先）。
+   * これがあると、この画面から親カテゴリそのものを増減できる。
+   */
+  onDesignate?: (names: string[]) => Promise<void> | void
 }
 
 /** LabelEditor と同じ既定色。作成の入口が 2 つあっても見た目を揃える。 */
@@ -35,13 +40,15 @@ const DEFAULT_COLOR = "3b82f6"
  * 順位を付けてどちらかに寄せるより、「両方に属する」と読める方が説明が要らない。
  */
 export function ParentCategoryPicker({
-  parentLabels, labelCatalog, available, selected, busy, onChange, onCreate,
+  parentLabels, labelCatalog, available, selected, busy, onChange, onCreate, onDesignate,
 }: Props) {
   // このリポジトリに無いラベルを作るのはリポジトリを書き換える操作なので、
   // 押した瞬間には作らず確認を挟む。
   const [creating, setCreating] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 親カテゴリそのものを選び直す欄。既定は閉じておく。
+  const [designating, setDesignating] = useState(false)
 
   const selectedNames = new Set(
     selected.filter((l) => parentLabels.includes(l.name)).map((l) => l.name),
@@ -85,9 +92,36 @@ export function ParentCategoryPicker({
     setCreating(null)
   }
 
+  /** 親カテゴリの増減。カテゴリ設定を開かずにここで決められるようにする。 */
+  const designate = async (name: string) => {
+    if (!onDesignate) return
+    setError(null)
+    setPending(true)
+    try {
+      await onDesignate(
+        parentLabels.includes(name)
+          ? parentLabels.filter((n) => n !== name)
+          : [...parentLabels, name],
+      )
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
     <div className="zk-field">
       <span className="zk-field-label">Parent category</span>
+
+      {/* 親カテゴリが 1 つも決まっていないと、これまではこの欄ごと出なかった。
+          「設定できない」のか「設定する場所が別にある」のかが読めないので、
+          未設定でも欄は出し、ここから決められるようにする。 */}
+      {parentLabels.length === 0 && (
+        <span className="zk-field-value zk-muted" style={{ fontSize: 11 }}>
+          親カテゴリはまだ決まっていません。下の「親カテゴリを選ぶ」から、
+          上位のまとまりとして扱うラベルを選んでください。
+        </span>
+      )}
+
       <div className="zk-label-picker zk-label-picker--parents">
         {parentLabels.map((name) => {
           const on = selectedNames.has(name)
@@ -141,6 +175,53 @@ export function ParentCategoryPicker({
       )}
 
       {error && <span className="zk-label-confirm">{error}</span>}
+
+      {onDesignate && (
+        <>
+          <button
+            type="button"
+            className="zk-chip zk-chip--button"
+            aria-pressed={designating}
+            disabled={busy || pending}
+            style={{ alignSelf: "start" }}
+            onClick={() => setDesignating((v) => !v)}
+          >
+            {designating ? "閉じる" : "親カテゴリを選ぶ…"}
+          </button>
+          {designating && (
+            <>
+              <span className="zk-field-value zk-muted" style={{ fontSize: 11 }}>
+                どのラベルを上位のまとまりとして扱うかを決めます。GitHub 上では
+                これまでどおり普通のラベルのままで、書き換えは行いません。
+              </span>
+              <div className="zk-label-picker">
+                {labelCatalog.length === 0 ? (
+                  <span className="zk-field-value zk-muted" style={{ fontSize: 11 }}>
+                    ラベルがありません。Issue にラベルを付けると候補に出ます。
+                  </span>
+                ) : (
+                  labelCatalog.map((label) => (
+                    <button
+                      type="button"
+                      key={label.name}
+                      className="zk-chip zk-chip--button"
+                      aria-pressed={parentLabels.includes(label.name)}
+                      disabled={busy || pending}
+                      onClick={() => designate(label.name)}
+                    >
+                      <span
+                        className="zk-legend-dot"
+                        style={{ background: label.color ? `#${label.color}` : "currentColor" }}
+                      />
+                      {label.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </>
+      )}
 
       <span className="zk-field-value zk-muted" style={{ fontSize: 11 }}>
         選んだ親カテゴリは、そのラベルとして Issue に付きます。複数選ぶと

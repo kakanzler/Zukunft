@@ -4,6 +4,7 @@ import {
   type Label,
   type Milestone,
   type NewTaskInput,
+  type ParentIssue,
   type ProjectSchema,
   type ProjectSummary,
   type RepositorySummary,
@@ -327,6 +328,24 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
   async listRepositories(_projectId: string): Promise<RepositorySummary[]> {
     await this.#delay()
     return [{ id: "mock-repo-1", nameWithOwner: "example/zukunft" }]
+  }
+
+  /** 親子関係。モックでは覚えるだけで、GitHub 側の制約（循環など）は見ない。 */
+  #parents = new Map<string, string>()
+
+  async getParentIssue(issueId: string): Promise<ParentIssue | null> {
+    await this.#delay()
+    const parentIssueId = this.#parents.get(issueId)
+    const parent = this.#tasks.find((t) => t.issueId === parentIssueId)
+    return parent
+      ? { issueId: parent.issueId, number: parent.issueNumber, title: parent.title, url: parent.url }
+      : null
+  }
+
+  async setParentIssue(issueId: string, parentIssueId: string | null): Promise<void> {
+    await this.#delay()
+    if (parentIssueId === null) this.#parents.delete(issueId)
+    else this.#parents.set(issueId, parentIssueId)
   }
 
   async createTask(_projectId: string, input: NewTaskInput): Promise<ScheduleTask> {

@@ -8,14 +8,22 @@ import type {
   IssueState,
   Label,
   Milestone,
+  ParentIssue,
   ScheduleTask,
   TaskContent,
 } from "@zukunft/domain"
 import { DependencyEditor } from "@/DependencyEditor"
+import { ParentIssuePicker } from "@/ParentIssuePicker"
 import { LabelEditor } from "@/LabelEditor"
 import { ParentCategoryPicker } from "@/ParentCategoryPicker"
 import { Markdown } from "@/Markdown"
-import { inclusiveDays, isISODate, parseDependencyRefs, withDependencyRefs } from "@zukunft/domain"
+import {
+  inclusiveDays,
+  isISODate,
+  parseDependencyRefs,
+  toggleTaskListItem,
+  withDependencyRefs,
+} from "@zukunft/domain"
 import { statusVar } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
 
@@ -40,6 +48,12 @@ type Props = {
    * 編集モードで、この Issue をどの親カテゴリに置くかを選ばせるのに使う。
    */
   parentLabels?: string[]
+  /** 親カテゴリの集合を差し替える。渡すとこの画面から増減できる */
+  onDesignateParentLabels?: (names: string[]) => Promise<void> | void
+  /** 親 Issue（sub-issue）を引く。渡さなければその欄を出さない */
+  onLoadParentIssue?: (issueId: string) => Promise<ParentIssue | null>
+  /** 親 Issue を付け替える */
+  onChangeParentIssue?: (issueId: string, parentIssueId: string | null) => Promise<void>
   /** 名前で重複を除いたラベル一覧。別リポジトリにしか無いものの色を引くのに使う */
   labelCatalog?: Label[]
   /** 同じ Project のタスク。依存先の候補になる */
@@ -86,6 +100,7 @@ export function TaskModal({
   task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
   availableLabels, parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
   allTasks = EMPTY_TASKS, availableMilestones, onCreateLabel, onDeleteLabel,
+  onDesignateParentLabels, onLoadParentIssue, onChangeParentIssue,
   onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
   initialEditing = false,
 }: Props) {
@@ -225,6 +240,23 @@ export function TaskModal({
       milestoneId: milestoneId === "" ? null : milestoneId,
     })
     setEditing(false)
+  }
+
+  /**
+   * 本文のチェックボックスの開け閉め。
+   *
+   * 編集モードに入らずその場で送る。読んでいる最中に 1 つ消すだけの操作なので、
+   * 「編集 → 保存」を挟ませると手数が釣り合わない。送るのは本文だけで、
+   * タイトルと Milestone は今の値をそのまま載せる（updateIssue は置き換えのため）。
+   */
+  const toggleTask = async (index: number) => {
+    if (savingContent) return
+    await onSaveContent(task.id, task.issueId, {
+      title: task.title,
+      body: toggleTaskListItem(task.body, index),
+      labelIds: task.labelsComplete ? task.labels.map((l) => l.id) : null,
+      milestoneId: task.milestone?.id ?? null,
+    })
   }
 
   // 「update」は今そこにある変更をまとめて送る。編集モードなら本文なども、
@@ -425,7 +457,9 @@ export function TaskModal({
                 保存しても、いま付いているラベルはそのまま残ります。
               </div>
             )}
-            {task.labelsComplete && parentLabels.length > 0 && (
+            {/* 親カテゴリが未設定でも欄は出す。設定できないのか、設定する場所が
+                別にあるのかが読めないため。 */}
+            {task.labelsComplete && (
               <ParentCategoryPicker
                 parentLabels={parentLabels}
                 labelCatalog={labelCatalog}
@@ -434,6 +468,7 @@ export function TaskModal({
                 busy={savingContent}
                 onChange={setLabels}
                 onCreate={(name, color) => onCreateLabel(task.repositoryId, name, color)}
+                onDesignate={onDesignateParentLabels}
               />
             )}
             {task.labelsComplete && (
@@ -467,7 +502,7 @@ export function TaskModal({
               onChange={(e) => setBody(e.target.value)}
             />
           ) : task.body.trim() ? (
-            <Markdown text={task.body} />
+            <Markdown text={task.body} onToggleTask={toggleTask} busy={savingContent} />
           ) : (
             <div className="zk-body-text zk-body-text--fill zk-body-text--empty">
               本文はありません。
@@ -527,11 +562,14 @@ export function TaskModal({
             </>
           ) : (
             <>
-              <div className="zk-field zk-task-parent">
-                <span className="zk-field-label">Parent Issue</span>
-                {/* 親子関係（sub-issue）は未対応。枠だけ用意しておく（企画書 Q-8） */}
-                <div className="zk-input zk-input--static zk-muted">—</div>
-              </div>
+              {onLoadParentIssue && onChangeParentIssue ? (
+                <ParentIssuePicker
+                  task={task}
+                  tasks={allTasks}
+                  onLoad={onLoadParentIssue}
+                  onChange={onChangeParentIssue}
+                />
+              ) : null}
               <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
                 to GitHub
               </button>
