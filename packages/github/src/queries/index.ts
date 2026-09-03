@@ -12,6 +12,7 @@ import projectItems from "./projectItems.graphql"
 import projectSchema from "./projectSchema.graphql"
 import projectRepositories from "./projectRepositories.graphql"
 import createIssue from "./createIssue.graphql"
+import viewer from "./viewer.graphql"
 import addProjectItem from "./addProjectItem.graphql"
 import updateDateField from "./updateDateField.graphql"
 import updateSingleSelectField from "./updateSingleSelectField.graphql"
@@ -72,6 +73,9 @@ export const CLEAR_DATE_FIELD = clearDateField
 export const CLEAR_PROJECT_FIELD = clearProjectField
 export const PROJECT_REPOSITORIES = projectRepositories
 export const CREATE_ISSUE = createIssue
+
+/** サインインしているユーザー自身。起票時の担当に使う node id を引く。 */
+export const VIEWER = viewer
 export const ADD_PROJECT_ITEM = addProjectItem
 
 /** Issue の開閉。Projects v2 のフィールドではなく Issue 本体を動かす。 */

@@ -107,6 +107,12 @@ const ASSIGNEES: Assignee[] = [
   { id: "usr-reviewer", login: "reviewer", avatarUrl: "" },
 ]
 
+/**
+ * モックでの「自分」。実物では viewer を引くところ。
+ * 起票した Issue の担当になるので、候補の 1 人と同じ id にしておく。
+ */
+const VIEWER: Assignee = ASSIGNEES[0]!
+
 /** モックで依存関係を持たせる Issue の添字（直前の Issue に依存する）。 */
 const DEPENDS_ON = new Set([1, 4, 6, 7, 9, 10, 12, 13])
 /**
@@ -400,7 +406,8 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       // Status だけが Project の既定値で残るため。
       status: STATUSES.find((_, i) => `o${i}` === input.statusOptionId) ?? STATUSES[0] ?? null,
       priority: null,
-      assignees: [],
+      // 起票した Issue は自分に割り当てる（実物では viewer を引く）。
+      assignees: [VIEWER],
       labels: (input.labelIds ?? [])
         .map((id) => this.#labels.find((l) => l.id === id))
         .filter((l): l is Label => Boolean(l)),

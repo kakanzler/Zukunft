@@ -267,6 +267,8 @@ export function NewTaskModal({
         </div>
 
         <div className="zk-modal-foot">
+          {/* 黙って担当を付けると、後から外したいときに何が付けたのか分からない。 */}
+          <span className="zk-new-task-note">担当は自分になります（作成後に変更できます）</span>
           <button className="zk-button" onClick={onClose} disabled={busy}>キャンセル</button>
           <button className="zk-button" aria-pressed={canSubmit} disabled={!canSubmit} onClick={submit}>
             {busy ? "作成中…" : "作成"}

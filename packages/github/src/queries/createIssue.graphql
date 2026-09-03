@@ -1,5 +1,5 @@
-mutation CreateIssue($repositoryId: ID!, $title: String!, $body: String, $labelIds: [ID!], $milestoneId: ID) {
-  createIssue(input: { repositoryId: $repositoryId, title: $title, body: $body, labelIds: $labelIds, milestoneId: $milestoneId }) {
+mutation CreateIssue($repositoryId: ID!, $title: String!, $body: String, $labelIds: [ID!], $assigneeIds: [ID!], $milestoneId: ID) {
+  createIssue(input: { repositoryId: $repositoryId, title: $title, body: $body, labelIds: $labelIds, assigneeIds: $assigneeIds, milestoneId: $milestoneId }) {
     issue { id number title url }
   }
 }

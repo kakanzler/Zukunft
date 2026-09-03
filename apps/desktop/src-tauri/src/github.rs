@@ -47,6 +47,7 @@ const CLEAR_PROJECT_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/clearProjectField.graphql");
 const PROJECT_REPOSITORIES: &str =
     include_str!("../../../../packages/github/src/queries/projectRepositories.graphql");
+const VIEWER: &str = include_str!("../../../../packages/github/src/queries/viewer.graphql");
 const CREATE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/createIssue.graphql");
 const ADD_PROJECT_ITEM: &str =
@@ -577,12 +578,29 @@ impl GitHubClient {
     /// Issue を作成し、その node id を返す。
     /// ラベルと Milestone は作成時に一緒に送る。後から付け直すと
     /// 通知が二重に飛ぶうえ、途中で失敗すると中途半端な Issue が残るため。
+    /// サインインしているユーザー自身の node id。
+    ///
+    /// 呼ぶたびに引き直す。トークンはサインインし直しで入れ替わるのに、この
+    /// プロセスは生きたままなので、覚えておくと別のアカウントに切り替えた後も
+    /// 前のユーザーに割り当ててしまう。往復 1 回はこの間違いに見合わない。
+    pub async fn viewer_id(&self) -> AppResult<String> {
+        let data = self.graphql(VIEWER, json!({})).await?;
+        data.get("viewer")
+            .and_then(|v| v.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                AppError::new(ErrorKind::Unknown, "サインインしているユーザーを特定できませんでした")
+            })
+    }
+
     pub async fn create_issue(
         &self,
         repository_id: &str,
         title: &str,
         body: Option<&str>,
         label_ids: &[String],
+        assignee_ids: &[String],
         milestone_id: Option<&str>,
     ) -> AppResult<String> {
         let data = self
@@ -593,6 +611,7 @@ impl GitHubClient {
                     "title": title,
                     "body": body,
                     "labelIds": label_ids,
+                    "assigneeIds": assignee_ids,
                     // Option<&str> は None がそのまま null になる。
                     "milestoneId": milestone_id,
                 }),

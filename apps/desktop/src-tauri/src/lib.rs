@@ -338,12 +338,20 @@ async fn create_task(
     }
 
     let client = state.client()?;
+
+    // 起票した Issue は自分に割り当てる。個人で使う道具なので、誰に振るかを
+    // 毎回選ばせる意味が無い。ここで引けなければ起票そのものを止める — まだ
+    // 何も作っていない段階なので取り返しがつくし、黙って未アサインで作ると
+    // 「誰の担当でもない Issue」ができたことに気づけない。
+    let assignee_id = client.viewer_id().await?;
+
     let issue_id = client
         .create_issue(
             &input.repository_id,
             title,
             input.body.as_deref(),
             input.label_ids.as_deref().unwrap_or(&[]),
+            std::slice::from_ref(&assignee_id),
             input.milestone_id.as_deref(),
         )
         .await?;
