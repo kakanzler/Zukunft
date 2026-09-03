@@ -8,7 +8,6 @@ import {
   type ZoomLevel,
   type ISODate,
   collectMilestones,
-  computeStats,
   createTimeScale,
   defaultTimelineEnd,
   detectCycles,
@@ -19,7 +18,6 @@ import {
   today,
 } from "@zukunft/domain"
 import type { GanttTheme } from "./theme"
-import { KpiBar, StatusLegend } from "./KpiBar"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
 import { isTyping } from "./keyboard"
@@ -89,17 +87,6 @@ export function GanttChart({
     () => buildRows(tasks, statusOrder, collapsed, groupBy, parentLabels),
     [tasks, statusOrder, collapsed, groupBy, parentLabels],
   )
-
-  /**
-   * 下部の KPI（企画書 §6.4.2）。
-   *
-   * 数えるのは受け取った tasks — つまり絞り込んだあとの分。盤面に出ていない
-   * ものまで数えると、タイルと盤面が食い違って、どちらが本当なのか分からなくなる。
-   * 絞り込んでいることは FilterBar の件数表示が受け持つ。
-   *
-   * グループを畳んでも数は変わらない。畳むのは見え方の操作で、対象の増減ではない。
-   */
-  const stats = useMemo(() => computeStats(tasks), [tasks])
 
   /**
    * 横軸の既定の右端。今日から 1 年先と、進行中（open）の Issue のいちばん先の日付の、
@@ -307,15 +294,6 @@ export function GanttChart({
           scrollRef={timelineRef}
         />
       </div>
-      )}
-
-      {tasks.length > 0 && (
-        <div className="zk-kpi-row">
-          <KpiBar stats={stats} />
-          {/* 凡例はヘッダに置く案（企画書 §6.4.2）だったが、ヘッダは既に詰まっている。
-              色の意味を説明するものなので、数と同じ帯に置いても筋は通る。 */}
-          <StatusLegend statuses={statusOrder} />
-        </div>
       )}
     </>
   )
