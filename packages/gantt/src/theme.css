@@ -223,8 +223,16 @@
 .zk-axis-end-input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
 .zk-axis-end-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
-.zk-legend { display: flex; gap: calc(var(--space) * 3); align-items: center; }
+/* 窓が狭いとタイルと取り合いになる。凡例は縮めずに折り返す — 途中で切れた
+   ステータス名は、色の説明として役に立たない。 */
+.zk-legend {
+  display: flex; flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: calc(var(--space) * 3);
+  align-items: center;
+}
 .zk-legend-item {
+  white-space: nowrap;
   display: flex; align-items: center; gap: calc(var(--space) * 1.5);
   color: var(--text-secondary); font-size: 11px;
   letter-spacing: 0.06em; text-transform: uppercase;
@@ -440,12 +448,19 @@
 }
 
 /* ---- KPI タイル（企画書 §6.4.2） ---- */
-.zk-kpi {
+/* 帯そのもの。タイルと凡例を同じ高さに並べる。 */
+.zk-kpi-row {
   flex: 0 0 auto;
-  display: flex; gap: calc(var(--space) * 3);
+  display: flex; align-items: center; gap: calc(var(--space) * 4);
   padding: calc(var(--space) * 3) calc(var(--space) * 4);
   background: var(--bg-elevated);
   border-top: 1px solid var(--border-subtle);
+}
+/* タイルの並び。幅は凡例に譲らず、余った分を分け合う。 */
+.zk-kpi {
+  flex: 1 1 auto;
+  display: flex; gap: calc(var(--space) * 3);
+  min-width: 0;
 }
 .zk-kpi-tile {
   flex: 1;
