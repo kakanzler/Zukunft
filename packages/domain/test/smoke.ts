@@ -1,6 +1,6 @@
 import {
   addDays, addYears, diffDays, inclusiveDays, startOfWeek, startOfNextMonth,
-  createTimeScale, timelineRange, defaultTimelineEnd, monthTicks, subTicks,
+  createTimeScale, timelineRange, defaultTimelineEnd, monthTicks, subTicks, today,
   hitTest, applyDrag, diffDates,
   computeStats, groupByStatus, groupByLabel, groupByParentLabel, groupTasks, missingRequiredFields,
   initialState, applyLocalChange, markSyncing, markSynced, markFailed, markConflict,
@@ -27,6 +27,9 @@ eq("startOfWeek sunday->prev monday", startOfWeek("2026-09-06"), "2026-08-31")
 eq("startOfWeek monday is itself", startOfWeek("2026-08-31"), "2026-08-31")
 eq("startOfNextMonth december", startOfNextMonth("2026-12-15"), "2027-01-01")
 eq("addYears", addYears("2026-09-02", 1), "2027-09-02")
+// 「今日」はローカルの暦日。UTC で見ると JST の朝は前日になり、盤面が 1 日ずれる。
+eq("today uses the local calendar day", today(new Date(2026, 8, 3, 0, 30)), "2026-09-03")
+eq("today pads single digits", today(new Date(2026, 0, 5, 23, 59)), "2026-01-05")
 
 // --- timescale ---
 const scale = createTimeScale("2026-09-01", "2026-09-30", "week")

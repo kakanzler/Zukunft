@@ -103,10 +103,19 @@ export function TaskModal({
   // 依存関係は本文に書いてある。編集中は本文とは別に持ち、保存のときに書き戻す。
   const [dependsOn, setDependsOn] = useState<number[]>(() => parseDependencyRefs(task.body))
 
-  // 同期が返ってきて値が変わったら入力欄も追従させる
+  // 同期が返ってきて値が変わったら入力欄も追従させる。
+  //
+  // ただし日付を打っている最中は上書きしない。同じタスクのドラッグ分の送信が
+  // 返ってくると、入力中の日付がカーソルの下で書き戻されていた。
+  // 本文側（下の effect）と揃えて、編集中は触らない。
+  const editingDates = start !== (task.startDate ?? "") || end !== (task.endDate ?? "")
   useEffect(() => {
+    if (editingDates) return
     setStart(task.startDate ?? "")
     setEnd(task.endDate ?? "")
+    // editingDates を依存に入れると、打ち始めた瞬間に false → true で
+    // 走り直して入力を消してしまう。日付が変わったときだけ見る。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.startDate, task.endDate])
 
   // 保存が返ってきたら編集欄も追従させる

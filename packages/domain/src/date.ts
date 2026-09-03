@@ -27,9 +27,19 @@ export function toISODate(date: Date): ISODate {
   return date.toISOString().slice(0, 10)
 }
 
-/** 今日を ISODate で返す。 */
+/**
+ * 今日を ISODate で返す。
+ *
+ * ここだけは**ローカルの暦日**で見る。保存する日付を UTC に揃えるのは正しいが、
+ * 「今日」は利用者の壁時計の話で、UTC で見ると JST では 0:00〜9:00 のあいだ
+ * 前日を返してしまう。今日線も軸の原点も既定の右端もこの値から引くので、
+ * 毎朝 9 時まで盤面が 1 日ずれることになる。
+ */
 export function today(now: Date = new Date()): ISODate {
-  return toISODate(now)
+  const year = now.getFullYear()
+  const month = `${now.getMonth() + 1}`.padStart(2, "0")
+  const day = `${now.getDate()}`.padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 /** 日数を加算した ISODate を返す。 */

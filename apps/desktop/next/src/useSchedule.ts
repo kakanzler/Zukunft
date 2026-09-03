@@ -56,16 +56,40 @@ export function useSchedule(
   stateRef.current = state
   const sending = useRef(false)
 
+  /**
+   * 取得の世代。切り替えのたびに進める。
+   *
+   * Project を A → B と素早く切り替えたとき、A の遅い応答が後から届くと、
+   * projectId は B なのに盤面には A のタスクが並ぶ。自分より古い応答は捨てる。
+   */
+  const generation = useRef(0)
+
+  /**
+   * Project が変わったら、タスクもキューも Undo も捨てる。
+   *
+   * 持ち越すと、A で作った未送信の変更が B の projectId で送られる（存在しない
+   * item を書きにいく）。Undo スタックにも A のタスク id が残り、Ctrl+Z が
+   * 何も起きないまま 1 段消費される。
+   */
+  useEffect(() => {
+    generation.current += 1
+    setState(initialState())
+    setLoad({ phase: projectId ? "loading" : "idle" })
+  }, [projectId])
+
   const reload = useCallback(async () => {
     if (!projectId) return
+    const mine = ++generation.current
     setLoad({ phase: "loading" })
     try {
       const tasks = await repository.getTasks(projectId)
+      if (mine !== generation.current) return
       setState((prev) =>
         prev.queue.length === 0 ? { ...prev, tasks } : mergeRefresh(prev, tasks),
       )
       setLoad({ phase: "ready" })
     } catch (error) {
+      if (mine !== generation.current) return
       setLoad({
         phase: "error",
         error: error instanceof GitHubError ? error : new GitHubError("unknown", String(error)),
@@ -116,8 +140,15 @@ export function useSchedule(
           error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
 
         if (err.kind === "conflict") {
-          const remote = err.remote ?? findRemoteFallback(stateRef.current, mutation.taskId)
-          setState((prev) => markConflict(prev, mutation.id, remote, err.message))
+          // GitHub 側の値が引けないなら、競合として扱えない。ここで例外を投げると
+          // markConflict に辿り着かず、そのミューテーションが「送信中」のまま
+          // 永久に残って「未同期 N 件」が消えなくなる。失敗に倒して手を打てる形にする。
+          const remote = err.remote ?? findRemote(stateRef.current, mutation.taskId)
+          if (remote) {
+            setState((prev) => markConflict(prev, mutation.id, remote, err.message))
+          } else {
+            setState((prev) => markFailed(prev, mutation.id, err.message))
+          }
           return
         }
 
@@ -328,8 +359,12 @@ export function useSchedule(
 }
 
 /** 競合時に GitHub 側の値が取れなかった場合の保険。 */
-function findRemoteFallback(state: ScheduleState, taskId: string): ScheduleTask {
-  const task = state.tasks.find((t) => t.id === taskId)
-  if (task) return task
-  throw new GitHubError("not-found", "競合したタスクが見つかりません")
+/**
+ * 競合時に GitHub 側の値として見せるタスク。引けなければ null。
+ *
+ * 再読み込みと入れ違うと、競合したタスクが一覧から消えていることがある。
+ * ここで投げると呼び出し側の catch の中なので、状態を進めないまま抜けてしまう。
+ */
+function findRemote(state: ScheduleState, taskId: string): ScheduleTask | null {
+  return state.tasks.find((t) => t.id === taskId) ?? null
 }

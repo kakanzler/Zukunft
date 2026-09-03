@@ -22,7 +22,7 @@ import {
   missingRequiredFields,
   resolveField,
 } from "@zukunft/domain"
-import { DEFAULT_VIEWS, GanttChart, Sidebar } from "@zukunft/gantt"
+import { DEFAULT_VIEWS, GanttChart, Sidebar, isTyping } from "@zukunft/gantt"
 import type { GanttTheme } from "@zukunft/gantt"
 import { GitHubError, describeError, statusOrder } from "@zukunft/github"
 import type { GitHubScheduleRepository } from "@zukunft/github"
@@ -68,6 +68,9 @@ export default function Page() {
   const [zoom, setZoom] = useState<ZoomLevel>("week")
   const [groupBy, setGroupBy] = useState<GroupMode>("status")
   const [bootError, setBootError] = useState<GitHubError | null>(null)
+  // スキーマの取得失敗。bootError と分けるのは、こちらは Project を選び直す /
+  // 取り直すことで復帰できるため。
+  const [schemaError, setSchemaError] = useState<GitHubError | null>(null)
   // null = 判定前。ブラウザ（モック）ではサインインを要求しない。
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [authSource, setAuthSource] = useState<string>("none")
@@ -135,14 +138,18 @@ export default function Page() {
   useEffect(() => {
     if (!repository || !projectId) return
     let alive = true
+    setSchemaError(null)
     void repository
       .getProjectSchema(projectId)
       .then((s) => {
         if (alive) setSchema(s)
       })
       .catch((error) => {
+        // bootError に入れても、repository が揃ったあとは描画されない。
+        // 黙って schema が null のままになり、理由の出ないまま盤面が
+        // 読み取り専用になっていた（canEditDates(null) が false のため）。
         if (alive) {
-          setBootError(
+          setSchemaError(
             error instanceof GitHubError ? error : new GitHubError("unknown", String(error)),
           )
         }
@@ -167,7 +174,15 @@ export default function Page() {
 
   return (
     <main className="zk-root">
-      {repository ? (
+      {repository && schemaError ? (
+        <ErrorPanel
+          error={schemaError}
+          onRetry={() => {
+            setSchemaError(null)
+            setSchemaNonce((n) => n + 1)
+          }}
+        />
+      ) : repository ? (
         <Workspace
           repository={repository}
           projects={projects}
@@ -246,6 +261,7 @@ function Workspace({
   // e から開いたときだけ編集モードで始める。Enter やクリックは見るだけ。
   const [openTaskEditing, setOpenTaskEditing] = useState(false)
   const openTask = schedule.tasks.find((t) => t.id === openTaskId) ?? null
+
 
   const [creatingOpen, setCreatingOpen] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
@@ -577,6 +593,25 @@ function Workspace({
    * あっても 1 件として扱う。指定は名前で行うため、それで困らない。
    * 一覧の取得が届く前でも選べるよう、いま表示しているタスクが持つラベルも混ぜる。
    */
+  /**
+   * 開いていたタスクが一覧から消えたら、閉じたことをログに残す。
+   *
+   * 再読み込みや削除で消えると openTask が null になり、モーダルが黙って
+   * 畳まれる。書きかけがあった場合、何が起きたのか画面に何も残らない。
+   */
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (openTaskId !== null && openTask === null && wasOpen.current) {
+      setOpenTaskId(null)
+      logAppend({
+        level: "warn",
+        message: "開いていた Issue が一覧から消えたため、詳細を閉じました",
+        hint: "再読み込みか削除で無くなった可能性があります。編集中だった内容は送られていません。",
+      })
+    }
+    wasOpen.current = openTask !== null
+  }, [openTaskId, openTask, logAppend])
+
   const labelCandidates = useMemo(() => {
     const byName = new Map<string, Label>()
     for (const list of Object.values(labelsByRepo)) {
@@ -922,9 +957,18 @@ function Workspace({
   // Undo / Redo のキーボードショートカット（企画書 §6.3.4）。
   // 判定は e.code（物理キー）で行う。Shift を押した e.key は "Z" になるため、
   // "z" と比べていた間は Ctrl+Shift+Z が一度も一致していなかった。
+  const anyModalOpen =
+    creatingOpen || categoryOpen || settingsOpen || manualOpen || openTaskId !== null
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
+      // 文字を打っている最中は取り消しも拡大も渡さない。本文欄で Ctrl+Z を
+      // 押したときに、テキストではなく盤面の日付が戻っていた。
+      if (isTyping()) return
+      // モーダルを開いている間も裏の盤面を動かさない。閉じたときにどこを
+      // 見ていたのか分からなくなる。
+      if (anyModalOpen) return
       if (e.code === "KeyZ" && !e.shiftKey) {
         e.preventDefault()
         undo()
@@ -943,7 +987,7 @@ function Workspace({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [undo, redo, stepZoom])
+  }, [undo, redo, stepZoom, anyModalOpen])
 
   /**
    * 再読み込み（Alt+R）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
@@ -988,8 +1032,6 @@ function Workspace({
    *
    * 設定は書き換えないので、次の起動は保存済みの見せ方に戻る。
    */
-  const anyModalOpen =
-    creatingOpen || categoryOpen || settingsOpen || manualOpen || openTaskId !== null
   useEffect(() => {
     if (anyModalOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1007,6 +1049,10 @@ function Workspace({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey) return
+      if (isTyping()) return
+      // モーダルを開いている間は、マニュアルの開閉だけ通す。起票や再読み込みを
+      // 通すと、開いているモーダルの上にもう 1 枚重なる。
+      if (anyModalOpen && e.code !== "KeyM") return
       if (e.code === "KeyL") {
         e.preventDefault()
         setLogFull((v) => !v)
@@ -1042,7 +1088,7 @@ function Workspace({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [projectId, reloadAll, groupBy, onGroupBy, stepZoom])
+  }, [projectId, reloadAll, groupBy, onGroupBy, stepZoom, anyModalOpen])
 
   const toolbar = (
     <>

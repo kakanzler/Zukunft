@@ -105,19 +105,29 @@ export function useBarDrag({ scale, onCommit, onClick }: Options) {
     [scale, onCommit, onClick],
   )
 
-  // Esc は「操作を破棄して元の位置へ戻す」。session を落とすことで
-  // 続く pointerup がコミットしないようにする。
+  /** 進行中の操作を捨てる。続く pointerup がコミットしないようにする。 */
+  const cancel = useCallback(() => {
+    cancelled.current = true
+    session.current = null
+    setDrag(null)
+  }, [])
+
+  // Esc は「操作を破棄して元の位置へ戻す」。
+  //
+  // stopPropagation まで行うのは、同じ window に付いているフルスクリーン解除の
+  // ハンドラに渡さないため。バーを戻すつもりで押した Esc で画面が縮むのは、
+  // 取り消しの結果としては予想外すぎる。
   useEffect(() => {
     if (!drag) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
-      cancelled.current = true
-      session.current = null
-      setDrag(null)
+      e.stopImmediatePropagation()
+      cancel()
     }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [drag])
+    // capture 側で受ける。後から登録された listener より先に止めたい。
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
+  }, [drag, cancel])
 
-  return { drag, begin, move, end }
+  return { drag, begin, move, end, cancel }
 }

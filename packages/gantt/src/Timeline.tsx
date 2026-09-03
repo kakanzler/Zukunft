@@ -1,6 +1,6 @@
 "use client"
 
-import { type CSSProperties, useMemo } from "react"
+import { type CSSProperties, useEffect, useMemo, useState } from "react"
 import {
   type DateChange,
   type Dependency,
@@ -36,6 +36,12 @@ const W_OUTLINE = 14
 /** 左端の柱の幅。開始日は塗りがどれだけ透けても色で立たせる */
 const BAR_RISER = 2
 
+/**
+ * 日付が変わったかを見にいく間隔。1 分でも足りるが、線が 1 分遅れて動くことに
+ * 実害は無いので、起きる回数の少ない方に寄せる。
+ */
+const MIDNIGHT_CHECK_MS = 5 * 60 * 1000
+
 type Props = {
   rows: Row[]
   scale: TimeScale
@@ -67,17 +73,25 @@ export function Timeline({
   cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef,
 }: Props) {
-  const { drag, begin, move, end } = useBarDrag({
+  const { drag, begin, move, end, cancel } = useBarDrag({
     scale,
     onCommit: onTaskDatesChange,
     onClick: onTaskOpen,
   })
   const months = useMemo(() => monthTicks(scale), [scale])
   const subs = useMemo(() => subTicks(scale), [scale])
-  const todayX = useMemo(() => {
-    const t = today()
-    return t >= scale.origin && t <= scale.end ? scale.toX(t) : null
-  }, [scale])
+  // 日付が変わったら今日線を引き直す。開いたままにされるアプリなので、
+  // scale だけを依存にしていると、日をまたいでも前日に線が残る。
+  const [currentDay, setCurrentDay] = useState(today)
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentDay(today()), MIDNIGHT_CHECK_MS)
+    return () => window.clearInterval(timer)
+  }, [])
+  const todayX = useMemo(
+    () =>
+      currentDay >= scale.origin && currentDay <= scale.end ? scale.toX(currentDay) : null,
+    [scale, currentDay],
+  )
 
   const bodyHeight = rows.length * rowHeight
   const blue = theme === "blue-system"
@@ -243,6 +257,11 @@ export function Timeline({
                         begin(e, task, scale.toX(task.startDate), barWidth(task, scale)),
                       onPointerMove: move,
                       onPointerUp: end,
+                      // 捕捉が外れたら操作ごと捨てる。掴んだままの状態が残ると、
+                      // ボタンを離しているのにバーが指について回り、次に触った
+                      // ところで身に覚えのない日付が確定する。
+                      onPointerCancel: cancel,
+                      onLostPointerCapture: cancel,
                     })}
                 style={{ cursor: readOnly ? "pointer" : undefined }}
               >

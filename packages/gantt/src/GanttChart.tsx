@@ -20,6 +20,7 @@ import {
 import type { GanttTheme } from "./theme"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
+import { isTyping } from "./keyboard"
 import { buildRows, visibleRange } from "./rows"
 
 const ROW_HEIGHT = 32
@@ -176,16 +177,7 @@ export function GanttChart({
     if (!keyboardEnabled) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
-      const active = document.activeElement
-      if (
-        active instanceof HTMLElement &&
-        (active.isContentEditable ||
-          active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.tagName === "SELECT")
-      ) {
-        return
-      }
+      if (isTyping()) return
       if (e.code === "KeyJ") {
         e.preventDefault()
         moveSelection(1)

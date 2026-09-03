@@ -56,6 +56,41 @@ fn with_fragments(document: &str) -> String {
     format!("{FRAGMENTS}\n{document}")
 }
 
+/// 二次レート制限かどうか。GitHub はこれを 403 で返すので、ヘッダで見分ける。
+///
+/// 残量が 0 の 403 と、Retry-After が付いた 403 のどちらもレート制限。
+/// 権限の問題と区別できないと、待てば直るものを失敗として捨ててしまう。
+fn is_rate_limited(response: &reqwest::Response) -> bool {
+    let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok());
+    if header("retry-after").is_some() {
+        return true;
+    }
+    header("x-ratelimit-remaining").map(|v| v.trim() == "0").unwrap_or(false)
+}
+
+/// 待ち時間の指定（秒）。Retry-After が無ければ x-ratelimit-reset との差を使う。
+fn read_retry_after(response: &reqwest::Response) -> Option<u64> {
+    let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok());
+    if let Some(seconds) = header("retry-after").and_then(|v| v.trim().parse::<u64>().ok()) {
+        return Some(seconds);
+    }
+    let reset = header("x-ratelimit-reset")?.trim().parse::<u64>().ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    reset.checked_sub(now)
+}
+
+fn rate_limit_message(retry_after: Option<u64>) -> String {
+    match retry_after {
+        Some(seconds) if seconds > 0 => {
+            format!("GitHub のレート制限に達しました。約 {seconds} 秒後に再試行できます")
+        }
+        _ => "GitHub のレート制限に達しました。時間をおいて再試行してください".to_owned(),
+    }
+}
+
 /// GraphQL は HTTP 200 でエラーを返すため、本文を見て分類し直す。
 /// 認証状態の判定（auth::current_status）とデータ取得の両方から使う。
 ///
@@ -118,8 +153,18 @@ impl GitHubClient {
             .await?;
 
         let status = response.status();
+        // 分類の前にヘッダを読む。本文を読むと response を消費してしまう。
+        let retry_after = read_retry_after(&response);
+        let rate_limited = is_rate_limited(&response);
+
         match status.as_u16() {
             401 => return Err(AppError::new(ErrorKind::Unauthorized, "トークンが無効です")),
+            // GitHub は二次レート制限も 403 で返す。全部を権限の問題にすると、
+            // 「待てば直る」ものに「権限を確認してください」と案内してしまい、
+            // しかも再送されないまま失敗として残る。
+            403 if rate_limited => {
+                return Err(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after)))
+            }
             403 => {
                 return Err(AppError::new(
                     ErrorKind::Forbidden,
@@ -127,6 +172,16 @@ impl GitHubClient {
                 ))
             }
             404 => return Err(AppError::new(ErrorKind::NotFound, "Project が見つかりません")),
+            429 => {
+                return Err(AppError::new(ErrorKind::RateLimited, rate_limit_message(retry_after)))
+            }
+            // 5xx は GitHub 側の一時的な不調。待てば直るものとして再送に載せる。
+            code if (500..600).contains(&code) => {
+                return Err(AppError::new(
+                    ErrorKind::Network,
+                    format!("GitHub が {status} を返しました。時間をおいて再試行します"),
+                ))
+            }
             _ if !status.is_success() => {
                 return Err(AppError::new(
                     ErrorKind::Unknown,
@@ -834,6 +889,14 @@ mod tests {
         let task = map_task(&item).expect("Issue なので変換できる");
         assert!(!task.labels_complete);
         assert!(task.fields_complete);
+    }
+
+    #[test]
+    fn rate_limit_message_uses_retry_after() {
+        assert!(rate_limit_message(Some(42)).contains("42"));
+        // 0 や不明のときは秒数を出さない。「約 0 秒後」は案内になっていない。
+        assert!(!rate_limit_message(Some(0)).contains("0 秒"));
+        assert!(!rate_limit_message(None).contains("秒後"));
     }
 
     #[test]
