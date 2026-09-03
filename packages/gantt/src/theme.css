@@ -408,7 +408,10 @@
   font-size: 11px;
   pointer-events: none;
   dominant-baseline: middle;
-  /* SVG の text に text-shadow は効かないので、こちらも drop-shadow で滲ませる。 */
+  /* バーの色は明るい。字を読ませるには暗い縁が要るので drop-shadow で敷く。
+     .zk-root の text-shadow（白い滲み）は打ち消す — SVG の text にも効くので、
+     放っておくと白い滲みと暗い縁が同じ字に重なり、輪郭が霞む。 */
+  text-shadow: none;
   filter: drop-shadow(0 0 4px rgba(6, 11, 26, 0.9));
 }
 .zk-grid-line { stroke: var(--border-subtle); stroke-width: 1; }
