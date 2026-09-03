@@ -288,6 +288,58 @@ export function useSchedule(
     [repository, projectId],
   )
 
+  /**
+   * Priority / Progress の送信中フラグ。
+   * 2 つを 1 つで兼ねる。どちらも同じ詳細画面の中で 1 つずつ送るもので、
+   * 片方を送っている間にもう片方だけ触れても、結局同じ item を読み直すため。
+   */
+  const [savingField, setSavingField] = useState(false)
+
+  /**
+   * Priority の変更。Status と同じくその場で GitHub に送り、
+   * 返ってきた値で置き換える（選択肢名は Project の定義が正本のため）。
+   * null は「未設定に戻す」。
+   */
+  const updatePriority = useCallback(
+    async (taskId: string, optionId: string | null) => {
+      if (!projectId) return null
+      setSavingField(true)
+      try {
+        const updated = await repository.updateTaskPriority(projectId, taskId, optionId)
+        setState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+        }))
+        return updated
+      } finally {
+        setSavingField(false)
+      }
+    },
+    [repository, projectId],
+  )
+
+  /**
+   * Progress の変更。null は「未設定に戻す」で、0 とは別の状態。
+   * ここも楽観的更新はせず、GitHub が返した値で置き換える。
+   */
+  const updateProgress = useCallback(
+    async (taskId: string, value: number | null) => {
+      if (!projectId) return null
+      setSavingField(true)
+      try {
+        const updated = await repository.updateTaskProgress(projectId, taskId, value)
+        setState((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+        }))
+        return updated
+      } finally {
+        setSavingField(false)
+      }
+    },
+    [repository, projectId],
+  )
+
   const [savingState, setSavingState] = useState(false)
 
   /**
@@ -347,6 +399,9 @@ export function useSchedule(
     updateContent,
     savingStatus,
     updateStatus,
+    savingField,
+    updatePriority,
+    updateProgress,
     savingState,
     setTaskState,
     deleting,

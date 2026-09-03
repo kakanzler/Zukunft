@@ -1,0 +1,12 @@
+# Progress など NUMBER フィールドの値を変更する。
+# GraphQL の Float は整数リテラルも受けるので、0〜100 の整数もこれで送れる。
+mutation UpdateNumberField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $number: Float!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+    value: { number: $number }
+  }) {
+    projectV2Item { id }
+  }
+}

@@ -98,6 +98,22 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
     return call<ScheduleTask>("update_task_status", { projectId, taskId, optionId })
   }
 
+  updateTaskPriority(
+    projectId: string,
+    taskId: string,
+    optionId: string | null,
+  ): Promise<ScheduleTask> {
+    return call<ScheduleTask>("update_task_priority", { projectId, taskId, optionId })
+  }
+
+  updateTaskProgress(
+    projectId: string,
+    taskId: string,
+    value: number | null,
+  ): Promise<ScheduleTask> {
+    return call<ScheduleTask>("update_task_progress", { projectId, taskId, value })
+  }
+
   setTaskState(taskId: string, issueId: string, state: IssueState): Promise<ScheduleTask> {
     return call<ScheduleTask>("set_task_state", { taskId, issueId, issueState: state })
   }

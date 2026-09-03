@@ -209,6 +209,26 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
     )
   }
 
+  updateTaskPriority(
+    _projectId: string,
+    _taskId: string,
+    _optionId: string | null,
+  ): Promise<ScheduleTask> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。Priority の変更はデスクトップアプリから行ってください"),
+    )
+  }
+
+  updateTaskProgress(
+    _projectId: string,
+    _taskId: string,
+    _value: number | null,
+  ): Promise<ScheduleTask> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。Progress の変更はデスクトップアプリから行ってください"),
+    )
+  }
+
   createLabel(_repositoryId: string, _name: string, _color: string): Promise<Label> {
     return Promise.reject(
       new GitHubError("unsupported", "Web 版は読み取り専用です。ラベルの作成はデスクトップアプリから行ってください"),

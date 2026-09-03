@@ -72,6 +72,34 @@ export interface GitHubScheduleRepository {
   updateTaskStatus(projectId: string, taskId: string, optionId: string): Promise<ScheduleTask>
 
   /**
+   * Priority（Projects v2 の SINGLE_SELECT）を変更する。`optionId` が null なら未設定に戻す。
+   * フィールド ID の解決は実装側の責務。
+   *
+   * Status と同じ理由で `expectedUpdatedAt` を取らない。Projects v2 のフィールド値であって
+   * Issue 本体ではないため、変更しても Issue の updatedAt が動かず、updatedAt では
+   * 競合を判定できない（企画書 §16.3）。
+   */
+  updateTaskPriority(
+    projectId: string,
+    taskId: string,
+    optionId: string | null,
+  ): Promise<ScheduleTask>
+
+  /**
+   * Progress（Projects v2 の NUMBER）を変更する。`value` が null なら未設定に戻す。
+   * 0 の書き込みでは代用できない — 未設定と 0% は別の状態。
+   *
+   * Status と同じ理由で `expectedUpdatedAt` を取らない。Projects v2 のフィールド値であって
+   * Issue 本体ではないため、変更しても Issue の updatedAt が動かず、updatedAt では
+   * 競合を判定できない（企画書 §16.3）。
+   */
+  updateTaskProgress(
+    projectId: string,
+    taskId: string,
+    value: number | null,
+  ): Promise<ScheduleTask>
+
+  /**
    * Issue を閉じる / 開き直す。
    *
    * Projects v2 のフィールドではなく Issue 本体の状態なので issueId で送るが、

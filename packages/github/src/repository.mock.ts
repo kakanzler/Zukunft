@@ -54,6 +54,9 @@ const PROJECT_ID = "mock-project"
 
 const STATUSES = ["Planning", "In Progress", "Review", "Complete"]
 
+/** Priority の選択肢。getProjectSchema が配る id と、値を戻すときの対応表を兼ねる。 */
+const PRIORITIES = ["High", "Medium", "Low"]
+
 const SEED: [string, number, number, number, number, number | null][] = [
   // title, statusIndex, milestone, startOffset, durationDays, progress
   ["Project Kickoff", 0, 0, 0, 3, 100],
@@ -236,7 +239,7 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
         { id: "f-start", name: "Start Date", dataType: "DATE", options: [] },
         { id: "f-end", name: "Target Date", dataType: "DATE", options: [] },
         { id: "f-priority", name: "Priority", dataType: "SINGLE_SELECT",
-          options: [{ id: "p0", name: "High" }, { id: "p1", name: "Medium" }] },
+          options: PRIORITIES.map((name, i) => ({ id: `p${i}`, name })) },
         { id: "f-progress", name: "Progress", dataType: "NUMBER", options: [] },
       ],
     }
@@ -416,6 +419,69 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     }
 
     const updated: ScheduleTask = { ...current, status: name }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
+  }
+
+  /**
+   * Priority の変更。optionId が null なら未設定に戻す。
+   *
+   * Status と同じく updatedAt は動かさない。Projects v2 のフィールド値であって
+   * Issue 本体ではないため、実物でも Issue の updatedAt は変わらない。
+   * ここで進めてしまうと、直後の日付更新が偽の競合になる。
+   */
+  async updateTaskPriority(
+    _projectId: string,
+    taskId: string,
+    optionId: string | null,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+
+    // getProjectSchema が配る `p${i}` と同じ対応表で選択肢の名前に戻す。
+    let name: string | null = null
+    if (optionId !== null) {
+      name = PRIORITIES.find((_, i) => `p${i}` === optionId) ?? null
+      if (name === null) {
+        throw new GitHubError("not-found", `Priority の選択肢「${optionId}」が見つかりません`)
+      }
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+
+    const updated: ScheduleTask = { ...current, priority: name }
+    this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
+    return { ...updated }
+  }
+
+  /**
+   * Progress の変更。value が null なら未設定に戻す。0 とは別の状態として扱う。
+   *
+   * Status と同じく updatedAt は動かさない。Projects v2 のフィールド値であって
+   * Issue 本体ではないため、実物でも Issue の updatedAt は変わらない。
+   * ここで進めてしまうと、直後の日付更新が偽の競合になる。
+   */
+  async updateTaskProgress(
+    _projectId: string,
+    taskId: string,
+    value: number | null,
+  ): Promise<ScheduleTask> {
+    await this.#delay()
+    const current = this.#tasks.find((t) => t.id === taskId)
+    if (!current) throw new GitHubError("not-found", "タスクが見つかりません")
+
+    // 範囲外は実物（Rust 側のコマンド）でも弾かれる。モックだけ通ると、
+    // モックで動いたものが実物で落ちることになる。
+    if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100)) {
+      throw new GitHubError("unknown", "Progress は 0〜100 で指定してください")
+    }
+    if (Math.random() < this.#options.failureRate) {
+      throw new GitHubError("network", "GitHub に接続できませんでした")
+    }
+
+    const updated: ScheduleTask = { ...current, progress: value }
     this.#tasks = this.#tasks.map((t) => (t.id === taskId ? updated : t))
     return { ...updated }
   }

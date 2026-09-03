@@ -251,6 +251,8 @@ function Workspace({
     changeDates,
     updateContent,
     updateStatus,
+    updatePriority,
+    updateProgress,
     setTaskState,
     deleteTask: sendDeleteTask,
     createTask: sendCreateTask,
@@ -260,6 +262,17 @@ function Workspace({
   // Status の変更には選択肢の ID が要る。名前だけの statuses とは別に持つ。
   const statusOptions = useMemo(
     () => (schema ? resolveField(schema, "status", "SINGLE_SELECT")?.options ?? [] : []),
+    [schema],
+  )
+  // Priority も同じ理由で選択肢の ID が要る。Project に無ければ空 = 変更させない。
+  const priorityOptions = useMemo(
+    () => (schema ? resolveField(schema, "priority", "SINGLE_SELECT")?.options ?? [] : []),
+    [schema],
+  )
+  // Progress は選択肢を持たないので、あるかどうかだけを見る。resolveField は型が
+  // 合わなくても名前一致で返すため、NUMBER であることまで確かめる。
+  const canEditProgress = useMemo(
+    () => schema !== null && resolveField(schema, "progress", "NUMBER")?.dataType === "NUMBER",
     [schema],
   )
   const editable = useMemo(() => canEditDates(schema), [schema])
@@ -1053,6 +1066,56 @@ function Workspace({
     [updateStatus, logAppend],
   )
 
+  /** Priority の変更。選んだ時点で送るので、失敗はログでだけ知らせる。 */
+  const changePriority = useCallback(
+    async (taskId: string, optionId: string | null) => {
+      try {
+        const updated = await updatePriority(taskId, optionId)
+        if (updated) {
+          logAppend({
+            level: "info",
+            message: `#${updated.issueNumber} の Priority を ${updated.priority ?? "—"} にしました`,
+          })
+        }
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        logAppend({
+          level: "error",
+          message: "Priority を変更できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      }
+    },
+    [updatePriority, logAppend],
+  )
+
+  /** Progress の変更。入力を離れた時点で送るので、失敗はログでだけ知らせる。 */
+  const changeProgress = useCallback(
+    async (taskId: string, value: number | null) => {
+      try {
+        const updated = await updateProgress(taskId, value)
+        if (updated) {
+          logAppend({
+            level: "info",
+            message: `#${updated.issueNumber} の Progress を ${
+              updated.progress === null ? "—" : `${updated.progress}%`
+            } にしました`,
+          })
+        }
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        logAppend({
+          level: "error",
+          message: "Progress を変更できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      }
+    },
+    [updateProgress, logAppend],
+  )
+
   /** クローズ / リオープン。押した時点で送るので、失敗はログでだけ知らせる。 */
   const changeIssueState = useCallback(
     async (taskId: string, issueId: string, state: IssueState) => {
@@ -1436,6 +1499,9 @@ function Workspace({
           savingState={schedule.savingState}
           deleting={schedule.deleting}
           statusOptions={statusOptions}
+          savingField={schedule.savingField}
+          priorityOptions={priorityOptions}
+          canEditProgress={canEditProgress}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
           parentLabels={parentLabels}
           labelCatalog={labelCandidates}
@@ -1448,6 +1514,8 @@ function Workspace({
           onDeleteLabel={deleteLabel}
           onChangeDates={changeTaskDates}
           onChangeStatus={changeStatus}
+          onChangePriority={changePriority}
+          onChangeProgress={changeProgress}
           onSaveContent={saveContent}
           onSetState={changeIssueState}
           onDelete={deleteTask}

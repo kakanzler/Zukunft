@@ -15,6 +15,7 @@ import createIssue from "./createIssue.graphql"
 import addProjectItem from "./addProjectItem.graphql"
 import updateDateField from "./updateDateField.graphql"
 import updateSingleSelectField from "./updateSingleSelectField.graphql"
+import updateNumberField from "./updateNumberField.graphql"
 import updateIssue from "./updateIssue.graphql"
 import updateIssueKeepLabels from "./updateIssueKeepLabels.graphql"
 import repositoryLabels from "./repositoryLabels.graphql"
@@ -22,6 +23,7 @@ import repositoryMilestones from "./repositoryMilestones.graphql"
 import createLabel from "./createLabel.graphql"
 import deleteLabel from "./deleteLabel.graphql"
 import clearDateField from "./clearDateField.graphql"
+import clearProjectField from "./clearProjectField.graphql"
 import closeIssue from "./closeIssue.graphql"
 import reopenIssue from "./reopenIssue.graphql"
 import deleteIssue from "./deleteIssue.graphql"
@@ -42,6 +44,9 @@ export const UPDATE_DATE_FIELD = updateDateField
 
 /** Status の変更。選択肢は optionId で指定する。 */
 export const UPDATE_SINGLE_SELECT_FIELD = updateSingleSelectField
+
+/** Progress の変更。NUMBER フィールドは数値をそのまま送る。 */
+export const UPDATE_NUMBER_FIELD = updateNumberField
 export const UPDATE_ISSUE = updateIssue
 
 /** ラベルを読み切れていないときに使う。labelIds を input ごと持たない。 */
@@ -58,6 +63,9 @@ export const DELETE_LABEL = deleteLabel
 /** createLabel / deleteLabel は preview 扱い。この Accept を付けないと失敗する。 */
 export const LABELS_PREVIEW_ACCEPT = "application/vnd.github.bane-preview+json"
 export const CLEAR_DATE_FIELD = clearDateField
+
+/** 型を問わずフィールドの値を消す。未設定へ戻すのに使う。 */
+export const CLEAR_PROJECT_FIELD = clearProjectField
 export const PROJECT_REPOSITORIES = projectRepositories
 export const CREATE_ISSUE = createIssue
 export const ADD_PROJECT_ITEM = addProjectItem

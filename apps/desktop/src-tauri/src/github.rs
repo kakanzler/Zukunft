@@ -22,6 +22,8 @@ const UPDATE_DATE_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/updateDateField.graphql");
 const UPDATE_SINGLE_SELECT_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/updateSingleSelectField.graphql");
+const UPDATE_NUMBER_FIELD: &str =
+    include_str!("../../../../packages/github/src/queries/updateNumberField.graphql");
 const UPDATE_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/updateIssue.graphql");
 const UPDATE_ISSUE_KEEP_LABELS: &str =
@@ -39,6 +41,8 @@ const DELETE_LABEL: &str =
 const LABELS_PREVIEW_ACCEPT: &str = "application/vnd.github.bane-preview+json";
 const CLEAR_DATE_FIELD: &str =
     include_str!("../../../../packages/github/src/queries/clearDateField.graphql");
+const CLEAR_PROJECT_FIELD: &str =
+    include_str!("../../../../packages/github/src/queries/clearProjectField.graphql");
 const PROJECT_REPOSITORIES: &str =
     include_str!("../../../../packages/github/src/queries/projectRepositories.graphql");
 const CREATE_ISSUE: &str =
@@ -647,6 +651,46 @@ impl GitHubClient {
                 "fieldId": field_id,
                 "optionId": option_id,
             }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// NUMBER（Progress など）の値を変更する。
+    /// 範囲の妥当性は呼び出し側で見る。GitHub 側は任意の数を受けるため、
+    /// ここで弾くと「Progress だから 0〜100」という前提が通信層に紛れ込む。
+    pub async fn update_number_field(
+        &self,
+        project_id: &str,
+        item_id: &str,
+        field_id: &str,
+        value: f64,
+    ) -> AppResult<()> {
+        self.graphql(
+            UPDATE_NUMBER_FIELD,
+            json!({
+                "projectId": project_id,
+                "itemId": item_id,
+                "fieldId": field_id,
+                "number": value,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// フィールドの値を未設定へ戻す。型を問わない。
+    /// 0 や空文字の書き込みでは代用できない — Projects v2 では「未設定」と
+    /// 「0 が入っている」が別の状態で、一覧やビューでの見え方も変わる。
+    pub async fn clear_field(
+        &self,
+        project_id: &str,
+        item_id: &str,
+        field_id: &str,
+    ) -> AppResult<()> {
+        self.graphql(
+            CLEAR_PROJECT_FIELD,
+            json!({ "projectId": project_id, "itemId": item_id, "fieldId": field_id }),
         )
         .await
         .map(|_| ())

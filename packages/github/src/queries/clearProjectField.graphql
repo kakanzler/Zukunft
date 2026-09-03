@@ -1,0 +1,11 @@
+# フィールドの値を「未設定」に戻す。型を問わず使える。
+# 空文字や 0 を書き込むのとは違う — 未設定は値を消さないと表現できない。
+mutation ClearProjectField($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+  clearProjectV2ItemFieldValue(input: {
+    projectId: $projectId
+    itemId: $itemId
+    fieldId: $fieldId
+  }) {
+    projectV2Item { id }
+  }
+}

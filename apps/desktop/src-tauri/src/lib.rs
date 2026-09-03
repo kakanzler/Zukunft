@@ -523,6 +523,94 @@ async fn update_task_status(
     client.item(&task_id).await
 }
 
+/// Priority（Projects v2 の SINGLE_SELECT）を変更する。`option_id` が None なら未設定に戻す。
+///
+/// Status と同じく競合検出は行わない。Projects v2 のフィールド値であって Issue 本体では
+/// ないため、変更しても Issue の updatedAt が動かず、updatedAt では競合を判定できない。
+#[tauri::command]
+async fn update_task_priority(
+    state: State<'_>,
+    project_id: String,
+    task_id: String,
+    option_id: Option<String>,
+) -> Result<ScheduleTask, AppError> {
+    // 空文字は「未設定にしたい」のか「選び損ねた」のか読めない。None と同じには扱わず、
+    // 呼び出し側の取り違えとしてここで止める。
+    if option_id.as_deref().is_some_and(|id| id.trim().is_empty()) {
+        return Err(AppError::new(
+            ErrorKind::Unknown,
+            "Priority の選択肢が指定されていません",
+        ));
+    }
+
+    let client = state.client()?;
+    let field_id = match resolve_field_id(&state, &client, &project_id, FieldRole::Priority).await {
+        Ok(id) => id,
+        Err(error) => {
+            // フィールド不整合はキャッシュが古い可能性があるので捨てる（企画書 §7.3.3）。
+            state.invalidate_fields(&project_id);
+            return Err(error);
+        }
+    };
+
+    match option_id {
+        Some(id) => {
+            client
+                .update_single_select_field(&project_id, &task_id, &field_id, &id)
+                .await?
+        }
+        None => client.clear_field(&project_id, &task_id, &field_id).await?,
+    }
+
+    // 反映後の値を GitHub から読み直して返す。UI はこれで上書きする。
+    client.item(&task_id).await
+}
+
+/// Progress（Projects v2 の NUMBER）を変更する。`value` が None なら未設定に戻す。
+///
+/// Status と同じく競合検出は行わない。Projects v2 のフィールド値であって Issue 本体では
+/// ないため、変更しても Issue の updatedAt が動かず、updatedAt では競合を判定できない。
+#[tauri::command]
+async fn update_task_progress(
+    state: State<'_>,
+    project_id: String,
+    task_id: String,
+    value: Option<f64>,
+) -> Result<ScheduleTask, AppError> {
+    // GitHub の NUMBER フィールドは任意の数を受けるので、送れてしまってから
+    // 「120% の進捗」が Project に残る。進捗率として意味を持つ範囲でここで止める。
+    if let Some(v) = value {
+        if !(0.0..=100.0).contains(&v) {
+            return Err(AppError::new(
+                ErrorKind::Unknown,
+                "Progress は 0〜100 で指定してください（進捗率として扱うため）",
+            ));
+        }
+    }
+
+    let client = state.client()?;
+    let field_id = match resolve_field_id(&state, &client, &project_id, FieldRole::Progress).await {
+        Ok(id) => id,
+        Err(error) => {
+            // フィールド不整合はキャッシュが古い可能性があるので捨てる（企画書 §7.3.3）。
+            state.invalidate_fields(&project_id);
+            return Err(error);
+        }
+    };
+
+    match value {
+        Some(v) => {
+            client
+                .update_number_field(&project_id, &task_id, &field_id, v)
+                .await?
+        }
+        None => client.clear_field(&project_id, &task_id, &field_id).await?,
+    }
+
+    // 反映後の値を GitHub から読み直して返す。UI はこれで上書きする。
+    client.item(&task_id).await
+}
+
 /// Issue を閉じる / 開き直す。
 ///
 /// Status（Projects v2 のフィールド）とは別物で、GitHub 上の Issue そのものを動かす。
@@ -621,6 +709,8 @@ pub fn run() {
             delete_label,
             update_task_dates,
             update_task_status,
+            update_task_priority,
+            update_task_progress,
             set_task_state,
             delete_task,
             settings::get_settings,

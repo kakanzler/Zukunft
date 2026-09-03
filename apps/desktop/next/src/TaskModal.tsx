@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import type {
   DateChange,
@@ -35,12 +35,18 @@ type Props = {
   canEditDates: boolean
   savingContent: boolean
   savingStatus: boolean
+  /** Priority / Progress の送信中 */
+  savingField: boolean
   /** クローズ / リオープンの送信中 */
   savingState: boolean
   /** 削除の送信中 */
   deleting: boolean
   /** Project の Status フィールドの選択肢。定義順。空なら Status を変更できない */
   statusOptions: StatusOption[]
+  /** Project の Priority フィールドの選択肢。定義順。空なら Priority を変更できない */
+  priorityOptions?: StatusOption[]
+  /** Project に Progress（NUMBER）があるか。無ければ変更できない */
+  canEditProgress?: boolean
   /** リポジトリに定義済みのラベル。編集モードの候補になる */
   availableLabels: Label[]
   /**
@@ -64,6 +70,10 @@ type Props = {
   onDeleteLabel: (repositoryId: string, label: Label) => Promise<boolean>
   onChangeDates: (taskId: string, change: DateChange) => void
   onChangeStatus: (taskId: string, optionId: string) => void
+  /** Priority の変更。null は未設定に戻す。渡さなければ Priority を変更できない */
+  onChangePriority?: (taskId: string, optionId: string | null) => void
+  /** Progress の変更。null は未設定に戻す。渡さなければ Progress を変更できない */
+  onChangeProgress?: (taskId: string, value: number | null) => void
   onSaveContent: (taskId: string, issueId: string, content: TaskContent) => Promise<unknown>
   onSetState: (taskId: string, issueId: string, state: IssueState) => void
   onDelete: (taskId: string, issueId: string) => void | Promise<void>
@@ -76,6 +86,13 @@ type Props = {
 const EMPTY_PARENT_LABELS: string[] = []
 const EMPTY_LABELS: Label[] = []
 const EMPTY_TASKS: ScheduleTask[] = []
+const EMPTY_OPTIONS: StatusOption[] = []
+
+/**
+ * 選択肢に無い Priority を現在値として見せるための印。
+ * 実在する選択肢の id と衝突しないよう、GitHub が使わない形にしてある。
+ */
+const UNKNOWN_PRIORITY = "__zk-unknown-priority__"
 
 const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
   synced: "同期済み",
@@ -97,11 +114,14 @@ const SYNC_LABEL: Record<ScheduleTask["syncState"], string> = {
  *   つもりで書き換えてしまうのを避けるため。
  */
 export function TaskModal({
-  task, canEditDates, savingContent, savingStatus, savingState, deleting, statusOptions,
+  task, canEditDates, savingContent, savingStatus, savingField,
+  savingState, deleting, statusOptions,
+  priorityOptions = EMPTY_OPTIONS, canEditProgress = false,
   availableLabels, parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
   allTasks = EMPTY_TASKS, availableMilestones, onCreateLabel, onDeleteLabel,
   onDesignateParentLabels, onLoadParentIssue, onChangeParentIssue,
-  onChangeDates, onChangeStatus, onSaveContent, onSetState, onDelete, onClose,
+  onChangeDates, onChangeStatus, onChangePriority, onChangeProgress,
+  onSaveContent, onSetState, onDelete, onClose,
   initialEditing = false,
 }: Props) {
   const [start, setStart] = useState(task.startDate ?? "")
@@ -125,6 +145,11 @@ export function TaskModal({
   const [milestoneId, setMilestoneId] = useState(task.milestone?.id ?? "")
   // 依存関係は本文に書いてある。編集中は本文とは別に持ち、保存のときに書き戻す。
   const [dependsOn, setDependsOn] = useState<number[]>(() => parseDependencyRefs(task.body))
+  /**
+   * Progress は文字列で持つ。数値にすると「空欄」と 0 が同じ状態になり、
+   * 未設定に戻す操作が表現できない。送るときに null / 数値へ直す。
+   */
+  const [progress, setProgress] = useState(task.progress === null ? "" : String(task.progress))
 
   // 同期が返ってきて値が変わったら入力欄も追従させる。
   //
@@ -140,6 +165,21 @@ export function TaskModal({
     // 走り直して入力を消してしまう。日付が変わったときだけ見る。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.startDate, task.endDate])
+
+  const progressText = task.progress === null ? "" : String(task.progress)
+  const progressDirty = progress !== progressText
+  // 別のタスクを開いても同じモーダルが使い回されるので、打ちかけの数字が
+  // 残る。前の行の値をそのまま送ってしまうため、タスクが変わったら必ず戻す。
+  // 同じタスクを見ている間だけは、日付と同じく入力中の値を守る。
+  const shownTaskId = useRef(task.id)
+  useEffect(() => {
+    const switched = shownTaskId.current !== task.id
+    shownTaskId.current = task.id
+    if (!switched && progressDirty) return
+    setProgress(task.progress === null ? "" : String(task.progress))
+    // progressDirty を依存に入れると、打ち始めた瞬間に走り直して入力を消す。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id, task.progress])
 
   // 保存が返ってきたら編集欄も追従させる
   useEffect(() => {
@@ -273,7 +313,7 @@ export function TaskModal({
 
   // 「update」は今そこにある変更をまとめて送る。編集モードなら本文なども、
   // そうでなければ日付だけ。どちらも無ければ押せない。
-  const busy = savingContent || savingStatus || savingState || deleting
+  const busy = savingContent || savingStatus || savingField || savingState || deleting
   const canUpdate =
     !busy &&
     ((datesDirty && datesValid) || (editing && contentDirty && contentValid))
@@ -300,6 +340,45 @@ export function TaskModal({
   const statusIndex = statusOptions.findIndex((o) => o.name === task.status)
   const statusColor = statusIndex >= 0 ? statusVar(statusIndex) : "var(--border-subtle)"
   const currentStatusId = statusOptions.find((o) => o.name === task.status)?.id ?? ""
+
+  // Project に Priority / Progress が無ければ編集させない。Status の選択肢が
+  // 空のときと同じ扱いで、送っても field-missing で失敗するだけのため。
+  const canChangePriority = Boolean(onChangePriority) && priorityOptions.length > 0
+  const canChangeProgress = Boolean(onChangeProgress) && canEditProgress
+  /**
+   * いま選ばれている Priority。
+   *
+   * Milestone と違い、タスクが持っているのは選択肢の名前だけで id は持っていない。
+   * 選択肢が Project から消されると id が引けず、値が入っているのに「—」が
+   * 選ばれて見える — 何も設定されていないと誤解させる。そこで、引けないときだけ
+   * 名前を載せた仮の選択肢を足して現在値を見せる。送り先の id が無いので、
+   * この選択肢は選び直せない（選ぶのは実在する選択肢か「—」）。
+   */
+  const knownPriorityId = priorityOptions.find((o) => o.name === task.priority)?.id
+  const priorityMissing = task.priority !== null && knownPriorityId === undefined
+  const currentPriorityId = knownPriorityId ?? (priorityMissing ? UNKNOWN_PRIORITY : "")
+
+  /**
+   * Progress の確定。入力のたびには送らない。1 文字ごとに GitHub を叩くことになり、
+   * 「10」を打つ途中の 1 が残り得る。フォーカスを外したときと Enter でだけ送る。
+   */
+  const commitProgress = () => {
+    if (!onChangeProgress || !canChangeProgress || busy) return
+    const text = progress.trim()
+    if (text === "") {
+      // 未設定に戻す。0 と同じにはしない。
+      if (task.progress !== null) onChangeProgress(task.id, null)
+      return
+    }
+    const value = Number(text)
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      // 送っても弾かれるので、ここで諦めて元の値に戻す。
+      setProgress(progressText)
+      return
+    }
+    if (value === task.progress) return
+    onChangeProgress(task.id, value)
+  }
 
   // 現在の Milestone が候補に無い（閉じている等）場合も選択肢に残す。
   const milestoneChoices = task.milestone &&
@@ -526,12 +605,73 @@ export function TaskModal({
           {/* モックには枠が無いが、担当・Priority・Progress は落とさずここに畳んでおく。 */}
           <span className="zk-task-meta-inline">
             依存: {savedDeps.length === 0 ? "—" : savedDeps.map((n) => `#${n}`).join(", ")}
-            　/　
+            {"　/　"}
             {task.assignees.length === 0
               ? "未アサイン"
               : task.assignees.map((a) => a.login).join(", ")}
-            　/　Priority: {task.priority ?? "—"}
-            　/　Progress: {task.progress === null ? "—" : `${task.progress}%`}
+            {"　/　"}
+            {/* Priority と Progress は Status と同じくその場で変更できる。
+                Project にフィールドが無いときは、変えられないものを操作させても
+                失敗するだけなので、今までどおり表示だけにする。 */}
+            <span className="zk-task-meta-field">
+              Priority:{" "}
+              {canChangePriority ? (
+                <select
+                  className="zk-meta-select"
+                  aria-label="Priority"
+                  value={currentPriorityId}
+                  disabled={busy}
+                  onChange={(e) =>
+                    onChangePriority?.(task.id, e.target.value === "" ? null : e.target.value)
+                  }
+                >
+                  {/* 未設定に戻せるよう、値が入っていても空の選択肢は残す。 */}
+                  <option value="">—</option>
+                  {priorityMissing && (
+                    <option value={UNKNOWN_PRIORITY} disabled>
+                      {task.priority}（この Project の選択肢にありません）
+                    </option>
+                  )}
+                  {priorityOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.name}</option>
+                  ))}
+                </select>
+              ) : (
+                (task.priority ?? "—")
+              )}
+            </span>
+            {"　/　"}
+            <span className="zk-task-meta-field">
+              Progress:{" "}
+              {canChangeProgress ? (
+                <>
+                  <input
+                    className="zk-meta-number"
+                    type="number"
+                    aria-label="Progress"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={progress}
+                    placeholder="—"
+                    disabled={busy}
+                    onChange={(e) => setProgress(e.target.value)}
+                    onBlur={commitProgress}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        commitProgress()
+                      }
+                    }}
+                  />
+                  %
+                </>
+              ) : task.progress === null ? (
+                "—"
+              ) : (
+                `${task.progress}%`
+              )}
+            </span>
           </span>
           {!task.fieldsComplete && !bothFilled
             ? "この Issue はフィールドが多く、日付を読み切れていません。未設定とは限りません。"

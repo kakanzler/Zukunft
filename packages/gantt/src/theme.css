@@ -944,6 +944,36 @@
 }
 .zk-task-meta-inline { flex: 0 0 auto; opacity: 0.85; }
 
+/* Priority / Progress はこの行の中で編集できる。行そのものは注記なので、
+   入力欄も枠を持たせず、下線だけで「触れる」と示す。周りの文字と同じ大きさに
+   揃え、入力欄が現れたときに行の高さが跳ねないようにする。 */
+.zk-root .zk-task-meta-field { display: inline-flex; align-items: baseline; }
+.zk-root .zk-meta-select,
+.zk-root .zk-meta-number {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 2px;
+  cursor: pointer;
+}
+.zk-root .zk-meta-number { width: 3.5em; text-align: right; cursor: text; }
+.zk-root .zk-meta-select:focus,
+.zk-root .zk-meta-number:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+.zk-root .zk-meta-select:disabled,
+.zk-root .zk-meta-number:disabled { cursor: not-allowed; opacity: 0.5; }
+/* 数値の増減ボタンは 11px の行では潰れて押せない。数字だけを見せる。 */
+.zk-root .zk-meta-number::-webkit-inner-spin-button,
+.zk-root .zk-meta-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.zk-root .zk-meta-number { -moz-appearance: textfield; appearance: textfield; }
+
 /* ボタンが増えても押せなくならないよう折り返す。狭い窓では 2 段になる。 */
 .zk-task-foot {
   display: flex; align-items: flex-end; gap: calc(var(--space) * 2); flex-wrap: wrap;
