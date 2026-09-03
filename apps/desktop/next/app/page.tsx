@@ -34,6 +34,7 @@ import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
 import { SignIn } from "@/SignIn"
 import { CategorySettings } from "@/CategorySettings"
+import { PendingChanges } from "@/PendingChanges"
 import { FilterBar } from "@/FilterBar"
 import { ManualModal } from "@/ManualModal"
 import { SettingsModal } from "@/SettingsModal"
@@ -264,6 +265,9 @@ function Workspace({
   const editable = useMemo(() => canEditDates(schema), [schema])
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
+  // 保留中の変更の一覧。常時出す帯にはしない — 何も待っていないときは場所を取るだけで、
+  // 見るのは「未同期がある」と気づいたときだけだから、ログの行から開く。
+  const [pendingOpen, setPendingOpen] = useState(false)
   // e から開いたときだけ編集モードで始める。Enter やクリックは見るだけ。
   const [openTaskEditing, setOpenTaskEditing] = useState(false)
   const openTask = schedule.tasks.find((t) => t.id === openTaskId) ?? null
@@ -377,6 +381,7 @@ function Workspace({
           message: `要対応 ${problems} 件`,
           hint: "送信に失敗した、または競合した変更があります。下のログの各エントリから対処してください。",
           dedupeKey: SYNC_LOG_KEY,
+          actions: [{ label: "一覧を見る", run: () => setPendingOpen(true) }],
         },
       }
     }
@@ -388,6 +393,9 @@ function Workspace({
           message: `未同期 ${schedule.pending} 件`,
           hint: "GitHub へ送信していない変更があります。送信は自動で進みます。",
           dedupeKey: SYNC_LOG_KEY,
+          // 送る前に中身を確かめる口。日付は楽観的に反映されるので、
+          // ここが無いと「何が送られようとしているか」を見る場所がどこにも無い。
+          actions: [{ label: "一覧を見る", run: () => setPendingOpen(true) }],
         },
       }
     }
@@ -1393,6 +1401,14 @@ function Workspace({
           busy={savingCategories}
           onSave={saveCategories}
           onClose={() => setCategoryOpen(false)}
+        />
+      )}
+      {pendingOpen && (
+        <PendingChanges
+          queue={schedule.queue}
+          tasks={schedule.tasks}
+          onRollback={rollback}
+          onClose={() => setPendingOpen(false)}
         />
       )}
       {manualOpen && (
