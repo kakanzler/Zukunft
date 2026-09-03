@@ -530,6 +530,158 @@
    1 行目に status / title / label / 閉じる、2 行目に日付と Milestone、
    その下に本文、最下段に Parent Issue と操作ボタンを置く。
    本文だけが伸び、モーダルの高さは画面に収める。 */
+/* ---- 設定（構成は specifications/apeearance/appearance_settings.png に倣う） ----
+
+   上に検索、左にカテゴリ、右に本文。項目が増えても 1 本のスクロールに積み上がらない。
+
+   色は青を地に、オレンジを差し色にする
+   （specifications/apeearance/appearnace_bar_and_others.jpg）。盤面の赤
+   （--danger / --zk-accent-red）とは別の色にしてあるのは、あちらが「問題がある」
+   の合図だから。設定画面のオレンジは「いまここ」を示すだけで、警告ではない。 */
+.zk-modal--settings {
+  --set-accent: #ff9440;
+  --set-accent-dim: rgba(255, 148, 64, 0.16);
+  --set-line: rgba(45, 107, 255, 0.28);
+
+  width: min(960px, 100%);
+  /* カテゴリを切り替えても枠が跳ねないよう、高さは内容で変えない。 */
+  height: min(640px, 86vh);
+  max-height: 86vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+.zk-modal--settings .zk-modal-head,
+.zk-modal--settings .zk-modal-foot {
+  padding: calc(var(--space) * 4);
+}
+
+.zk-set-search {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  padding: 0 calc(var(--space) * 4) calc(var(--space) * 3);
+  border-bottom: 1px solid var(--set-line);
+}
+.zk-set-search .zk-input { flex: 1 1 auto; }
+.zk-set-search .zk-input:focus { border-color: var(--set-accent); outline: none; }
+
+.zk-set {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px 1fr;
+}
+
+.zk-set-nav {
+  display: flex; flex-direction: column; gap: calc(var(--space));
+  padding: calc(var(--space) * 3);
+  border-right: 1px solid var(--set-line);
+  background: var(--bg-base);
+  overflow-y: auto;
+}
+.zk-set-nav-item {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  text-align: left;
+  padding: calc(var(--space) * 2) calc(var(--space) * 2.5);
+  background: none;
+  /* 選択は左の縦棒で示す。枠で囲うと、押せる範囲が項目ごとに切れて見える。 */
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.zk-set-nav-item:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-surface); }
+.zk-set-nav-item[aria-pressed="true"] {
+  color: var(--set-accent);
+  border-left-color: var(--set-accent);
+  background: var(--set-accent-dim);
+  font-weight: 600;
+}
+.zk-set-nav-item:disabled { opacity: 0.35; cursor: default; }
+/* 検索中の当たり件数。どのカテゴリを見ればいいかを左で示す。 */
+.zk-set-nav-count {
+  margin-left: auto;
+  padding: 0 calc(var(--space) * 1.5);
+  border-radius: 999px;
+  background: var(--set-accent);
+  color: #1a0d04;
+  font-size: 10px; font-weight: 600;
+}
+
+.zk-set-body {
+  padding: calc(var(--space) * 4);
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: calc(var(--space) * 5);
+}
+.zk-set-title {
+  margin: 0;
+  font-size: 20px; font-weight: 600;
+  color: var(--text-primary);
+}
+.zk-set-item { display: grid; gap: calc(var(--space) * 2); justify-items: start; }
+/* 見出しの頭にオレンジの短い縦棒。項目の切れ目を線 1 本で示す。 */
+.zk-set-item-title {
+  margin: 0;
+  padding-left: calc(var(--space) * 2);
+  border-left: 2px solid var(--set-accent);
+  font-size: 13px; font-weight: 600;
+  color: var(--text-primary);
+}
+.zk-set-item-summary {
+  margin: 0;
+  font-size: 11px; line-height: 1.7;
+  color: var(--text-secondary);
+}
+.zk-set-note { font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
+
+.zk-set-choices { display: grid; gap: calc(var(--space)); }
+.zk-set-choice {
+  display: flex; align-items: baseline; gap: calc(var(--space) * 2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.zk-set-choice input { accent-color: var(--set-accent); cursor: pointer; }
+.zk-set-choice-label { font-weight: 600; }
+.zk-set-choice-note { font-size: 11px; color: var(--text-secondary); }
+
+.zk-set-check {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.zk-set-check input { accent-color: var(--set-accent); cursor: pointer; }
+
+.zk-set-size { display: flex; align-items: center; gap: calc(var(--space) * 2); font-size: 13px; }
+.zk-set-size .zk-input { width: 96px; }
+.zk-set-times { color: var(--text-secondary); }
+.zk-set-presets { display: flex; flex-wrap: wrap; gap: calc(var(--space)); }
+/* 選ばれている大きさはオレンジで示す。青の focus 枠と役割が混ざらないようにする。 */
+.zk-set-presets .zk-button[aria-pressed="true"] {
+  border-color: var(--set-accent);
+  color: var(--set-accent);
+  box-shadow: none;
+}
+
+.zk-set-danger {
+  display: grid; gap: calc(var(--space) * 2);
+  justify-items: start;
+  font-size: 11px; color: var(--danger);
+}
+
+/* 保存はこの画面の主たる操作なので、オレンジで 1 つだけ立たせる。 */
+.zk-button--primary {
+  border-color: var(--set-accent);
+  color: var(--set-accent);
+}
+.zk-button--primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(255, 148, 64, 0.3), 0 0 12px rgba(255, 148, 64, 0.35);
+}
+
 /* ---- マニュアル（Alt+M） ---- */
 .zk-modal--manual {
   width: min(880px, 100%);

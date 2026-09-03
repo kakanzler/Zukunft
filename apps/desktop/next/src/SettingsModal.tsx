@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { GanttTheme } from "@zukunft/gantt"
 import {
   DEFAULT_WINDOW_SETTINGS,
@@ -67,12 +67,50 @@ const PRESETS: { width: number; height: number }[] = [
   { width: 2560, height: 1440 },
 ]
 
+/** 左に並ぶカテゴリ。id は設定項目の所属と対応する。 */
+const CATEGORIES: { id: string; label: string }[] = [
+  { id: "window", label: "ウィンドウ" },
+  { id: "appearance", label: "外観" },
+  { id: "schedule", label: "日程" },
+  { id: "account", label: "アカウント" },
+]
+
 /**
- * アプリの設定。Project に依らない、アプリ全体の振る舞いを扱う。
+ * 設定項目 1 つ。
  *
- * ウィンドウについて「解像度」と言ってもディスプレイの設定には触れない。変えるのは
- * このアプリの窓の大きさだけで、閉じたあとに何かが残ることはない — そこは画面にも
- * 書いておく。
+ * 検索の当たり判定に使う語をここに持たせる。表示名だけで引くと、
+ * 「フルスクリーン」を探しているのに「起動時の表示」でしか出てこない、
+ * といったことが起きる。
+ */
+type Setting = {
+  id: string
+  category: string
+  title: string
+  /** 見出しの下に出す 1 行。何が変わるのかをここで言い切る */
+  summary: string
+  /** 検索で拾わせたい語。title と summary は自動で含める */
+  keywords?: string[]
+  render: () => ReactNode
+}
+
+function matches(setting: Setting, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q === "") return true
+  const haystack = [setting.title, setting.summary, ...(setting.keywords ?? [])]
+    .join(" ")
+    .toLowerCase()
+  // 空白区切りの語をすべて含むもの。絞り込みを重ねられるようにする。
+  return q.split(/\s+/).every((word) => haystack.includes(word))
+}
+
+/**
+ * アプリの設定。
+ *
+ * 構成は specifications/apeearance/appearance_settings.png に倣う。上に検索、
+ * 左にカテゴリ、右に本文。項目が増えても 1 本のスクロールに積み上がらない。
+ *
+ * 検索中はカテゴリの選択を無視して、当たった項目を全部出す。探している設定が
+ * どのカテゴリにあるかを知っている必要が無いのが、この構成の効きどころ。
  */
 export function SettingsModal({
   settings, autoReschedule, theme, busy, applies, authSource, onSignOut, onSave, onClose,
@@ -83,6 +121,8 @@ export function SettingsModal({
   // サインアウトは取り消せない（トークンを資格情報ストアから消す）ので、
   // 削除と同じく確認を 1 段挟む。
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+  const [category, setCategory] = useState(CATEGORIES[0]!.id)
+  const [query, setQuery] = useState("")
 
   // 保存済みの値は開いた後に届くことがある（Rust 側の読み取りを待つ）。
   useEffect(() => {
@@ -109,6 +149,216 @@ export function SettingsModal({
   // 小さすぎる窓は Gantt が読めなくなるので、保存させずにその場で止める。
   const tooSmall = draft.width < MIN_WINDOW_WIDTH || draft.height < MIN_WINDOW_HEIGHT
 
+  const settingList: Setting[] = [
+    {
+      id: "window-mode",
+      category: "window",
+      title: "起動時の表示",
+      summary: "次に開いたときの窓の出方を決めます。",
+      keywords: ["フルスクリーン", "最大化", "ウィンドウ", "full screen", "maximize"],
+      render: () => (
+        <div className="zk-set-choices">
+          {MODES.map((option) => (
+            <label className="zk-set-choice" key={option.mode}>
+              <input
+                type="radio"
+                name="zk-window-mode"
+                checked={draft.mode === option.mode}
+                disabled={busy}
+                onChange={() => setDraft((prev) => ({ ...prev, mode: option.mode }))}
+              />
+              <span className="zk-set-choice-label">{option.label}</span>
+              <span className="zk-set-choice-note">{option.description}</span>
+            </label>
+          ))}
+        </div>
+      ),
+    },
+    {
+      id: "window-size",
+      category: "window",
+      title: "ウィンドウの大きさ",
+      summary:
+        "変わるのは Zukunft の窓の大きさだけです。ディスプレイの解像度そのものには触れません。",
+      keywords: ["解像度", "幅", "高さ", "size", "resolution"],
+      render: () => (
+        <>
+          <div className="zk-set-size">
+            <input
+              type="number"
+              className="zk-input"
+              value={draft.width}
+              min={MIN_WINDOW_WIDTH}
+              step={10}
+              disabled={busy || !windowed}
+              aria-label="幅"
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, width: Number(e.target.value) || 0 }))
+              }
+            />
+            <span className="zk-set-times">×</span>
+            <input
+              type="number"
+              className="zk-input"
+              value={draft.height}
+              min={MIN_WINDOW_HEIGHT}
+              step={10}
+              disabled={busy || !windowed}
+              aria-label="高さ"
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, height: Number(e.target.value) || 0 }))
+              }
+            />
+          </div>
+          <div className="zk-set-presets">
+            {PRESETS.map((preset) => (
+              <button
+                key={`${preset.width}x${preset.height}`}
+                className="zk-button"
+                disabled={busy || !windowed}
+                aria-pressed={draft.width === preset.width && draft.height === preset.height}
+                onClick={() =>
+                  setDraft((prev) => ({ ...prev, width: preset.width, height: preset.height }))
+                }
+              >
+                {preset.width}×{preset.height}
+              </button>
+            ))}
+          </div>
+          <span className="zk-set-note">
+            {!windowed
+              ? "「ウィンドウ」を選ぶと大きさを指定できます。ここでの値は、ウィンドウに戻したときに使われます。"
+              : tooSmall
+                ? `最小は ${MIN_WINDOW_WIDTH}×${MIN_WINDOW_HEIGHT} です。`
+                : "Gantt が読める大きさを保つため、これより小さくはできません。"}
+            {!applies && "　ブラウザで開いているため、ここでの指定は窓に反映されません。"}
+          </span>
+        </>
+      ),
+    },
+    {
+      id: "theme",
+      category: "appearance",
+      title: "盤面の見た目",
+      summary: "変わるのは Gantt の盤面だけです。ログは同じままで、GitHub 側にも何も起きません。",
+      keywords: ["テーマ", "配色", "色", "theme", "bluesystem", "default"],
+      render: () => (
+        <div className="zk-set-choices">
+          {THEMES.map((option) => (
+            <label className="zk-set-choice" key={option.theme}>
+              <input
+                type="radio"
+                name="zk-gantt-theme"
+                checked={themeDraft === option.theme}
+                disabled={busy}
+                onChange={() => setThemeDraft(option.theme)}
+              />
+              <span className="zk-set-choice-label">{option.label}</span>
+              <span className="zk-set-choice-note">{option.note}</span>
+            </label>
+          ))}
+        </div>
+      ),
+    },
+    {
+      id: "auto-reschedule",
+      category: "schedule",
+      title: "日程の自動調整",
+      summary:
+        "依存先の終了日より前に始まっている Issue だけを後ろへずらします。前倒しはしません。",
+      keywords: ["依存", "カスケード", "blocked-by", "自動"],
+      render: () => (
+        <>
+          <label className="zk-set-check">
+            <input
+              type="checkbox"
+              checked={autoDraft}
+              disabled={busy}
+              onChange={(e) => setAutoDraft(e.target.checked)}
+            />
+            <span>依存関係に合わせて自動で日程を後ろへずらす</span>
+          </label>
+          <span className="zk-set-note">まとめて動いた分は Ctrl+Z 一回で戻せます。</span>
+        </>
+      ),
+    },
+    ...(onSignOut
+      ? [
+          {
+            id: "sign-out",
+            category: "account",
+            title: "サインアウト",
+            summary: "保存したトークンを消します。アカウントを切り替えるときに使います。",
+            keywords: ["ログアウト", "トークン", "token", "sign out"],
+            render: () =>
+              confirmingSignOut ? (
+                <div className="zk-set-danger">
+                  <span>
+                    サインアウトすると保存したトークンを消します。次の起動でサインインし直しになります
+                  </span>
+                  <div className="zk-set-presets">
+                    <button
+                      type="button"
+                      className="zk-button zk-button--danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setConfirmingSignOut(false)
+                        void onSignOut()
+                      }}
+                    >
+                      サインアウトする
+                    </button>
+                    <button
+                      type="button"
+                      className="zk-button"
+                      disabled={busy}
+                      onClick={() => setConfirmingSignOut(false)}
+                    >
+                      やめる
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="zk-button zk-button--danger"
+                    style={{ justifySelf: "start" }}
+                    disabled={busy || authSource === "env"}
+                    onClick={() => setConfirmingSignOut(true)}
+                  >
+                    サインアウト
+                  </button>
+                  {authSource === "env" && (
+                    <span className="zk-set-note">
+                      環境変数のトークンで動いています。消せるのは資格情報ストアの分だけなので、
+                      まず ZUKUNFT_GITHUB_TOKEN を外してください。
+                    </span>
+                  )}
+                </>
+              ),
+          },
+        ]
+      : []),
+  ]
+
+  const searching = query.trim() !== ""
+  const shown = settingList.filter((s) =>
+    searching ? matches(s, query) : s.category === category,
+  )
+
+  /** カテゴリごとの当たり件数。検索中に「どこにあるか」を左で示す。 */
+  const hits = useMemo(() => {
+    const counts = new Map<string, number>()
+    if (!searching) return counts
+    for (const s of settingList) {
+      if (matches(s, query)) counts.set(s.category, (counts.get(s.category) ?? 0) + 1)
+    }
+    return counts
+    // settingList は毎レンダリング作り直されるが、所属と検索語だけで決まる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, searching, Boolean(onSignOut)])
+
   return (
     <div
       className="zk-modal-backdrop"
@@ -119,189 +369,65 @@ export function SettingsModal({
       aria-modal="true"
       aria-label="設定"
     >
-      <div className="zk-modal">
+      <div className="zk-modal zk-modal--settings">
         <div className="zk-modal-head">
           <div className="zk-modal-title" style={{ flex: 1 }}>設定</div>
           <button className="zk-button" onClick={onClose} disabled={busy} aria-label="閉じる">✕</button>
         </div>
 
-        <div className="zk-modal-body">
-          {/* 窓についての断りなので、窓の設定の直前に置く。画面の冒頭に置くと、
-              下にある日程の設定まで「窓の話」に読めてしまう。 */}
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            ウィンドウで変わるのは Zukunft の窓の大きさだけです。ディスプレイの解像度
-            そのものには触れないので、アプリを閉じれば元の画面のままです。
-            {!applies && "　（ブラウザで開いているため、ここでの指定は窓に反映されません）"}
-          </div>
-
-          <div className="zk-field">
-            <span className="zk-field-label">起動時の表示</span>
-            <div style={{ display: "grid", gap: 4 }}>
-              {MODES.map((option) => (
-                <label
-                  key={option.mode}
-                  style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}
-                >
-                  <input
-                    type="radio"
-                    name="zk-window-mode"
-                    checked={draft.mode === option.mode}
-                    disabled={busy}
-                    onChange={() => setDraft((prev) => ({ ...prev, mode: option.mode }))}
-                  />
-                  <span>{option.label}</span>
-                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                    {option.description}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="zk-field">
-            <span className="zk-field-label">ウィンドウの大きさ</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-              <input
-                type="number"
-                className="zk-input"
-                style={{ width: 96 }}
-                value={draft.width}
-                min={MIN_WINDOW_WIDTH}
-                step={10}
-                disabled={busy || !windowed}
-                aria-label="幅"
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, width: Number(e.target.value) || 0 }))
-                }
-              />
-              <span style={{ color: "var(--text-secondary)" }}>×</span>
-              <input
-                type="number"
-                className="zk-input"
-                style={{ width: 96 }}
-                value={draft.height}
-                min={MIN_WINDOW_HEIGHT}
-                step={10}
-                disabled={busy || !windowed}
-                aria-label="高さ"
-                onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, height: Number(e.target.value) || 0 }))
-                }
-              />
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-              {PRESETS.map((preset) => (
-                <button
-                  key={`${preset.width}x${preset.height}`}
-                  className="zk-button"
-                  disabled={busy || !windowed}
-                  aria-pressed={draft.width === preset.width && draft.height === preset.height}
-                  onClick={() =>
-                    setDraft((prev) => ({ ...prev, width: preset.width, height: preset.height }))
-                  }
-                >
-                  {preset.width}×{preset.height}
-                </button>
-              ))}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
-              {!windowed
-                ? "「ウィンドウ」を選ぶと大きさを指定できます。ここでの値は、ウィンドウに戻したときに使われます。"
-                : tooSmall
-                  ? `最小は ${MIN_WINDOW_WIDTH}×${MIN_WINDOW_HEIGHT} です。`
-                  : "Gantt が読める大きさを保つため、これより小さくはできません。"}
-            </span>
-          </div>
-
-          {/* 見た目は好みの話で、窓の大きさや日程の規則とは別のもの。節を分けて置く。 */}
-          <div className="zk-field">
-            <span className="zk-field-label">盤面の見た目</span>
-            <div style={{ display: "grid", gap: 4 }}>
-              {THEMES.map((option) => (
-                <label
-                  key={option.theme}
-                  style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}
-                >
-                  <input
-                    type="radio"
-                    name="zk-gantt-theme"
-                    checked={themeDraft === option.theme}
-                    disabled={busy}
-                    onChange={() => setThemeDraft(option.theme)}
-                  />
-                  <span style={{ fontWeight: 600 }}>{option.label}</span>
-                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{option.note}</span>
-                </label>
-              ))}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
-              変わるのは Gantt の盤面だけです。ログは同じままで、GitHub 側にも何も起きません。
-            </span>
-          </div>
-
-          {onSignOut && (
-            <div className="zk-field">
-              <span className="zk-field-label">アカウント</span>
-              {confirmingSignOut ? (
-                <div className="zk-label-confirm">
-                  <span>
-                    サインアウトすると保存したトークンを消します。次の起動でサインインし直しになります
-                  </span>
-                  <button
-                    type="button"
-                    className="zk-button zk-button--danger"
-                    disabled={busy}
-                    onClick={() => {
-                      setConfirmingSignOut(false)
-                      void onSignOut()
-                    }}
-                  >
-                    サインアウトする
-                  </button>
-                  <button
-                    type="button"
-                    className="zk-button"
-                    disabled={busy}
-                    onClick={() => setConfirmingSignOut(false)}
-                  >
-                    やめる
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button
-                    type="button"
-                    className="zk-button zk-button--danger"
-                    disabled={busy || authSource === "env"}
-                    onClick={() => setConfirmingSignOut(true)}
-                  >
-                    サインアウト
-                  </button>
-                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                    {authSource === "env"
-                      ? "環境変数のトークンで動いています。消せるのは資格情報ストアの分だけなので、まず ZUKUNFT_GITHUB_TOKEN を外してください。"
-                      : "アカウントを切り替えるときに使います。"}
-                  </span>
-                </div>
-              )}
-            </div>
+        <div className="zk-set-search">
+          <input
+            className="zk-input"
+            value={query}
+            placeholder="設定を検索"
+            aria-label="設定を検索"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching && (
+            <button className="zk-button" onClick={() => setQuery("")}>検索を解除</button>
           )}
+        </div>
 
-          <div className="zk-field">
-            <span className="zk-field-label">日程の自動調整</span>
-            <label style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={autoDraft}
-                disabled={busy}
-                onChange={(e) => setAutoDraft(e.target.checked)}
-              />
-              <span>依存関係に合わせて自動で日程を後ろへずらす</span>
-            </label>
-            <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
-              依存先の終了日より前に始まっている Issue だけを後ろへずらします。前倒しはしません。
-              まとめて動いた分は Ctrl+Z 一回で戻せます。
-            </span>
+        <div className="zk-set">
+          <nav className="zk-set-nav" aria-label="設定のカテゴリ">
+            {CATEGORIES.map((c) => {
+              const count = hits.get(c.id) ?? 0
+              return (
+                <button
+                  key={c.id}
+                  className="zk-set-nav-item"
+                  // 検索中は選択ではなく当たりの有無を示す。押せば検索を解いてそこへ移る。
+                  aria-pressed={searching ? count > 0 : category === c.id}
+                  disabled={searching && count === 0}
+                  onClick={() => {
+                    setQuery("")
+                    setCategory(c.id)
+                  }}
+                >
+                  <span>{c.label}</span>
+                  {searching && count > 0 && <span className="zk-set-nav-count">{count}</span>}
+                </button>
+              )
+            })}
+          </nav>
+
+          <div className="zk-set-body">
+            <h2 className="zk-set-title">
+              {searching
+                ? `「${query.trim()}」に一致する設定`
+                : CATEGORIES.find((c) => c.id === category)!.label}
+            </h2>
+            {shown.length === 0 ? (
+              <span className="zk-set-note">一致する設定がありません。</span>
+            ) : (
+              shown.map((s) => (
+                <section className="zk-set-item" key={s.id}>
+                  <h3 className="zk-set-item-title">{s.title}</h3>
+                  <p className="zk-set-item-summary">{s.summary}</p>
+                  {s.render()}
+                </section>
+              ))
+            )}
           </div>
         </div>
 
@@ -319,7 +445,7 @@ export function SettingsModal({
           </button>
           <button className="zk-button" onClick={onClose} disabled={busy}>キャンセル</button>
           <button
-            className="zk-button"
+            className="zk-button zk-button--primary"
             disabled={busy || tooSmall}
             onClick={() => onSave(draft, autoDraft, themeDraft)}
           >
