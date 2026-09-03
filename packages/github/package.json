@@ -1,6 +1,6 @@
 {
   "name": "@zukunft/github",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -14,7 +14,7 @@
     "test": "tsc -p tsconfig.test.json && node test/run.js"
   },
   "dependencies": {
-    "@zukunft/domain": "0.1.9"
+    "@zukunft/domain": "0.1.10"
   },
   "peerDependencies": {
     "@tauri-apps/api": "^2.1.1"
