@@ -3,6 +3,7 @@ import {
   createTimeScale, timelineRange, defaultTimelineEnd, monthTicks, subTicks, today,
   hitTest, applyDrag, diffDates,
   computeStats, groupByStatus, groupByLabel, groupByParentLabel, groupTasks, missingRequiredFields,
+  collectMilestones, mergeMilestones,
   initialState, applyLocalChange, markSyncing, markSynced, markFailed, markConflict,
   rollback, resolveWithRemote, resolveWithLocal, nextPending, pendingCount,
   undo, redo, canUndo, canRedo, mergeRefresh, findTask,
@@ -84,6 +85,32 @@ const mk = (n: number, s: string, start: string, end: string, prog: number | nul
 const tasks = [mk(1, "Planning", "2026-09-01", "2026-09-07", 100), mk(2, "Review", "2026-09-08", "2026-09-21", 0)]
 eq("stats", computeStats(tasks), { taskCount: 2, weekCount: 3, milestoneCount: 1, completePercent: 50 })
 eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Review"]).map(g => g.label), ["PLANNING", "REVIEW"])
+
+// --- mergeMilestones: 盤面に出すマイルストーンの出所を 2 つに広げる ---
+{
+  // Issue が 1 件も付いていないマイルストーンも盤面に出す。出さないと、
+  // 作った直後は何も起きなかったように見える。
+  eq("a repository milestone with no issues still shows up",
+     mergeMilestones([], [{ id: "m1", title: "v2", dueOn: "2026-10-31" }]),
+     [{ title: "v2", dueOn: "2026-10-31" }])
+  // 同じ題が両方から来ても菱形は 1 つ。二重に描くと期日がずれて見える。
+  eq("the same title from both sides collapses into one",
+     mergeMilestones([{ title: "v1", dueOn: "2026-09-30" }],
+                     [{ id: "m1", title: "v1", dueOn: "2026-09-30" },
+                      { id: "m2", title: "v2", dueOn: "2026-10-31" }]),
+     [{ title: "v1", dueOn: "2026-09-30" }, { title: "v2", dueOn: "2026-10-31" }])
+  // 期日の無いマイルストーンは横軸のどこにも置けない。
+  eq("a milestone without a due date is dropped",
+     mergeMilestones([], [{ id: "m3", title: "backlog", dueOn: null }]), [])
+  // 並びは collectMilestones と同じ期日順。混ぜた側が後ろに固まってはいけない。
+  eq("the merged list stays in due-date order",
+     mergeMilestones([{ title: "late", dueOn: "2026-12-01" }],
+                     [{ id: "m4", title: "early", dueOn: "2026-09-01" }]).map((m) => m.title),
+     ["early", "late"])
+  // Issue 側だけのときは collectMilestones をそのまま通す。
+  eq("with no repository list the task-side result is untouched",
+     mergeMilestones(collectMilestones(tasks), []), [{ title: "v1", dueOn: "2026-09-30" }])
+}
 
 // --- Category 表示（ラベルの組み合わせでのグループ化） ---
 {

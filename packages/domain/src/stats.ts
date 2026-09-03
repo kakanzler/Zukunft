@@ -1,5 +1,5 @@
 import { type ISODate, diffDays, inclusiveDays } from "./date"
-import { type ScheduleTask, isScheduled } from "./schedule"
+import { type Milestone, type ScheduleTask, isScheduled } from "./schedule"
 
 /** 下部 KPI タイルの値（企画書 §6.4.2）。 */
 export type ProjectStats = {
@@ -239,6 +239,30 @@ export function collectMilestones(
   for (const task of tasks) {
     const m = task.milestone
     if (m?.dueOn && !seen.has(m.title)) seen.set(m.title, m.dueOn)
+  }
+  return [...seen.entries()]
+    .map(([title, dueOn]) => ({ title, dueOn }))
+    .sort((a, b) => diffDays(b.dueOn, a.dueOn))
+}
+
+/**
+ * 盤面に出すマイルストーンを 1 本にまとめる。
+ *
+ * Issue から集めた分だけでは、まだ Issue が 1 件も紐づいていないマイルストーンが
+ * 盤面に出ない。作った直後に何も起きなかったように見えるので、リポジトリ側の
+ * 一覧も混ぜる。期日の無いものは横軸のどこにも置けないため落とす。
+ *
+ * 同じ題は 1 つに畳む。先に見た方（Issue 側）の期日を残すのは、
+ * どちらも同じマイルストーンを指す以上、出所で結果が揺れない方が読みやすいため。
+ */
+export function mergeMilestones(
+  fromTasks: { title: string; dueOn: ISODate }[],
+  fromRepositories: Milestone[],
+): { title: string; dueOn: ISODate }[] {
+  const seen = new Map<string, ISODate>()
+  for (const m of fromTasks) if (!seen.has(m.title)) seen.set(m.title, m.dueOn)
+  for (const m of fromRepositories) {
+    if (m.dueOn && !seen.has(m.title)) seen.set(m.title, m.dueOn)
   }
   return [...seen.entries()]
     .map(([title, dueOn]) => ({ title, dueOn }))

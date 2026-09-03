@@ -84,14 +84,6 @@ function emitGroup(
   }
 }
 
-/**
- * マイルストーンの菱形を置くために、盤面の上へ空ける帯の高さ（px）。
- *
- * 以前は 0 行目のバー（y 5〜27）と菱形（y 4〜16）が重なっていた。行を下げる形で
- * 場所を空ける。左ペインも同じだけ下げないと、行が横にずれる。
- */
-export const MILESTONE_LANE = 22
-
 /** 可視範囲の行だけを描画するための添字計算（企画書 §6.3.2 の仮想化）。 */
 export function visibleRange(
   scrollTop: number,

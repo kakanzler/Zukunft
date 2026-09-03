@@ -7,7 +7,9 @@ import {
   type ScheduleTask,
   type ZoomLevel,
   type ISODate,
+  type Milestone,
   collectMilestones,
+  mergeMilestones,
   createTimeScale,
   defaultTimelineEnd,
   detectCycles,
@@ -21,14 +23,17 @@ import type { GanttTheme } from "./theme"
 import { TaskPane } from "./TaskPane"
 import { Timeline } from "./Timeline"
 import { isTyping } from "./keyboard"
-import { MILESTONE_LANE, buildRows, visibleRange } from "./rows"
+import { buildRows, visibleRange } from "./rows"
 
 const ROW_HEIGHT = 32
 /** タイムラインの上に貼り付く月・週ヘッダの高さ。選択行がこの下に隠れないようにする。 */
 const THEAD_HEIGHT = 48
+/** ヘッダの直下に貼り付くマイルストーン行の高さ。他の行と同じにして横並びを保つ。 */
+const MILESTONE_ROW_HEIGHT = ROW_HEIGHT
 
 /** 既定値をその場で書くと毎回別の配列になり、行の再計算が止まらなくなる。 */
 const EMPTY_PARENTS: string[] = []
+const EMPTY_MILESTONES: Milestone[] = []
 
 export type GanttChartProps = {
   tasks: ScheduleTask[]
@@ -60,6 +65,11 @@ export type GanttChartProps = {
    * 閉じたときにどこを見ていたのか分からなくなる。
    */
   keyboardEnabled?: boolean
+  /**
+   * リポジトリ側のマイルストーン一覧。Issue が 1 件も付いていないものも
+   * 盤面に出すために使う。渡さない読み取り専用ビューは Issue 側だけで描く。
+   */
+  milestones?: Milestone[]
   /** タスクが 0 件のときに出す案内 */
   emptyMessage?: ReactNode
   toolbar?: ReactNode
@@ -70,7 +80,7 @@ export type GanttChartProps = {
 export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
-  emptyMessage, toolbar, subHeader,
+  milestones: repositoryMilestones = EMPTY_MILESTONES, emptyMessage, toolbar, subHeader,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
@@ -108,7 +118,10 @@ export function GanttChart({
     return createTimeScale(origin, end, zoom)
   }, [tasks, zoom, endOverride, defaultEnd])
 
-  const milestones = useMemo(() => collectMilestones(tasks), [tasks])
+  const milestones = useMemo(
+    () => mergeMilestones(collectMilestones(tasks), repositoryMilestones),
+    [tasks, repositoryMilestones],
+  )
   // 依存関係は Issue 本文の宣言から起こす。折り畳みやズームでは変わらない。
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks])
   // 循環した依存は成立しない日程を表している。消さずに、そうと分かる線で描く。
@@ -117,9 +130,7 @@ export function GanttChart({
     [tasks, dependencies],
   )
   const visible = useMemo(
-    // 上の帯のぶんを引いてから行番号に直す。引かないと、いちばん上まで
-    // 戻したときに 1 行目が描画の範囲から外れる。
-    () => visibleRange(scrollTop - MILESTONE_LANE, viewportHeight, ROW_HEIGHT, rows.length),
+    () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
     [scrollTop, viewportHeight, rows.length],
   )
 
@@ -143,8 +154,10 @@ export function GanttChart({
   const revealRow = useCallback((rowIndex: number) => {
     const el = timelineRef.current
     if (!el) return
-    const top = MILESTONE_LANE + rowIndex * ROW_HEIGHT
-    const viewHeight = el.clientHeight - THEAD_HEIGHT
+    const top = rowIndex * ROW_HEIGHT
+    // 上に居座る 2 段（月・週ヘッダとマイルストーン行）は視野ではない。
+    // 引かないと、k で上へ戻ったとき選択行が固定行の裏に入って見えなくなる。
+    const viewHeight = el.clientHeight - THEAD_HEIGHT - MILESTONE_ROW_HEIGHT
     if (top < el.scrollTop) el.scrollTop = top
     else if (top + ROW_HEIGHT > el.scrollTop + viewHeight) {
       el.scrollTop = top + ROW_HEIGHT - viewHeight

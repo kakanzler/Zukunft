@@ -1,7 +1,6 @@
 "use client"
 
 import { isScheduled } from "@zukunft/domain"
-import { MILESTONE_LANE } from "./rows"
 import type { Row } from "./rows"
 
 type Props = {
@@ -18,86 +17,90 @@ export function TaskPane({
   rows, rowHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
 }: Props) {
   return (
-    // 盤面はマイルストーンの帯のぶん行が下がっている。ここも同じだけ空けないと
-    // 左の行名と右のバーが横にずれる。
-    <div style={{ height: rows.length * rowHeight + MILESTONE_LANE, position: "relative" }}>
-      {rows.slice(visible.start, visible.end).map((row, i) => {
-        const index = visible.start + i
-        const style = {
-          position: "absolute" as const,
-          top: MILESTONE_LANE + index * rowHeight,
-          left: 0,
-          right: 0,
-          height: rowHeight,
-          // 親カテゴリを使うと 2 階層になる。字下げが唯一の手掛かりなので、
-          // .zk-row の左パディングに深さの分を足す。
-          paddingLeft: `calc(var(--space) * 3 + ${row.depth * 14}px)`,
-        }
+    <>
+      {/* 盤面のマイルストーン行と対になる見出し。高さも貼り付き方も向こうと
+          揃えないと、以降の行がまるごと横にずれて見える。
+          畳めないので、グループ見出しと違ってクリックは受けない。 */}
+      <div className="zk-pane-milestone" style={{ height: rowHeight }}>MILESTONE</div>
+      <div style={{ height: rows.length * rowHeight, position: "relative" }}>
+        {rows.slice(visible.start, visible.end).map((row, i) => {
+          const index = visible.start + i
+          const style = {
+            position: "absolute" as const,
+            top: index * rowHeight,
+            left: 0,
+            right: 0,
+            height: rowHeight,
+            // 親カテゴリを使うと 2 階層になる。字下げが唯一の手掛かりなので、
+            // .zk-row の左パディングに深さの分を足す。
+            paddingLeft: `calc(var(--space) * 3 + ${row.depth * 14}px)`,
+          }
 
-        if (row.kind === "group") {
-          const groupKey = row.groupKey
+          if (row.kind === "group") {
+            const groupKey = row.groupKey
+            return (
+              <div
+                key={row.key}
+                className="zk-row zk-row--group"
+                style={style}
+                /* ラベルの組み合わせは名前が長くなり ellipsis で切れる。 */
+                title={row.label}
+                onClick={() => onToggleGroup(groupKey)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onToggleGroup(groupKey)
+                }}
+                aria-expanded={!row.collapsed}
+              >
+                <span>{row.collapsed ? "▸" : "▾"}</span>
+                {row.color && (
+                  <span className="zk-legend-dot" style={{ background: row.color }} />
+                )}
+                <span className="zk-row-title">{row.label}</span>
+                <span className="zk-row-number">{row.count}</span>
+              </div>
+            )
+          }
+
+          const task = row.task
+          const assignee = task.assignees[0]
+          const classes = ["zk-row"]
+          if (!isScheduled(task)) classes.push("zk-row--unscheduled")
+          if (task.id === selectedTaskId) classes.push("zk-row--selected")
           return (
             <div
               key={row.key}
-              className="zk-row zk-row--group"
-              style={style}
-              /* ラベルの組み合わせは名前が長くなり ellipsis で切れる。 */
-              title={row.label}
-              onClick={() => onToggleGroup(groupKey)}
-              role="button"
-              tabIndex={0}
+              className={classes.join(" ")}
+              aria-selected={task.id === selectedTaskId}
+              style={{ ...style, cursor: onTaskOpen ? "pointer" : undefined }}
+              title={`#${task.issueNumber} ${task.title}`}
+              onClick={() => onTaskOpen?.(task.id)}
+              role={onTaskOpen ? "button" : undefined}
+              tabIndex={onTaskOpen ? 0 : undefined}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onToggleGroup(groupKey)
+                if (onTaskOpen && (e.key === "Enter" || e.key === " ")) onTaskOpen(task.id)
               }}
-              aria-expanded={!row.collapsed}
             >
-              <span>{row.collapsed ? "▸" : "▾"}</span>
-              {row.color && (
-                <span className="zk-legend-dot" style={{ background: row.color }} />
+              <span className={`zk-sync zk-sync--${task.syncState}`} aria-label={task.syncState} />
+              <span className="zk-row-number">#{task.issueNumber}</span>
+              <span className="zk-row-title">{task.title}</span>
+              {assignee?.avatarUrl ? (
+                <img className="zk-avatar" src={assignee.avatarUrl} alt={assignee.login}
+                     title={assignee.login} />
+              ) : (
+                // アバター URL が無い場合（未アサイン、またはモックデータ）は
+                // 壊れた画像アイコンを出さず、頭文字のプレースホルダにする。
+                <span className="zk-avatar zk-avatar--empty" title={assignee?.login ?? "unassigned"}
+                      aria-label={assignee?.login ?? "unassigned"}
+                      style={{ display: "grid", placeItems: "center", fontSize: 9 }}>
+                  {assignee ? assignee.login.slice(0, 1).toUpperCase() : ""}
+                </span>
               )}
-              <span className="zk-row-title">{row.label}</span>
-              <span className="zk-row-number">{row.count}</span>
             </div>
           )
-        }
-
-        const task = row.task
-        const assignee = task.assignees[0]
-        const classes = ["zk-row"]
-        if (!isScheduled(task)) classes.push("zk-row--unscheduled")
-        if (task.id === selectedTaskId) classes.push("zk-row--selected")
-        return (
-          <div
-            key={row.key}
-            className={classes.join(" ")}
-            aria-selected={task.id === selectedTaskId}
-            style={{ ...style, cursor: onTaskOpen ? "pointer" : undefined }}
-            title={`#${task.issueNumber} ${task.title}`}
-            onClick={() => onTaskOpen?.(task.id)}
-            role={onTaskOpen ? "button" : undefined}
-            tabIndex={onTaskOpen ? 0 : undefined}
-            onKeyDown={(e) => {
-              if (onTaskOpen && (e.key === "Enter" || e.key === " ")) onTaskOpen(task.id)
-            }}
-          >
-            <span className={`zk-sync zk-sync--${task.syncState}`} aria-label={task.syncState} />
-            <span className="zk-row-number">#{task.issueNumber}</span>
-            <span className="zk-row-title">{task.title}</span>
-            {assignee?.avatarUrl ? (
-              <img className="zk-avatar" src={assignee.avatarUrl} alt={assignee.login}
-                   title={assignee.login} />
-            ) : (
-              // アバター URL が無い場合（未アサイン、またはモックデータ）は
-              // 壊れた画像アイコンを出さず、頭文字のプレースホルダにする。
-              <span className="zk-avatar zk-avatar--empty" title={assignee?.login ?? "unassigned"}
-                    aria-label={assignee?.login ?? "unassigned"}
-                    style={{ display: "grid", placeItems: "center", fontSize: 9 }}>
-                {assignee ? assignee.login.slice(0, 1).toUpperCase() : ""}
-              </span>
-            )}
-          </div>
-        )
-      })}
-    </div>
+        })}
+      </div>
+    </>
   )
 }

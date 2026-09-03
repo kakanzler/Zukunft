@@ -6,7 +6,7 @@ import {
   createTimeScale,
   edgeKey,
 } from "@zukunft/domain"
-import { buildRows, visibleRange, MILESTONE_LANE, type Row } from "../src/rows"
+import { buildRows, visibleRange, type Row } from "../src/rows"
 import { glowVar, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
 import { barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
@@ -243,7 +243,9 @@ const count = (haystack: string, pattern: RegExp): number =>
   // 横切って、どちらが先かが読めなくなる。
   eq("a backwards arrow leaves the left edge of the waiting bar", back[0]!.x1, 128)
   eq("a backwards arrow lands on the right edge of the bar it waits for", back[0]!.x2, 64)
-  eq("arrow ends sit on the vertical middle of their rows", [back[0]!.y1, back[0]!.y2], [70, 38])
+  // マイルストーンを本体の外に出したので、行の y は行番号そのもの（帯のぶんの下駄は無い）。
+  // 矢印だけ下駄を履いたままだと、線がバーから外れた高さに出る。
+  eq("arrow ends sit on the vertical middle of their rows", [back[0]!.y1, back[0]!.y2], [48, 16])
   eq("an arrow is coloured from its own status to the target's", [back[0]!.fromColor, back[0]!.toColor],
      ["var(--status-1-to)", "var(--status-0-to)"])
 
@@ -348,12 +350,14 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("row titles come straight from the tasks",
      [...html.matchAll(/class="zk-row-title">([^<]*)</g)].map((m) => m[1]),
      ["TODO", "設計", "実装", "IN PROGRESS", "日付未定"])
-  // 盤面はマイルストーンの帯のぶん下がっている。左ペインが同じだけ空けないと
-  // 行名とバーが横にずれる。
-  eq("the pane is as tall as its rows plus the milestone lane",
-     html.includes(`height:${rows.length * ROW_HEIGHT + MILESTONE_LANE}px`), true)
-  eq("the first row is placed below the milestone lane",
-     html.includes(`top:${MILESTONE_LANE}px`), true)
+  // マイルストーンは行の外（貼り付く見出し行）に出したので、本体には余白が無い。
+  // 余分な帯が残っていると、左の行名と右のバーが横にずれる。
+  eq("the pane is exactly as tall as its rows", html.includes(`height:${rows.length * ROW_HEIGHT}px`), true)
+  eq("the first row starts at the top of the body", html.includes("top:0;"), true)
+  // 貼り付く見出しは盤面側の帯と対。片方だけ消えると以降の行が横にずれる。
+  eq("the pane opens with the milestone heading", count(html, /class="zk-pane-milestone"/g), 1)
+  // 畳めない見出しなので、グループ見出しの当たり判定を持ってはいけない。
+  eq("the milestone heading is not clickable", html.includes('zk-pane-milestone" role='), false)
   // 日付の無いタスクはバーが出ない。左で見分けが付かないと「消えた」に見える。
   eq("a task with no dates is marked unscheduled", count(html, /zk-row--unscheduled/g), 1)
 
@@ -364,7 +368,7 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("only the visible slice of rows is built", count(windowed, /class="zk-row[ "]/g), 2)
   eq("a row outside the visible slice is not built", windowed.includes("日付未定"), false)
   // slice の先頭を 0 から数え直すと、スクロールした瞬間に全行が上へ跳ぶ。
-  eq("a windowed row keeps its absolute position", windowed.includes(`top:${MILESTONE_LANE + 1 * ROW_HEIGHT}px`), true)
+  eq("a windowed row keeps its absolute position", windowed.includes(`top:${1 * ROW_HEIGHT}px`), true)
 
   const selected = renderToStaticMarkup(
     <TaskPane rows={rows} rowHeight={ROW_HEIGHT} visible={{ start: 0, end: rows.length }}
@@ -393,8 +397,10 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("the board draws one bar per scheduled task", count(html, /class="zk-bar"/g), 2)
   eq("a milestone inside the range gets a diamond", count(html, /class="zk-milestone"/g), 1)
   eq("a milestone past the end of the axis is dropped", html.includes("圏外"), false)
-  eq("the board is as tall as its rows plus the milestone lane",
-     html.includes(`height="${rows.length * 32 + MILESTONE_LANE}"`), true)
+  // 菱形は本体の外の、貼り付く 1 行に描く。本体に描くと下へ辿った先で消える。
+  eq("the milestone lives in its own pinned row", count(html, /class="zk-milestone-row"/g), 1)
+  // その帯を出した以上、本体には余白が要らない。残っていると左ペインとずれる。
+  eq("the board is exactly as tall as its rows", html.includes(`height="${rows.length * 32}"`), true)
   eq("the board is as wide as the time scale", html.includes(`width="${scale.width}"`), true)
 
   const empty = renderToStaticMarkup(

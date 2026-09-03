@@ -16,7 +16,6 @@ import {
 } from "@zukunft/domain"
 import { glowVar, statusSlot, statusVar } from "./colors"
 import type { GanttTheme } from "./theme"
-import { MILESTONE_LANE } from "./rows"
 import type { Row } from "./rows"
 import { type DragState, useBarDrag } from "./useBarDrag"
 
@@ -94,8 +93,7 @@ export function Timeline({
     [scale, currentDay],
   )
 
-  // 上にマイルストーンの帯を空けるぶん、盤面は行の合計より高い。
-  const bodyHeight = rows.length * rowHeight + MILESTONE_LANE
+  const bodyHeight = rows.length * rowHeight
   const blue = theme === "blue-system"
 
   /**
@@ -140,6 +138,28 @@ export function Timeline({
             {t.label}
           </div>
         ))}
+      </div>
+
+      {/* マイルストーンは盤面と一緒には流さない。本体の SVG に描くと、
+          行を下へ辿った先で期日がどこにも見えなくなる。月・週ヘッダと同じ作りの
+          帯にして、縦には貼り付かせ、横だけ盤面と一緒に流す。 */}
+      <div className="zk-milestone-row" style={{ width: scale.width, height: rowHeight }}>
+        <svg width={scale.width} height={rowHeight} style={{ display: "block" }}>
+          {milestones.map((m) => {
+            if (m.dueOn < scale.origin || m.dueOn > scale.end) return null
+            const x = scale.toX(m.dueOn) + scale.pxPerDay / 2
+            const cy = rowHeight / 2
+            return (
+              <g key={m.title}>
+                <path
+                  className="zk-milestone"
+                  d={`M ${x} ${cy - 6} L ${x + 6} ${cy} L ${x} ${cy + 6} L ${x - 6} ${cy} Z`}
+                />
+                <text className="zk-milestone-label" x={x + 10} y={cy}>{m.title}</text>
+              </g>
+            )
+          })}
+        </svg>
       </div>
 
       {/* overflow: visible は blue-system のとき。x=0 のバーの発光と輪郭が
@@ -203,7 +223,7 @@ export function Timeline({
             <rect
               key={`sel-${row.key}`}
               className="zk-row-selected-band"
-              x={0} y={MILESTONE_LANE + index * rowHeight}
+              x={0} y={index * rowHeight}
               width={scale.width} height={rowHeight}
             />
           )
@@ -246,7 +266,7 @@ export function Timeline({
 
         {rows.slice(visible.start, visible.end).map((row, i) => {
           const index = visible.start + i
-          const y = MILESTONE_LANE + index * rowHeight
+          const y = index * rowHeight
           if (row.kind === "group") return null
           const task = row.task
           if (!isScheduled(task)) return null
@@ -304,17 +324,6 @@ export function Timeline({
             />
           </g>
         ))}
-
-        {milestones.map((m) => {
-          if (m.dueOn < scale.origin || m.dueOn > scale.end) return null
-          const x = scale.toX(m.dueOn) + scale.pxPerDay / 2
-          return (
-            <g key={m.title}>
-              <path className="zk-milestone" d={`M ${x} 4 L ${x + 6} 10 L ${x} 16 L ${x - 6} 10 Z`} />
-              <text className="zk-milestone-label" x={x + 10} y={10}>{m.title}</text>
-            </g>
-          )
-        })}
       </svg>
 
       {drag && (
@@ -541,8 +550,8 @@ export function buildLinks(
     const fw = barWidth(from.task, scale)
     const tx = scale.toX(to.task.startDate)
     const tw = barWidth(to.task, scale)
-    const y1 = MILESTONE_LANE + from.index * rowHeight + rowHeight / 2
-    const y2 = MILESTONE_LANE + to.index * rowHeight + rowHeight / 2
+    const y1 = from.index * rowHeight + rowHeight / 2
+    const y2 = to.index * rowHeight + rowHeight / 2
 
     // 依存先が手前にあるか。あるなら左端から出て、依存先の右端に刺す。
     const backwards = tx + tw <= fx + fw

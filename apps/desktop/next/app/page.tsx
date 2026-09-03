@@ -1280,6 +1280,18 @@ function Workspace({
     [changeDates, autoReschedule],
   )
 
+  /**
+   * 盤面に出すマイルストーンの候補。リポジトリ単位で取ったものを 1 本に並べる。
+   *
+   * Issue から集めた分だけを渡すと、まだ Issue の付いていないマイルストーンが
+   * 盤面に出ない。畳み込みと期日順の整理は GanttChart の中（mergeMilestones）に任せる。
+   * useMemo なのは、毎レンダリング別の配列になると盤面の再計算が止まらないため。
+   */
+  const allMilestones = useMemo(
+    () => Object.values(milestonesByRepo).flat(),
+    [milestonesByRepo],
+  )
+
   // GanttChart の keydown リスナが毎レンダリング張り直されないよう、関数の identity を保つ。
   const openTaskDetail = useCallback((taskId: string) => {
     setOpenTaskEditing(false)
@@ -1431,6 +1443,7 @@ function Workspace({
         zoom={zoom}
         groupBy={groupBy}
         parentLabels={parentLabels}
+        milestones={allMilestones}
         theme={ganttTheme}
         onTaskDatesChange={changeTaskDates}
         readOnly={!editable}

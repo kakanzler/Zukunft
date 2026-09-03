@@ -108,8 +108,10 @@
    自前で計算する羽目になる。要素自身の背景なら子より先に塗られるので、
    z-index も pointer-events も要らず、.zk-pane は何もせず不透明のまま。
 
-   放射の中心を上端 0% ではなく 26% に置くのは、.zk-thead が 48px の不透明な帯で
-   上を覆っているため。右下の赤を 94% にするのは横スクロールバーのぶん。
+   放射の中心を上端 0% ではなく 26% に置くのは、上を不透明な帯が覆っているため
+   （.zk-thead の 48px と .zk-milestone-row の 32px で 80px）。26% のままでよいのは、
+   盤面の高さがどのみち 80px よりずっと大きく、中心は帯の下に残るから。
+   右下の赤を 94% にするのは横スクロールバーのぶん。
 
    ここに filter / backdrop-filter / transform / will-change を足してはいけない。
    .zk-tooltip は position: fixed のまま .zk-timeline の子なので、祖先が
@@ -393,6 +395,38 @@
 }
 .zk-thead-month { top: 0; color: var(--text-primary); font-weight: 600; }
 .zk-thead-sub { top: 24px; }
+
+/* ---- マイルストーン行 ----
+
+   月・週ヘッダの真下に貼り付く 1 行。縦だけ固定して横は盤面と一緒に流すので、
+   .zk-thead と同じ sticky の作りにし、top をヘッダの高さ（48px）に置く。
+
+   背景は必ず不透明にする。透けると、下から上がってくる行が菱形に重なって読めない。
+   高さは他の行と同じ --row-height。左ペインの .zk-pane-milestone と 1px でも
+   違うと、以降の行がまるごと横にずれて見える。 */
+.zk-milestone-row {
+  position: sticky; top: 48px; z-index: 2;
+  box-sizing: border-box;
+  height: var(--row-height);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* 左ペイン側の対。見た目はグループ見出しに寄せるが、畳めないので手も出さない
+   （cursor も aria-expanded も付けない）。 */
+.zk-pane-milestone {
+  position: sticky; top: 0; z-index: 2;
+  box-sizing: border-box;
+  height: var(--row-height);
+  display: flex; align-items: center;
+  padding: 0 calc(var(--space) * 3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--accent-cyan);
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
 
 /* ---- バー ---- */
 .zk-bar { cursor: grab; }
