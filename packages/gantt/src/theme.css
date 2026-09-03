@@ -262,6 +262,41 @@
   padding: calc(var(--space) * 4);
 }
 
+/* ---- 絞り込み ----
+
+   ヘッダと盤面のあいだに 1 段。条件は既定で畳んでおく（常に開いていると
+   盤面の高さを取る）が、件数だけは畳んでいても出す。出ないタスクを
+   「消えた」と誤解されると、同じ Issue をもう一度作られてしまう。 */
+.zk-filter {
+  flex: 0 0 auto;
+  padding: calc(var(--space) * 2) calc(var(--space) * 4);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.zk-filter-row {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  flex-wrap: wrap;
+}
+.zk-filter-text { width: 260px; }
+.zk-filter-closed {
+  display: flex; align-items: center; gap: calc(var(--space) * 1.5);
+  font-size: 11px; color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* 件数は右端へ寄せる。左の操作列と混ぜると、状態なのか操作なのか読めない。 */
+.zk-filter-count {
+  margin-left: auto;
+  font-size: 11px; color: var(--text-secondary);
+  white-space: nowrap;
+}
+.zk-filter-axes {
+  display: grid; gap: calc(var(--space) * 2);
+  margin-top: calc(var(--space) * 2);
+}
+.zk-filter-axis { display: grid; gap: calc(var(--space)); }
+/* 候補が多い軸でも段が伸び続けないように、この中でスクロールさせる。 */
+.zk-filter-axis .zk-label-picker { max-height: 84px; }
+
 /* ---- 本体（左ペイン + タイムライン） ---- */
 .zk-body { display: flex; flex: 1 1 auto; min-height: 0; }
 

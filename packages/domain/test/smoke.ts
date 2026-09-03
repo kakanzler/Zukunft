@@ -7,6 +7,7 @@ import {
   rollback, resolveWithRemote, resolveWithLocal, nextPending, pendingCount,
   undo, redo, canUndo, canRedo, mergeRefresh, findTask,
   normalizeFieldName, resolveField, canEditDates,
+  filterTasks, filterChoices, isFilterActive, EMPTY_FILTER, type TaskFilter,
   parseDependencyRefs, resolveDependencies, withDependencyRefs,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
   type ScheduleTask, type ProjectSchema,
@@ -561,6 +562,55 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   st = rollback(st, pushed.id)
   eq("rollback reverts the failed task", findTask(st, "i2")!.startDate, "2026-09-03")
   eq("rollback drops the whole group", canUndo(st), false)
+}
+
+// --- filter: 絞り込み ---
+{
+  const t = (n: number, over: Partial<ScheduleTask> = {}): ScheduleTask => ({
+    ...mk(n, "Planning", "2026-09-01", "2026-09-05", null),
+    issueNumber: 100 + n,
+    ...over,
+  })
+  const tasks: ScheduleTask[] = [
+    t(1, { title: "Project Kickoff", status: "Planning" }),
+    t(2, { title: "UI/UX Design", status: "In Progress", labels: [{ id: "l1", name: "design", color: "" }] }),
+    t(3, { title: "Backend", status: "In Progress", issueState: "CLOSED",
+           assignees: [{ login: "dev1", avatarUrl: "" }] }),
+    t(4, { title: "Go Live", status: "Complete", milestone: { id: "m", title: "v2", dueOn: "2026-10-01" } }),
+  ]
+  const f = (over: Partial<TaskFilter> = {}): TaskFilter => ({ ...EMPTY_FILTER, ...over })
+  const nums = (list: ScheduleTask[]) => list.map((x) => x.issueNumber)
+
+  eq("empty filter is a pass-through", filterTasks(tasks, EMPTY_FILTER).length, 4)
+  eq("empty filter is not active", isFilterActive(EMPTY_FILTER), false)
+
+  eq("matches the title", nums(filterTasks(tasks, f({ text: "design" }))), [102])
+  eq("title match ignores case", nums(filterTasks(tasks, f({ text: "DESIGN" }))), [102])
+  eq("matches the issue number", nums(filterTasks(tasks, f({ text: "103" }))), [103])
+  // 番号を貼り付けると # が付いてくる。落とさないとその人だけ何も出ない。
+  eq("leading hash is ignored", nums(filterTasks(tasks, f({ text: "#103" }))), [103])
+
+  eq("filters by status", nums(filterTasks(tasks, f({ statuses: ["In Progress"] }))), [102, 103])
+  eq("several values in one axis are OR",
+     nums(filterTasks(tasks, f({ statuses: ["Planning", "Complete"] }))), [101, 104])
+  eq("filters by label", nums(filterTasks(tasks, f({ labels: ["design"] }))), [102])
+  eq("filters by assignee", nums(filterTasks(tasks, f({ assignees: ["dev1"] }))), [103])
+  eq("filters by milestone", nums(filterTasks(tasks, f({ milestones: ["v2"] }))), [104])
+
+  // 軸をまたぐ条件は AND
+  eq("axes are ANDed",
+     nums(filterTasks(tasks, f({ statuses: ["In Progress"], labels: ["design"] }))), [102])
+
+  eq("closed issues are included by default", nums(filterTasks(tasks, f({ text: "Backend" }))), [103])
+  eq("closed issues can be hidden",
+     nums(filterTasks(tasks, f({ includeClosed: false }))), [101, 102, 104])
+  eq("hiding closed counts as active", isFilterActive(f({ includeClosed: false })), true)
+
+  const choices = filterChoices(tasks)
+  eq("choices keep the status order", choices.statuses, ["Planning", "In Progress", "Complete"])
+  eq("choices list labels", choices.labels, ["design"])
+  eq("choices list assignees", choices.assignees, ["dev1"])
+  eq("choices list milestones", choices.milestones, ["v1", "v2"])
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)

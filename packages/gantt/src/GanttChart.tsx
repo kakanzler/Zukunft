@@ -63,12 +63,14 @@ export type GanttChartProps = {
   /** タスクが 0 件のときに出す案内 */
   emptyMessage?: ReactNode
   toolbar?: ReactNode
+  /** ヘッダの直下に敷く帯。絞り込みなど、盤面の見え方を決めるものを置く */
+  subHeader?: ReactNode
 }
 
 export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
-  emptyMessage, toolbar,
+  emptyMessage, toolbar, subHeader,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
@@ -249,6 +251,8 @@ export function GanttChart({
           </button>
         </label>
       </div>
+
+      {subHeader}
 
       {tasks.length === 0 ? (
         <div className="zk-empty">{emptyMessage ?? "表示できるタスクがありません。"}</div>

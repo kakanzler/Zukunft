@@ -14,11 +14,16 @@ import type {
   RepositorySummary,
   ZoomLevel,
 } from "@zukunft/domain"
+import type { TaskFilter } from "@zukunft/domain"
 import {
+  EMPTY_FILTER,
   ZOOM_LEVELS,
   canEditDates,
   detectCycles,
+  filterChoices,
+  filterTasks,
   formatCycle,
+  isFilterActive,
   missingRequiredFields,
   resolveField,
 } from "@zukunft/domain"
@@ -29,6 +34,7 @@ import type { GitHubScheduleRepository } from "@zukunft/github"
 import { getRepository, isTauri } from "@/repository"
 import { SignIn } from "@/SignIn"
 import { CategorySettings } from "@/CategorySettings"
+import { FilterBar } from "@/FilterBar"
 import { ManualModal } from "@/ManualModal"
 import { SettingsModal } from "@/SettingsModal"
 import { LogPane } from "@/LogPane"
@@ -262,6 +268,19 @@ function Workspace({
   const [openTaskEditing, setOpenTaskEditing] = useState(false)
   const openTask = schedule.tasks.find((t) => t.id === openTaskId) ?? null
 
+
+  // 一覧の絞り込み。Project を切り替えたら外す — 別の Project の Status や
+  // ラベルで絞ったまま「1 件も無い」を見せない。
+  const [filter, setFilter] = useState<TaskFilter>(EMPTY_FILTER)
+  useEffect(() => {
+    setFilter(EMPTY_FILTER)
+  }, [projectId])
+
+  const visibleTasks = useMemo(
+    () => filterTasks(schedule.tasks, filter),
+    [schedule.tasks, filter],
+  )
+  const choices = useMemo(() => filterChoices(schedule.tasks), [schedule.tasks])
 
   const [creatingOpen, setCreatingOpen] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
@@ -1032,6 +1051,22 @@ function Workspace({
    *
    * 設定は書き換えないので、次の起動は保存済みの見せ方に戻る。
    */
+  // / で絞り込みの入力欄へ飛ぶ。打っている最中は拾わない。
+  useEffect(() => {
+    if (anyModalOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.altKey || e.ctrlKey || e.metaKey) return
+      if (isTyping()) return
+      const input = document.querySelector<HTMLInputElement>("[data-zk-filter-input]")
+      if (!input) return
+      e.preventDefault()
+      input.focus()
+      input.select()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [anyModalOpen])
+
   useEffect(() => {
     if (anyModalOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1143,7 +1178,7 @@ function Workspace({
           消してしまう方が、狭い窓でもログが実際に読める高さになる。 */}
       {!logFull && (
       <GanttChart
-        tasks={schedule.tasks}
+        tasks={visibleTasks}
         statusOrder={statuses}
         zoom={zoom}
         groupBy={groupBy}
@@ -1158,9 +1193,22 @@ function Workspace({
         emptyMessage={
           schedule.load.phase === "loading"
             ? "読み込み中…"
-            : "この Project にまだ Issue がありません。GitHub で Issue を Project に追加してください。"
+            : isFilterActive(filter)
+              ? "絞り込みに一致する Issue がありません。条件を外すと全件に戻ります。"
+              : "この Project にまだ Issue がありません。GitHub で Issue を Project に追加してください。"
         }
         toolbar={toolbar}
+        subHeader={
+          projectId ? (
+            <FilterBar
+              filter={filter}
+              choices={choices}
+              shown={visibleTasks.length}
+              total={schedule.tasks.length}
+              onChange={setFilter}
+            />
+          ) : null
+        }
       />
       )}
       <LogPane log={log} full={logFull} onToggleFull={() => setLogFull((v) => !v)} />
