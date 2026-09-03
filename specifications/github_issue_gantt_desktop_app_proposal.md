@@ -465,7 +465,17 @@ type TimeScale = {
 
 #### 6.4.1 デザイントークン
 
-ダークテーマを既定かつ唯一のテーマとする（M1 ではライトテーマを用意しない）。
+暗い盤面を前提とする（ライトテーマは用意しない）。
+
+意匠そのものは 1 つに固定せず、Settings の Preference で選べる。
+
+| 値 | 内容 |
+|---|---|
+| `default` | 既定。`specifications/apeearance/appearance_gantt.jpg` に従う青・シアン・紫・緑 |
+| `blue-system` | 青を基調にし、今日線とマイルストーンだけを赤で差す。`appearnace_bar_and_others.jpg` に従う |
+
+色・線幅・発光・背景はトークンで切り替え（`[data-gantt-theme]`）、形が違うところは
+`GanttChart` の `theme` から分岐する。選んだ値は再起動後も保つ。
 
 | トークン | 用途 | 参考値 |
 |---|---|---|
@@ -667,8 +677,13 @@ mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $date: Date!) {
 
 #### 7.3.4 必須フィールドが無い Project
 
-`Start Date` / `Target Date` / `Status` のいずれかが存在しない Project を開いた場合、
-Gantt を描画せずセットアップ画面を表示する。
+`Start Date` / `Target Date` / `Status` のいずれかが存在しない Project を開いた場合の
+扱いは実装で変えた。**Gantt は描画したまま、編集だけを閉じる。**
+
+日付フィールドが無い Project でも、Issue の一覧とラベルの様子は見る価値がある。
+描画ごと止めると「何も無い」のか「設定が足りない」のかが画面から読めない。
+不足はログに 1 行出し、ドラッグと日付入力を無効にして伝える
+（`packages/domain/src/schedule.ts` の `canEditDates`）。
 
 - 不足しているフィールド名と型を一覧表示する
 - M1 では**アプリからフィールドを自動作成しない**。GitHub 上で作成する手順を案内するに留める
@@ -800,7 +815,7 @@ WebView が OS ごとに異なる（WebView2 / WKWebView / WebKitGTK）ため
 | | Desktop App | Vercel Web |
 |---|---|---|
 | 方式 | GitHub OAuth **Device Flow** | fine-grained PAT（環境変数） |
-| 権限 | Issues: Read / Projects: Read & Write | Projects: Read のみ |
+| 権限 | `repo` + `project`（classic scope） | Projects: Read のみ |
 | 保管先 | OS Secure Storage（Keychain / Credential Manager / Secret Service） | Vercel の環境変数（サーバ側のみ） |
 | 保持者 | エンドユーザー個人 | サイト運営者 |
 
@@ -809,6 +824,21 @@ Device Flow を採る理由は、デスクトップアプリにリダイレク�
 
 プロトタイプ段階では Personal Access Token の手入力も許容するが、
 M1 の完了条件には Device Flow の実装を含める。
+
+#### なぜ `repo` まで要るか
+
+当初は「Issues: Read / Projects: Read & Write」で足りる想定だったが、
+実装した書き込みがそれを超えている。Issue の作成・クローズ・削除、ラベル定義の
+作成・削除（`createLabel` / `deleteLabel`）、Issue 本文とタイトルの更新はいずれも
+リポジトリへの書き込みで、classic scope では `repo` に含まれる。
+
+`repo` は**そのアカウントが触れる全リポジトリへの書き込み**を意味する。
+Zukunft が実際に書くのは Project に載っている Issue だけだが、スコープとしては
+それより広い権限を要求している。§17 の「必要最小限の権限のみ要求する」は、
+この範囲では満たしていない（未決事項 Q-10）。
+
+fine-grained PAT なら対象リポジトリを選んで絞れるが、Projects v2 への書き込みを
+fine-grained で通す構成は未検証。
 
 原則：
 
@@ -1169,8 +1199,13 @@ M1 では検出漏れを許容し、より強い保証は将来の課題とす�
 - Vercel に書き込み可能な Token を置かない
 - Desktop App にのみ GitHub Write 権限を持たせる
 - Token を平文で保存しない（OS Secure Storage を使う）
+  - ただし開発用に環境変数 `ZUKUNFT_GITHUB_TOKEN` を資格情報ストアより優先する
+    経路がある。設定した本人にしか使えないが、この原則からは外れる
 - Token を WebView 側（JavaScript）に渡さない。API 呼び出しは Rust 層で完結させる
-- 必要最小限の GitHub 権限のみ要求する
+- GitHub 権限は必要な範囲に絞る
+  - **現状は満たしていない**。実装した書き込み（Issue の作成・削除、ラベル定義の
+    作成・削除）が classic scope の `repo` を要求するため、対象外のリポジトリへの
+    書き込み権限まで含む。§11 と Q-10 を参照
 - API 操作を GitHub Adapter に集約する
 - ログ・エラーメッセージに Token を出力しない
 
@@ -1205,7 +1240,9 @@ GitHub API
 UI では、§16.1 の5状態（Synced / Syncing / Pending / Failed / Conflict）を明示する。
 
 - タスク行ごとの状態アイコン
-- ヘッダに「未同期 n 件」のサマリ
+- 「未同期 n 件」はログに 1 行流す（ヘッダの常時表示はやめた）
+  - 状態が変わったときだけ出し、同じ事象は畳む。件数が増えても行は増えない。
+    ヘッダに常駐させると、解決するまで場所を取り続けるため
 - Failed / Conflict はクリックで詳細と対処（再試行・ロールバック・再読込）を提示
 
 エラーメッセージは GitHub の生のレスポンスをそのまま出さず、
@@ -1431,15 +1468,16 @@ Vercel の Serverless 環境に無理に Backend 機能を詰め込まず、シ�
 
 | # | 論点 | 内容 |
 |---|---|---|
-| Q-1 | Project のフィールド構成の強制 | `Start Date` / `Target Date` という名前を要求してよいか。名前をユーザーが設定でマッピングできるようにすべきか |
+| Q-1 | Project のフィールド構成の強制 | **一部決定済み**: 名前は完全一致を要求せず、表記ゆれを別名で吸収する（`FIELD_ALIASES`）。ユーザーが設定でマッピングする案は未着手 |
 | Q-2 | フィールドの自動作成 | 不足フィールドを `createProjectV2Field` で自動作成するか。書き込み権限の範囲が広がる |
-| Q-3 | 複数リポジトリ Project | 1つの Project が複数リポジトリの Issue を含む場合の表示・グルーピング方針 |
+| Q-3 | 複数リポジトリ Project | **一部決定済み**: 依存関係の番号解決は同一リポジトリを優先し、曖昧なら繋がない（§15.1）。表示のまとめ方（リポジトリ別のグループ）は未決 |
 | Q-4 | 競合検出の限界 | Projects v2 にバージョン番号が無く、`updatedAt` 比較では検出漏れが起こり得る（§16.3） |
-| Q-5 | Vercel の読み取りトークン | 誰のトークンを使うか。公開する Project の許可リストをどこに持つか |
+| Q-5 | Vercel の読み取りトークン | **一部決定済み**: 許可リストは環境変数 `ZUKUNFT_PUBLIC_PROJECT_IDS`、トークンは `ZUKUNFT_GITHUB_READ_TOKEN`（いずれもサーバ側のみ）。誰のトークンを使うかは運用の判断として未決 |
 | Q-6 | 署名・自動更新 | デスクトップアプリのコード署名・公証・自動更新をいつ導入するか。M1 は未署名配布 |
 | Q-7 | WebView 差異 | OS ごとの WebView で SVG の描画・ドラッグ挙動に差が出ないかの検証が必要 |
 | Q-8 | 依存関係の保存先 | **決定済み**: Issue の本文に `blocked-by: #101` の形で持つ。Projects v2 のフィールドは Project の設定に手を入れないと使えないため採らなかった（§15.1） |
-| Q-9 | ディレクトリ名 | `specifications/apeearance/` は `appearance` の綴り誤りと思われる。リネームするか |
+| Q-9 | ディレクトリ名 | `specifications/apeearance/` は `appearance` の綴り誤りと思われる。リネームするか。現在 4 ファイル（うち 2 つは §6.4.1 の意匠の出どころ） |
+| Q-10 | 要求スコープの広さ | classic scope の `repo` は全リポジトリへの書き込みを含む。fine-grained PAT で Projects v2 の書き込みまで賄えるかは未検証（§11 / §17） |
 
 ---
 
