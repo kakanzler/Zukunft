@@ -1,0 +1,12 @@
+# この Issue に担当として付けられるユーザーの一覧。付け外しの候補になる。
+# 読み落とすと、実際には割り当てられる人が候補に出ず、担当を外すことしかできない。
+query AssignableUsers($repositoryId: ID!, $after: String) {
+  node(id: $repositoryId) {
+    ... on Repository {
+      assignableUsers(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id login avatarUrl }
+      }
+    }
+  }
+}

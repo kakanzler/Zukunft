@@ -45,7 +45,10 @@ type RawItem = {
     url?: string
     state?: string
     updatedAt?: string
-    assignees?: { nodes?: ({ login: string; avatarUrl: string } | null)[] | null } | null
+    assignees?: {
+      nodes?: ({ id: string; login: string; avatarUrl: string } | null)[] | null
+      pageInfo?: RawPageInfo
+    } | null
     labels?: {
       nodes?: ({ id: string; name: string; color: string } | null)[] | null
       pageInfo?: RawPageInfo
@@ -161,8 +164,8 @@ export function mapTask(item: RawItem): ScheduleTask | null {
 
   const values = indexFieldValues(item)
   const assignees: Assignee[] = (content.assignees?.nodes ?? [])
-    .filter((a): a is Assignee => Boolean(a))
-    .map((a) => ({ login: a.login, avatarUrl: a.avatarUrl }))
+    .filter((a): a is Assignee => Boolean(a?.login))
+    .map((a) => ({ id: a.id ?? "", login: a.login, avatarUrl: a.avatarUrl ?? "" }))
 
   const labels: Label[] = (content.labels?.nodes ?? [])
     .filter((l): l is Label => Boolean(l?.name))
@@ -193,6 +196,7 @@ export function mapTask(item: RawItem): ScheduleTask | null {
     updatedAt: content.updatedAt ?? "",
     syncState: "synced",
     labelsComplete: isComplete(content.labels?.pageInfo),
+    assigneesComplete: isComplete(content.assignees?.pageInfo),
     fieldsComplete: isComplete(item.fieldValues?.pageInfo),
   }
 }

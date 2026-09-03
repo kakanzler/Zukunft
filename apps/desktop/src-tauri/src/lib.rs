@@ -217,6 +217,7 @@ async fn update_task_content(
             title,
             &content.body,
             content.label_ids.as_deref(),
+            content.assignee_ids.as_deref(),
             content.milestone_id.as_deref(),
         )
         .await?;
@@ -256,6 +257,16 @@ async fn set_parent_issue(
 #[tauri::command]
 async fn list_labels(state: State<'_>, repository_id: String) -> Result<Vec<Label>, AppError> {
     state.client()?.repository_labels(&repository_id).await
+}
+
+/// この Issue に担当として付けられるユーザー。
+/// ラベルと違い作成の口は無い。候補は権限に応じて GitHub 側が決める。
+#[tauri::command]
+async fn list_assignable_users(
+    state: State<'_>,
+    repository_id: String,
+) -> Result<Vec<Assignee>, AppError> {
+    state.client()?.assignable_users(&repository_id).await
 }
 
 /// Issue に設定できる Milestone の候補（OPEN のみ）。
@@ -704,6 +715,7 @@ pub fn run() {
             get_parent_issue,
             set_parent_issue,
             list_labels,
+            list_assignable_users,
             list_milestones,
             create_label,
             delete_label,

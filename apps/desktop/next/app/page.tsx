@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
+  Assignee,
   DateChange,
   GroupMode,
   IssueState,
@@ -324,6 +325,8 @@ function Workspace({
   const [labelsByRepo, setLabelsByRepo] = useState<Record<string, Label[]>>({})
   // Milestone 候補も同じくリポジトリ単位。
   const [milestonesByRepo, setMilestonesByRepo] = useState<Record<string, Milestone[]>>({})
+  // 担当候補も同じくリポジトリ単位。誰を割り当てられるかは権限で変わる。
+  const [assigneesByRepo, setAssigneesByRepo] = useState<Record<string, Assignee[]>>({})
   const log = useLog()
   // 依存配列に入れてよいのはこちら。log そのものは entries が変わるたびに
   // identity が変わるので、通信する effect の依存に入れると回り続ける。
@@ -554,7 +557,7 @@ function Workspace({
   }, [projectId])
 
   /**
-   * リポジトリのラベルと Milestone を、まだ無ければ取っておく。
+   * リポジトリのラベル・担当候補・Milestone を、まだ無ければ取っておく。
    * 詳細を開いたタスクだけでなく新規 Issue の作成先でも要るので、
    * 「どのリポジトリの分か」を引数にして両方から呼べる形にしている。
    *
@@ -582,6 +585,25 @@ function Workspace({
           })
       }
       if (
+        !assigneesByRepo[repositoryId] &&
+        !attempted.current.has(`assignees:${repositoryId}`)
+      ) {
+        attempted.current.add(`assignees:${repositoryId}`)
+        void repository
+          .listAssignableUsers(repositoryId)
+          .then((list) => setAssigneesByRepo((prev) => ({ ...prev, [repositoryId]: list })))
+          .catch((error) => {
+            const err =
+              error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+            logAppend({
+              level: "warn",
+              message: "担当の候補を取得できませんでした",
+              hint: `${err.message}　担当を付け替えられません。`,
+              dedupeKey: `assignees:${repositoryId}`,
+            })
+          })
+      }
+      if (
         !milestonesByRepo[repositoryId] &&
         !attempted.current.has(`milestones:${repositoryId}`)
       ) {
@@ -601,7 +623,7 @@ function Workspace({
           })
       }
     },
-    [repository, labelsByRepo, milestonesByRepo, logAppend],
+    [repository, labelsByRepo, assigneesByRepo, milestonesByRepo, logAppend],
   )
 
   // 詳細を開いたタスクのリポジトリの分
@@ -1503,6 +1525,7 @@ function Workspace({
           priorityOptions={priorityOptions}
           canEditProgress={canEditProgress}
           availableLabels={labelsByRepo[openTask.repositoryId] ?? []}
+          availableAssignees={assigneesByRepo[openTask.repositoryId] ?? []}
           parentLabels={parentLabels}
           labelCatalog={labelCandidates}
           onDesignateParentLabels={designateParentLabels}

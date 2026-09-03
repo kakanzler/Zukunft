@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import type {
+  Assignee,
   DateChange,
   ISODate,
   IssueState,
@@ -15,6 +16,7 @@ import type {
 import { DependencyEditor } from "@/DependencyEditor"
 import { ParentIssuePicker } from "@/ParentIssuePicker"
 import { LabelEditor } from "@/LabelEditor"
+import { AssigneeEditor } from "@/AssigneeEditor"
 import { ParentCategoryPicker } from "@/ParentCategoryPicker"
 import { Markdown } from "@/Markdown"
 import {
@@ -49,6 +51,8 @@ type Props = {
   canEditProgress?: boolean
   /** リポジトリに定義済みのラベル。編集モードの候補になる */
   availableLabels: Label[]
+  /** この Issue に担当として付けられるユーザー。編集モードの候補になる */
+  availableAssignees: Assignee[]
   /**
    * 親カテゴリとして扱うラベル名（カテゴリ設定の値）。
    * 編集モードで、この Issue をどの親カテゴリに置くかを選ばせるのに使う。
@@ -117,7 +121,8 @@ export function TaskModal({
   task, canEditDates, savingContent, savingStatus, savingField,
   savingState, deleting, statusOptions,
   priorityOptions = EMPTY_OPTIONS, canEditProgress = false,
-  availableLabels, parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
+  availableLabels, availableAssignees,
+  parentLabels = EMPTY_PARENT_LABELS, labelCatalog = EMPTY_LABELS,
   allTasks = EMPTY_TASKS, availableMilestones, onCreateLabel, onDeleteLabel,
   onDesignateParentLabels, onLoadParentIssue, onChangeParentIssue,
   onChangeDates, onChangeStatus, onChangePriority, onChangeProgress,
@@ -142,6 +147,7 @@ export function TaskModal({
   const [title, setTitle] = useState(task.title)
   const [body, setBody] = useState(task.body)
   const [labels, setLabels] = useState<Label[]>(task.labels)
+  const [assignees, setAssignees] = useState<Assignee[]>(task.assignees)
   const [milestoneId, setMilestoneId] = useState(task.milestone?.id ?? "")
   // 依存関係は本文に書いてある。編集中は本文とは別に持ち、保存のときに書き戻す。
   const [dependsOn, setDependsOn] = useState<number[]>(() => parseDependencyRefs(task.body))
@@ -187,9 +193,10 @@ export function TaskModal({
     setTitle(task.title)
     setBody(task.body)
     setLabels(task.labels)
+    setAssignees(task.assignees)
     setMilestoneId(task.milestone?.id ?? "")
     setDependsOn(parseDependencyRefs(task.body))
-  }, [task.title, task.body, task.labels, task.milestone, editing])
+  }, [task.title, task.body, task.labels, task.assignees, task.milestone, editing])
 
   // 別のタスクを開いたら削除の確認は持ち越さない。
   // 前の行で出した確認をそのまま押すと、意図しない Issue を消してしまう。
@@ -202,11 +209,12 @@ export function TaskModal({
     setTitle(task.title)
     setBody(task.body)
     setLabels(task.labels)
+    setAssignees(task.assignees)
     setMilestoneId(task.milestone?.id ?? "")
     setDependsOn(parseDependencyRefs(task.body))
     setEditing(false)
     setConfirmingDelete(false)
-  }, [task.title, task.body, task.labels, task.milestone])
+  }, [task.title, task.body, task.labels, task.assignees, task.milestone])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -263,6 +271,11 @@ export function TaskModal({
     !task.labelsComplete ||
     (labels.length === task.labels.length &&
       labels.every((l) => task.labels.some((t) => t.id === l.id)))
+  // 読み切れていない担当は送らないので、触れていても「変更なし」として扱う。
+  const sameAssignees =
+    !task.assigneesComplete ||
+    (assignees.length === task.assignees.length &&
+      assignees.every((a) => task.assignees.some((t) => t.id === a.id)))
   const savedDeps = parseDependencyRefs(task.body)
   const sameDeps =
     dependsOn.length === savedDeps.length && dependsOn.every((n) => savedDeps.includes(n))
@@ -270,6 +283,7 @@ export function TaskModal({
     title !== task.title ||
     body !== task.body ||
     !sameLabels ||
+    !sameAssignees ||
     !sameDeps ||
     milestoneId !== (task.milestone?.id ?? "")
   const contentValid = title.trim() !== ""
@@ -287,6 +301,8 @@ export function TaskModal({
       // ラベルを読み切れていない Issue では触らない。置き換え集合として送ると、
       // 読めなかった分が Issue から永久に外れる。
       labelIds: task.labelsComplete ? labels.map((l) => l.id) : null,
+      // 担当も同じ置き換え集合。読み切れていない Issue では触らない。
+      assigneeIds: task.assigneesComplete ? assignees.map((a) => a.id) : null,
       milestoneId: milestoneId === "" ? null : milestoneId,
     })
     setEditing(false)
@@ -305,6 +321,7 @@ export function TaskModal({
       title: task.title,
       body: toggleTaskListItem(task.body, index),
       labelIds: task.labelsComplete ? task.labels.map((l) => l.id) : null,
+      assigneeIds: task.assigneesComplete ? task.assignees.map((a) => a.id) : null,
       milestoneId: task.milestone?.id ?? null,
       // いま見えているものへの即時操作なので、基準は今の値でよい。
       expectedUpdatedAt: task.updatedAt,
@@ -572,6 +589,20 @@ export function TaskModal({
               onDelete={(label) => onDeleteLabel(task.repositoryId, label)}
             />
             )}
+            {!task.assigneesComplete && (
+              <div className="zk-label-confirm">
+                この Issue の担当を全部読めていないため、担当の変更はできません。
+                保存しても、いま付いている担当はそのまま残ります。
+              </div>
+            )}
+            {task.assigneesComplete && (
+              <AssigneeEditor
+                selected={assignees}
+                available={availableAssignees}
+                busy={savingContent}
+                onChange={setAssignees}
+              />
+            )}
             <DependencyEditor
               tasks={allTasks}
               taskId={task.id}
@@ -605,10 +636,16 @@ export function TaskModal({
           {/* モックには枠が無いが、担当・Priority・Progress は落とさずここに畳んでおく。 */}
           <span className="zk-task-meta-inline">
             依存: {savedDeps.length === 0 ? "—" : savedDeps.map((n) => `#${n}`).join(", ")}
-            {"　/　"}
-            {task.assignees.length === 0
-              ? "未アサイン"
-              : task.assignees.map((a) => a.login).join(", ")}
+            {/* 編集モードでは担当は AssigneeEditor が持つ。ここにも出すと、
+                どちらを直せば効くのかが読めなくなる。 */}
+            {!editing && (
+              <>
+                {"　/　"}
+                {task.assignees.length === 0
+                  ? "未アサイン"
+                  : task.assignees.map((a) => a.login).join(", ")}
+              </>
+            )}
             {"　/　"}
             {/* Priority と Progress は Status と同じくその場で変更できる。
                 Project にフィールドが無いときは、変えられないものを操作させても

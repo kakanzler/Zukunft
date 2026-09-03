@@ -1,4 +1,5 @@
 import type {
+  Assignee,
   DateChange,
   IssueState,
   Label,
@@ -115,6 +116,14 @@ export interface GitHubScheduleRepository {
 
   /** リポジトリに定義済みのラベル。Issue に付け外しする候補 */
   listLabels(repositoryId: string): Promise<Label[]>
+
+  /**
+   * この Issue に担当として付けられるユーザー。Issue に付け外しする候補。
+   *
+   * ラベルと違い作成の口は無い。GitHub のユーザーはこちらでは作れず、
+   * 候補は権限に応じて GitHub 側が決める。
+   */
+  listAssignableUsers(repositoryId: string): Promise<Assignee[]>
 
   /** Issue に設定できる Milestone の候補（OPEN のみ） */
   listMilestones(repositoryId: string): Promise<Milestone[]>

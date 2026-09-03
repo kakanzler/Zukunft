@@ -30,6 +30,7 @@ fragment FieldValues on ProjectV2ItemFieldValueConnection {
 #
 # labels に pageInfo を取るのは updateIssue の labelIds が「置き換え集合」だから。
 # 読み切れていない状態で送ると、読めなかったラベルが Issue から永久に外れる。
+# assignees も assigneeIds が同じ置き換え集合なので、同じく pageInfo を取る。
 fragment IssueContent on Issue {
   id
   number
@@ -38,7 +39,10 @@ fragment IssueContent on Issue {
   body
   state
   updatedAt
-  assignees(first: 20) { nodes { login avatarUrl } }
+  assignees(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { id login avatarUrl }
+  }
   labels(first: 100) {
     pageInfo { hasNextPage }
     nodes { id name color }

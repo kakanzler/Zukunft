@@ -2,8 +2,9 @@
 # Projects v2 のフィールドではなく Issue そのものを書き換えるため、
 # 対象は item id ではなく Issue の node id。
 # milestoneId は null を渡すと Milestone を外す（未指定と区別しない）。
-mutation UpdateIssue($issueId: ID!, $title: String!, $body: String!, $labelIds: [ID!], $milestoneId: ID) {
-  updateIssue(input: { id: $issueId, title: $title, body: $body, labelIds: $labelIds, milestoneId: $milestoneId }) {
+# assigneeIds も labelIds と同じ置き換え集合。渡さなければ担当は変わらない。
+mutation UpdateIssue($issueId: ID!, $title: String!, $body: String!, $labelIds: [ID!], $assigneeIds: [ID!], $milestoneId: ID) {
+  updateIssue(input: { id: $issueId, title: $title, body: $body, labelIds: $labelIds, assigneeIds: $assigneeIds, milestoneId: $milestoneId }) {
     issue { id number title url body updatedAt }
   }
 }

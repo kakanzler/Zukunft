@@ -79,7 +79,7 @@ const mk = (n: number, s: string, start: string, end: string, prog: number | nul
   id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", issueState: "OPEN", startDate: start, endDate: end,
   status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30" },
   progress: prog, updatedAt: "2026-08-01T00:00:00Z", syncState: "synced",
-  labelsComplete: true, fieldsComplete: true,
+  labelsComplete: true, assigneesComplete: true, fieldsComplete: true,
 })
 const tasks = [mk(1, "Planning", "2026-09-01", "2026-09-07", 100), mk(2, "Review", "2026-09-08", "2026-09-21", 0)]
 eq("stats", computeStats(tasks), { taskCount: 2, weekCount: 3, milestoneCount: 1, completePercent: 50 })
@@ -615,7 +615,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
     t(1, { title: "Project Kickoff", status: "Planning" }),
     t(2, { title: "UI/UX Design", status: "In Progress", labels: [{ id: "l1", name: "design", color: "" }] }),
     t(3, { title: "Backend", status: "In Progress", issueState: "CLOSED",
-           assignees: [{ login: "dev1", avatarUrl: "" }] }),
+           assignees: [{ id: "u1", login: "dev1", avatarUrl: "" }] }),
     t(4, { title: "Go Live", status: "Complete", milestone: { id: "m", title: "v2", dueOn: "2026-10-01" } }),
   ]
   const f = (over: Partial<TaskFilter> = {}): TaskFilter => ({ ...EMPTY_FILTER, ...over })

@@ -44,7 +44,7 @@ const item = (over: Record<string, unknown> = {}) => ({
     body: "本文",
     state: "OPEN",
     updatedAt: "2026-08-01T00:00:00Z",
-    assignees: { nodes: [{ login: "dev1", avatarUrl: "" }] },
+    assignees: { pageInfo: { hasNextPage: false }, nodes: [{ id: "u1", login: "dev1", avatarUrl: "" }] },
     labels: { pageInfo: { hasNextPage: false }, nodes: [{ id: "l1", name: "design", color: "a855f7" }] },
     repository: { id: "repo-1" },
     milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30T00:00:00Z" },
@@ -63,10 +63,11 @@ const item = (over: Record<string, unknown> = {}) => ({
   eq("maps status", task.status, "In Progress")
   eq("maps progress", task.progress, 40)
   eq("maps labels", task.labels, [{ id: "l1", name: "design", color: "a855f7" }])
-  eq("maps assignees", task.assignees, [{ login: "dev1", avatarUrl: "" }])
+  eq("maps assignees", task.assignees, [{ id: "u1", login: "dev1", avatarUrl: "" }])
   // dueOn は日時で返るが、扱いは日付に揃える
   eq("milestone dueOn is a date", task.milestone!.dueOn, "2026-09-30")
-  eq("complete by default", [task.labelsComplete, task.fieldsComplete], [true, true])
+  eq("complete by default",
+     [task.labelsComplete, task.assigneesComplete, task.fieldsComplete], [true, true, true])
 }
 
 // --- mapTask: 表記ゆれと欠落 ---
@@ -112,19 +113,31 @@ const item = (over: Record<string, unknown> = {}) => ({
   eq("truncated labels are flagged", labelsCut.labelsComplete, false)
   eq("truncated labels do not affect fields", labelsCut.fieldsComplete, true)
 
+  // assigneeIds も置き換え集合なので、読み切れていないまま保存させてはいけない。
+  const assigneesCut = mapTask(item({
+    content: {
+      ...item().content,
+      assignees: { pageInfo: { hasNextPage: true }, nodes: [{ id: "u1", login: "dev1", avatarUrl: "" }] },
+    },
+  }))!
+  eq("truncated assignees are flagged", assigneesCut.assigneesComplete, false)
+  eq("truncated assignees do not affect labels", assigneesCut.labelsComplete, true)
+
   const fieldsCut = mapTask(item({
     fieldValues: { pageInfo: { hasNextPage: true }, nodes: [] },
   }))!
   eq("truncated field values are flagged", fieldsCut.fieldsComplete, false)
   eq("truncated fields do not affect labels", fieldsCut.labelsComplete, true)
+  eq("truncated fields do not affect assignees", fieldsCut.assigneesComplete, true)
 
   // pageInfo が無い応答は「読み切った」に倒す
   const noPageInfo = mapTask(item({
     fieldValues: { nodes: [] },
-    content: { ...item().content, labels: { nodes: [] } },
+    content: { ...item().content, labels: { nodes: [] }, assignees: { nodes: [] } },
   }))!
   eq("absent pageInfo counts as complete",
-     [noPageInfo.labelsComplete, noPageInfo.fieldsComplete], [true, true])
+     [noPageInfo.labelsComplete, noPageInfo.assigneesComplete, noPageInfo.fieldsComplete],
+     [true, true, true])
 }
 
 // --- mapTasks: ページの終わりを endCursor で表す ---

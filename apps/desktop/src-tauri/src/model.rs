@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Assignee {
+    /// ユーザーの node id。Issue への付け外しに使う
+    pub id: String,
     pub login: String,
     pub avatar_url: String,
 }
@@ -61,6 +63,12 @@ pub struct ScheduleTask {
     /// updateIssue の labelIds は「置き換え集合」なので、読み切れていない状態で
     /// 保存すると読めなかったラベルが Issue から永久に外れる。false なら送らない。
     pub labels_complete: bool,
+    /// この Issue の担当を全部読めているか。
+    ///
+    /// updateIssue の assigneeIds もラベルと同じ「置き換え集合」なので、
+    /// 読み切れていない状態で保存すると読めなかった担当が Issue から外れる。
+    /// false なら送らない。
+    pub assignees_complete: bool,
     /// この item のフィールド値を全部読めているか。
     ///
     /// Projects v2 は値の入っている全フィールドを返すため、独自フィールドが増えると
@@ -127,6 +135,10 @@ pub struct TaskContent {
     /// 付け替え後のラベル。指定した集合で置き換える。
     /// None は「ラベルに触らない」（読み切れていないときに使う）
     pub label_ids: Option<Vec<String>>,
+    /// 付け替え後の担当。ラベルと同じ置き換え集合。
+    /// None は「担当に触らない」（読み切れていないときに使う）
+    #[serde(default)]
+    pub assignee_ids: Option<Vec<String>>,
     /// 付け替え後の Milestone の node id。None は「マイルストーンを外す」
     pub milestone_id: Option<String>,
     /// 編集を始めた時点の updatedAt。空なら競合を見ない（企画書 §16.3）

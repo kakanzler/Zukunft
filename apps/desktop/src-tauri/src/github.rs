@@ -30,6 +30,8 @@ const UPDATE_ISSUE_KEEP_LABELS: &str =
     include_str!("../../../../packages/github/src/queries/updateIssueKeepLabels.graphql");
 const REPOSITORY_LABELS: &str =
     include_str!("../../../../packages/github/src/queries/repositoryLabels.graphql");
+const ASSIGNABLE_USERS: &str =
+    include_str!("../../../../packages/github/src/queries/assignableUsers.graphql");
 const REPOSITORY_MILESTONES: &str =
     include_str!("../../../../packages/github/src/queries/repositoryMilestones.graphql");
 const CREATE_LABEL: &str =
@@ -348,12 +350,17 @@ impl GitHubClient {
     /// label_ids が None のときは labelIds を持たない別のドキュメントを送る。
     /// 変数を null にするのではなく input からキーごと落とすことで、
     /// 「ラベルには触らない」を曖昧さなく表す。
+    ///
+    /// assignee_ids も同じ置き換え集合だが、こちらは変数を載せないだけで済む。
+    /// 値の無い変数を使った input のキーは GraphQL 側で丸ごと落ちるので、
+    /// ドキュメントを分けなくても「担当には触らない」になる。
     pub async fn update_issue(
         &self,
         issue_id: &str,
         title: &str,
         body: &str,
         label_ids: Option<&[String]>,
+        assignee_ids: Option<&[String]>,
         milestone_id: Option<&str>,
     ) -> AppResult<()> {
         let mut variables = json!({
@@ -364,6 +371,10 @@ impl GitHubClient {
             // 変数を省くと GitHub 側は「変更しない」と解釈するため、明示的に載せる。
             "milestoneId": milestone_id,
         });
+        // None のときはキーごと載せない。null を載せると「担当を全部外す」になる。
+        if let Some(ids) = assignee_ids {
+            variables["assigneeIds"] = json!(ids);
+        }
         let document = match label_ids {
             Some(ids) => {
                 variables["labelIds"] = json!(ids);
@@ -396,6 +407,28 @@ impl GitHubClient {
             labels.extend(nodes.into_iter().flatten().filter_map(read_label));
         }
         Ok(labels)
+    }
+
+    /// この Issue に担当として付けられるユーザー。
+    /// 読み落とすと、実際には割り当てられる人が候補に出ない。
+    pub async fn assignable_users(&self, repository_id: &str) -> AppResult<Vec<Assignee>> {
+        let pages = self
+            .pages(
+                ASSIGNABLE_USERS,
+                json!({ "repositoryId": repository_id }),
+                &["node", "assignableUsers"],
+            )
+            .await?;
+        let mut users = Vec::new();
+        for data in &pages {
+            let nodes = data
+                .get("node")
+                .and_then(|n| n.get("assignableUsers"))
+                .and_then(|u| u.get("nodes"))
+                .and_then(Value::as_array);
+            users.extend(nodes.into_iter().flatten().filter_map(read_assignee));
+        }
+        Ok(users)
     }
 
     /// Issue に設定できる Milestone の候補（OPEN のみ）。
@@ -765,6 +798,16 @@ fn read_label(value: &Value) -> Option<Label> {
     })
 }
 
+/// 担当 1 人ぶん。id が無いものは落とす。
+/// 付け外しは node id で送るので、id を欠いたまま選ばせると必ず失敗する。
+fn read_assignee(value: &Value) -> Option<Assignee> {
+    Some(Assignee {
+        id: value.get("id")?.as_str()?.to_owned(),
+        login: value.get("login")?.as_str()?.to_owned(),
+        avatar_url: value.get("avatarUrl").and_then(Value::as_str).unwrap_or("").to_owned(),
+    })
+}
+
 /// id の無い Milestone は Issue に設定できないので落とす。
 fn read_milestone(value: &Value) -> Option<Milestone> {
     Some(Milestone {
@@ -830,20 +873,7 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
         .get("assignees")
         .and_then(|a| a.get("nodes"))
         .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|a| {
-                    Some(Assignee {
-                        login: a.get("login")?.as_str()?.to_owned(),
-                        avatar_url: a
-                            .get("avatarUrl")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_owned(),
-                    })
-                })
-                .collect()
-        })
+        .map(|list| list.iter().filter_map(read_assignee).collect())
         .unwrap_or_default();
 
     let labels = content
@@ -914,6 +944,7 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
             .to_owned(),
         sync_state: "synced".to_owned(),
         labels_complete: is_complete(content.get("labels")),
+        assignees_complete: is_complete(content.get("assignees")),
         fields_complete: is_complete(item.get("fieldValues")),
     })
 }

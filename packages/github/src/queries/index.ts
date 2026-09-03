@@ -19,6 +19,7 @@ import updateNumberField from "./updateNumberField.graphql"
 import updateIssue from "./updateIssue.graphql"
 import updateIssueKeepLabels from "./updateIssueKeepLabels.graphql"
 import repositoryLabels from "./repositoryLabels.graphql"
+import assignableUsers from "./assignableUsers.graphql"
 import repositoryMilestones from "./repositoryMilestones.graphql"
 import createLabel from "./createLabel.graphql"
 import deleteLabel from "./deleteLabel.graphql"
@@ -52,6 +53,9 @@ export const UPDATE_ISSUE = updateIssue
 /** ラベルを読み切れていないときに使う。labelIds を input ごと持たない。 */
 export const UPDATE_ISSUE_KEEP_LABELS = updateIssueKeepLabels
 export const REPOSITORY_LABELS = repositoryLabels
+
+/** Issue に担当として付けられるユーザー。ラベルと違い作成はできず、候補は GitHub 側が決める。 */
+export const ASSIGNABLE_USERS = assignableUsers
 
 /** Issue に設定できる Milestone の候補（OPEN のみ）。 */
 export const REPOSITORY_MILESTONES = repositoryMilestones

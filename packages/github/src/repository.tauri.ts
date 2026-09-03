@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type {
+  Assignee,
   ParentIssue,
   DateChange,
   IssueState,
@@ -124,6 +125,10 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
 
   listLabels(repositoryId: string): Promise<Label[]> {
     return call<Label[]>("list_labels", { repositoryId })
+  }
+
+  listAssignableUsers(repositoryId: string): Promise<Assignee[]> {
+    return call<Assignee[]>("list_assignable_users", { repositoryId })
   }
 
   listMilestones(repositoryId: string): Promise<Milestone[]> {

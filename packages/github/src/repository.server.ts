@@ -1,4 +1,5 @@
 import type {
+  Assignee,
   DateChange,
   IssueState,
   Label,
@@ -12,6 +13,7 @@ import type {
 } from "@zukunft/domain"
 import { mapMilestones, mapProjectSchema, mapTasks } from "./mapping"
 import {
+  ASSIGNABLE_USERS,
   LIST_PROJECTS,
   PROJECT_ITEMS,
   PROJECT_REPOSITORIES,
@@ -171,6 +173,26 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
       after = page?.pageInfo?.hasNextPage ? (page.pageInfo.endCursor ?? null) : null
     } while (after !== null)
     return labels
+  }
+
+  async listAssignableUsers(repositoryId: string): Promise<Assignee[]> {
+    type Page = {
+      nodes?: Assignee[]
+      pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }
+    }
+    const users: Assignee[] = []
+    let after: string | null = null
+    // 読み落とすと、実際には割り当てられる人が候補に出ない。
+    do {
+      const data: { node?: { assignableUsers?: Page } | null } = await this.#graphql(
+        ASSIGNABLE_USERS,
+        { repositoryId, after },
+      )
+      const page = data.node?.assignableUsers
+      users.push(...(page?.nodes ?? []))
+      after = page?.pageInfo?.hasNextPage ? (page.pageInfo.endCursor ?? null) : null
+    } while (after !== null)
+    return users
   }
 
   async listMilestones(repositoryId: string): Promise<Milestone[]> {

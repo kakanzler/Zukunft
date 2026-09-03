@@ -1,4 +1,5 @@
 import {
+  type Assignee,
   type DateChange,
   type IssueState,
   type Label,
@@ -41,9 +42,9 @@ export type MockOptions = {
   /** フィールドはあるが、どの Issue にも日付が入っていない状態を再現する */
   undated?: boolean
   /**
-   * ラベルやフィールド値を読み切れていない Issue を混ぜる。
+   * ラベル・担当・フィールド値を読み切れていない Issue を混ぜる。
    *
-   * 実際には Issue に 100 個を超えるラベルが付いた、あるいは Project の
+   * 実際には Issue に 100 個を超えるラベルや担当が付いた、あるいは Project の
    * フィールドが多くて日付が後ろへ押し出された、といった状況で起きる。
    * 用意しないと、その場合に編集を閉じる導線を実機で確かめられない。
    */
@@ -98,6 +99,14 @@ const LABELS: Label[] = [
   { id: "lbl-release", name: "release", color: "d93f0b" },
 ]
 
+/** 担当の候補。実物と同じく、アプリからは作れず GitHub 側が決めたものを選ぶだけ。 */
+const ASSIGNEES: Assignee[] = [
+  { id: "usr-dev1", login: "dev1", avatarUrl: "" },
+  { id: "usr-dev2", login: "dev2", avatarUrl: "" },
+  { id: "usr-dev3", login: "dev3", avatarUrl: "" },
+  { id: "usr-reviewer", login: "reviewer", avatarUrl: "" },
+]
+
 /** モックで依存関係を持たせる Issue の添字（直前の Issue に依存する）。 */
 const DEPENDS_ON = new Set([1, 4, 6, 7, 9, 10, 12, 13])
 /**
@@ -129,10 +138,7 @@ blocked-by: #${100 + i}
     endDate: addDays(origin, offset + duration - 1),
     status: STATUSES[statusIndex] ?? null,
     priority: i % 3 === 0 ? "High" : "Medium",
-    assignees:
-      i % 4 === 3
-        ? []
-        : [{ login: `dev${(i % 3) + 1}`, avatarUrl: "" }],
+    assignees: i % 4 === 3 ? [] : [ASSIGNEES[i % 3]!],
     // 一部はラベル無し、一部は複数ラベルにして Category 表示を試せるようにする
     labels:
       i % 5 === 4
@@ -149,21 +155,26 @@ blocked-by: #${100 + i}
     updatedAt: new Date().toISOString(),
     syncState: "synced" as const,
     labelsComplete: true,
+    assigneesComplete: true,
     fieldsComplete: true,
   }))
 }
 
 /**
  * 読み切れていない Issue を混ぜる。
- * #103 はラベルが、#106 はフィールド値が読み切れていない想定。
+ * #103 はラベルが、#105 は担当が、#106 はフィールド値が読み切れていない想定。
+ * 担当は「既に 1 人見えているが、それが全部とは限らない」状態が要るので、
+ * 未アサインの Issue ではなく担当が付いているものを選ぶ。
  */
 function withTruncation(tasks: ScheduleTask[]): ScheduleTask[] {
   return tasks.map((task) =>
     task.issueNumber === 103
       ? { ...task, labelsComplete: false }
-      : task.issueNumber === 106
-        ? { ...task, fieldsComplete: false, startDate: null, endDate: null }
-        : task,
+      : task.issueNumber === 105
+        ? { ...task, assigneesComplete: false }
+        : task.issueNumber === 106
+          ? { ...task, fieldsComplete: false, startDate: null, endDate: null }
+          : task,
   )
 }
 
@@ -260,6 +271,11 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     return this.#labels.map((l) => ({ ...l }))
   }
 
+  async listAssignableUsers(_repositoryId: string): Promise<Assignee[]> {
+    await this.#delay()
+    return ASSIGNEES.map((a) => ({ ...a }))
+  }
+
   async listMilestones(_repositoryId: string): Promise<Milestone[]> {
     await this.#delay()
     return this.#milestones.map((m) => ({ ...m }))
@@ -320,6 +336,13 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
           : content.labelIds
               .map((id) => this.#labels.find((l) => l.id === id))
               .filter((l): l is Label => Boolean(l)),
+      // 担当もラベルと同じ置き換え集合。null は「担当には触らない」。
+      assignees:
+        content.assigneeIds === null
+          ? current.assignees
+          : content.assigneeIds
+              .map((id) => ASSIGNEES.find((a) => a.id === id))
+              .filter((a): a is Assignee => Boolean(a)),
       // null は「外す」。知らない id は現状維持にして、
       // 候補の取得に失敗しただけでマイルストーンを黙って消さないようにする。
       milestone:
@@ -387,6 +410,7 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
       syncState: "synced",
       // 作ったばかりの Issue は、こちらが送った内容がそのまま全部。
       labelsComplete: true,
+      assigneesComplete: true,
       fieldsComplete: true,
     }
     this.#tasks = [...this.#tasks, created]

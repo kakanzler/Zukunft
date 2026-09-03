@@ -12,6 +12,8 @@ import type { ISODate } from "./date"
 export type SyncState = "synced" | "pending" | "syncing" | "failed" | "conflict"
 
 export type Assignee = {
+  /** ユーザーの node id。Issue への付け外しに使う */
+  id: string
   login: string
   avatarUrl: string
 }
@@ -74,6 +76,14 @@ export type ScheduleTask = {
    */
   labelsComplete: boolean
   /**
+   * この Issue の担当を全部読めているか。
+   *
+   * updateIssue の assigneeIds もラベルと同じ「置き換え集合」なので、
+   * 読み切れていない状態で保存すると、読めなかった担当が Issue から外れる。
+   * false のときは担当を送らない（変数を省くと GitHub は「変更しない」と解釈する）。
+   */
+  assigneesComplete: boolean
+  /**
    * この item のフィールド値を全部読めているか。
    *
    * Projects v2 は値の入っている全フィールドを返すため、独自フィールドが増えると
@@ -130,6 +140,14 @@ export type TaskContent = {
    * 永久に外れるため、そのときは null にする。
    */
   labelIds: string[] | null
+  /**
+   * 付け替え後の担当。指定した集合で置き換える。
+   *
+   * `null` は「担当に触らない」。ラベルとまったく同じ約束で、全担当を
+   * 読み切れていない Issue（`assigneesComplete === false`）で置き換えを
+   * 送ると、読めなかった分が Issue から外れるため、そのときは null にする。
+   */
+  assigneeIds: string[] | null
   /**
    * 付け替え後の Milestone の node id。
    * `null` は「マイルストーンを外す」を表す（未指定ではなく明示的な解除）。
