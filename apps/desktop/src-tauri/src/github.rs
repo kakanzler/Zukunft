@@ -489,7 +489,23 @@ impl GitHubClient {
     ) -> AppResult<Milestone> {
         let mut body = json!({ "title": title });
         if let Some(due) = due_on {
-            body["due_on"] = json!(format!("{due}T00:00:00Z"));
+            // 正午を指すのが要点。真夜中（T00:00:00Z）で送ると 1 日前になって返る。
+            //
+            // 実 API で確かめた結果（POST /repos/{owner}/{repo}/milestones）:
+            //   2026-09-25T00:00:00Z -> 2026-09-24   1 日戻る（夏・冬とも）
+            //   2026-09-25T07:00:00Z -> 2026-09-25   夏だけ正しい
+            //   2027-01-15T07:00:00Z -> 2027-01-14   冬はずれる
+            //   2026-09-25T12:00:00Z -> 2026-09-25   夏・冬とも正しい
+            // GitHub は受け取った日時を米国太平洋時間に直し、その暦日を期日にする。
+            // 真夜中 UTC は太平洋時間ではまだ前日なので、1 日戻る。
+            //
+            // 08:00Z でも通るが、それは冬の太平洋時間の真夜中ちょうどで余裕がない。
+            // 正午なら前後どちらにも数時間の余裕があり、GitHub が基準の時間帯を
+            // 変えても日付が動かない。
+            //
+            // なお PATCH では真夜中でもずれない。作成と更新で扱いが違うので、
+            // 更新の挙動を見て「問題ない」と判断しないこと。
+            body["due_on"] = json!(format!("{due}T12:00:00Z"));
         }
         if let Some(description) = description {
             body["description"] = json!(description);
