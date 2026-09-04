@@ -10,7 +10,7 @@ import {
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
 import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
-import { glowVar, statusSlot, statusVar } from "../src/colors"
+import { glowVar, rainbowColors, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
 import { MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
 import { KpiBar, StatusLegend } from "../src/KpiBar"
@@ -240,7 +240,8 @@ const count = (haystack: string, pattern: RegExp): number =>
     visible = all,
     cyclic = noCycle,
     drag: DragState | null = null,
-  ) => buildLinks(deps, placed, scale, ROW_HEIGHT, visible, cyclic, drag, "u")
+    blue = false,
+  ) => buildLinks(deps, placed, scale, ROW_HEIGHT, visible, cyclic, drag, "u", blue, placed.size)
 
   const back = links([{ fromTaskId: "b", toTaskId: "a" }])
   eq("a dependency with both ends drawn becomes one arrow", back.length, 1)
@@ -253,6 +254,12 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("arrow ends sit on the vertical middle of their rows", [back[0]!.y1, back[0]!.y2], [48, 16])
   eq("an arrow is coloured from its own status to the target's", [back[0]!.fromColor, back[0]!.toColor],
      ["var(--status-1-to)", "var(--status-0-to)"])
+  // blue-system ではバーが行の位置で虹色になったので、矢印もそれに揃える。
+  // 揃えないと矢印だけ古い Status の青系に取り残され、バーと食い違って見える。
+  const backBlue = links([{ fromTaskId: "b", toTaskId: "a" }], all, noCycle, null, true)
+  eq("in blue-system an arrow's colours follow the bars' rainbow, not Status",
+     [backBlue[0]!.fromColor, backBlue[0]!.toColor],
+     [rainbowColors(1, 2).to, rainbowColors(0, 2).to])
 
   const forward = links([{ fromTaskId: "a", toTaskId: "b" }])
   eq("a forward arrow leaves the right edge and lands on the left", [forward[0]!.x1, forward[0]!.x2], [64, 128])

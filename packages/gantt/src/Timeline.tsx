@@ -20,7 +20,7 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { glowVar, statusSlot, statusVar } from "./colors"
+import { glowVar, rainbowColors, statusSlot, statusVar } from "./colors"
 import { estimateLabelWidth } from "./milestones"
 import type { GanttTheme } from "./theme"
 import type { Row } from "./rows"
@@ -217,8 +217,11 @@ export function Timeline({
   // drag を placed の依存に入れると、ポインタが動くたびに全行の Map を作り直すことに
   // なる。辺の数はたかが知れているので、buildLinks の中で 1 本ずつ差し替える。
   const links = useMemo(
-    () => buildLinks(dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid),
-    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid],
+    () =>
+      buildLinks(
+        dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue, rows.length,
+      ),
+    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue, rows.length],
   )
 
   const msLinks = useMemo(
@@ -485,8 +488,8 @@ export function Timeline({
           return (
             <g key={row.key}>
               {dragging && <Bar task={task} y={y} scale={scale} rowHeight={rowHeight}
-                                statusIndex={row.statusIndex} index={index} blue={blue}
-                                uid={uid} ghost />}
+                                statusIndex={row.statusIndex} index={index} total={rows.length}
+                                blue={blue} uid={uid} ghost />}
               <g
                 className={dragging ? "zk-bar zk-bar--dragging" : "zk-bar"}
                 {...(readOnly
@@ -507,7 +510,8 @@ export function Timeline({
                 style={{ cursor: readOnly ? "pointer" : undefined }}
               >
                 <Bar task={shown} y={y} scale={scale} rowHeight={rowHeight}
-                     statusIndex={row.statusIndex} index={index} blue={blue} uid={uid} />
+                     statusIndex={row.statusIndex} index={index} total={rows.length}
+                     blue={blue} uid={uid} />
               </g>
             </g>
           )
@@ -587,6 +591,8 @@ type BarProps = {
   statusIndex: number
   /** 行番号。バーごとに要るグラデーションの id に使う */
   index: number
+  /** 盤面の行の総数。blue-system の虹色（行の位置で色相を決める）の分母に使う */
+  total: number
   /** この Timeline だけの id 接頭辞 */
   uid: string
   blue: boolean
@@ -633,14 +639,18 @@ function PlainBar({ task, y, scale, rowHeight, statusIndex, uid, ghost = false }
  * 発光（.zk-bar-glow）は塗りではなく全体を包む <g> に掛ける。塗りだけを光らせると、
  * くっきりした柱が光る塊の上に貼り付いて見える。
  */
-function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProps) {
+function BlueBar({ task, y, scale, rowHeight, statusIndex, index, total, uid }: BarProps) {
   const x = scale.toX(task.startDate)
   const width = barWidth(task, scale)
   const height = rowHeight - BAR_INSET * 2
   const top = y + BAR_INSET
-  const slot = statusSlot(statusIndex)
-  const solid = statusVar(statusIndex)
-  const glow = { "--bar-glow": glowVar(statusIndex) } as CSSProperties
+  // Status ではなく行の位置で色相を決める（企画書に無い、見た目だけの規則。
+  // colors.ts の rainbowColors のコメントに実測の根拠がある）。
+  const rainbow = rainbowColors(index, total)
+  const solid = rainbow.to
+  const glow = { "--bar-glow": rainbow.glow } as CSSProperties
+  const gradId = `${uid}-rbow-grad-${index}`
+  const edgeId = `${uid}-rbow-edge-${index}`
 
   // 細すぎるバーに淡いグラデーションを載せると消える。点として単色で描く。
   if (width < W_MARK) {
@@ -659,6 +669,22 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
 
   return (
     <g className="zk-bar-glow" style={glow}>
+      {/* このバーだけの塗り・輪郭グラデーション。Status の 4 色から選ぶのではなく
+          行ごとに色相が違うので、既定の 4 本の defs は使えず、バーごとに 1 組作る。
+          id は index で一意（同じ Timeline 内で行番号が重複しないため）。 */}
+      <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stopColor={rainbow.from} stopOpacity="0.06" />
+        <stop offset="22%" stopColor={rainbow.from} stopOpacity="0.26" />
+        <stop offset="60%" stopColor={rainbow.to} stopOpacity="0.66" />
+        <stop offset="100%" stopColor={rainbow.to} stopOpacity="1" />
+      </linearGradient>
+      {/* 輪郭。塗りが手放した左端をここで取り返すので、左をいちばん明るくする
+          （既定 4 色の輪郭グラデーションと同じ配分）。 */}
+      <linearGradient id={edgeId} x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stopColor={rainbow.to} stopOpacity="0.32" />
+        <stop offset="45%" stopColor={rainbow.to} stopOpacity="0.14" />
+        <stop offset="100%" stopColor={rainbow.to} stopOpacity="0.6" />
+      </linearGradient>
       {/* 進捗の座標系は「塗る幅」ではなく「バー全体」。既定の objectBoundingBox だと
           進捗 20% のときバーの 2 割の位置で白が最大になり、結局板に戻ってしまう。 */}
       {filled >= 3 && (
@@ -673,7 +699,7 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
         </linearGradient>
       )}
 
-      <path d={barPath(x, top, width, height)} fill={`url(#${uid}-grad-${slot})`} />
+      <path d={barPath(x, top, width, height)} fill={`url(#${gradId})`} />
 
       {filled >= 3 && (
         <>
@@ -698,7 +724,7 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
       {width >= W_OUTLINE && (
         <path className="zk-bar-outline"
               d={barPath(x + 0.5, top + 0.5, width - 1, height - 1)}
-              fill="none" stroke={`url(#${uid}-edge-${slot})`} />
+              fill="none" stroke={`url(#${edgeId})`} />
       )}
 
       {/* 開始日の柱。塗りがどれだけ透けても、ここだけは色で立たせる。 */}
@@ -810,6 +836,12 @@ export function buildLinks(
   cyclicEdges: ReadonlySet<string>,
   drag: DragState | null,
   uid: string,
+  /** blue-system かどうか。バーが虹色（行の位置基準）になったので、矢印の色も
+   *  それに揃える。揃えないと、矢印だけが古い Status の青系に取り残されて
+   *  バーと食い違って見える。 */
+  blue: boolean,
+  /** 盤面の行の総数。rainbowColors の分母（bars と同じ関数・同じ分母を使う）。 */
+  total: number,
 ): Link[] {
   // ドラッグ中のタスクは仮の日付で描く。確定するまで線が元の位置に残ると、
   // 依存先を見ながら日程を動かすことができない。
@@ -849,8 +881,8 @@ export function buildLinks(
       path: `M ${x1} ${y1} C ${x1 + out1 * bend} ${y1}, ${x2 + out2 * bend} ${y2}, ${x2} ${y2}`,
       head: `M ${x2} ${y2} L ${x2 + out2 * ARROW} ${y2 - ARROW / 2} L ${x2 + out2 * ARROW} ${y2 + ARROW / 2} Z`,
       x1, y1, x2, y2,
-      fromColor: statusVar(from.statusIndex),
-      toColor: statusVar(to.statusIndex),
+      fromColor: blue ? rainbowColors(from.index, total).to : statusVar(from.statusIndex),
+      toColor: blue ? rainbowColors(to.index, total).to : statusVar(to.statusIndex),
     })
   })
   return links
