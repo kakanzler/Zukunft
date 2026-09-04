@@ -215,21 +215,27 @@
 }
 
 /* 上に載る面を半透明にする（BlueSystem のみ）。地は .zk-root の --bg-base
-   （不透明）なので、透けても盤面の暗さは保たれる。0.5 では背後に何も無いと
-   透けて見えず、0.2 まで下げて初めて下地の違いが分かる。
+   （不透明）なので、透けても盤面の暗さは保たれる。
    透けて見せたいものは Settings の背景画像で選ぶ（page.tsx が、.zk-root を
    隙間なく覆う .zk-shell にインラインで敷く）。
    rgba を手で書くのは color-mix が WebView2 の版によって効かないため。
-   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に 0.2 を掛けたもの。 */
-[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.2); }
-[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.2); }
+
+   段階を 2 つに分ける。GANTT の本体（左ペイン・月週ヘッダ・マイルストーン帯）は
+   0.5——盤面はいちばん長く見る場所なので、地の質感を保ちながらも文字は
+   崩さない濃さにする。それより上（Project 選択・day/week/month の帯と、
+   タイトルで絞り込む行）とサイドバー・ログペインは 0.7——常に視野に入るが
+   長時間見つめる場所ではないので、より透けさせてよい。
+   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に掛けたもの。 */
+[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.5); }
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
-[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.2); }
-/* ヘッダ（Project 選択・day/week/month・New Issue の帯）。サイドバー・左ペイン・
-   ログ・盤面は透けるのに、ここだけ取り残されて不透明のままだった
-   （実機のスクリーンショットで確認）。同じ --bg-elevated に同じ 0.2 を掛ける。 */
-[data-gantt-theme="blue-system"] .zk-header { background: rgba(18, 29, 61, 0.2); }
+[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.5); }
+[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.7); }
+/* ヘッダ（Project 選択・day/week/month・New Issue の帯）とフィルタ行
+   （「番号かタイトルで絞り込む」）。GANTT の本体より上に固定されている帯なので、
+   本体側（0.5）とは別の濃さ（0.7）にする。 */
+[data-gantt-theme="blue-system"] .zk-header,
+[data-gantt-theme="blue-system"] .zk-filter { background: rgba(18, 29, 61, 0.7); }
 
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
    text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
@@ -251,13 +257,13 @@
    全体が明るいままで、盤面の闇へ向かう流れが出ない。42% で落としきり、
    そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  /* 階調の両端に 0.2 を掛ける（半透明は面ごとに揃える）。
-     #0e28ed -> rgba(14,40,237,.2) / #03093b -> rgba(3,9,59,.2) */
+  /* 階調の両端に 0.7 を掛ける（サイドバーはログペインと同じ濃さに揃える）。
+     #0e28ed -> rgba(14,40,237,.7) / #03093b -> rgba(3,9,59,.7) */
   background: linear-gradient(
     90deg,
-    rgba(14, 40, 237, 0.2) 0%,
-    rgba(3, 9, 59, 0.2) 42%,
-    rgba(3, 9, 59, 0.2) 100%
+    rgba(14, 40, 237, 0.7) 0%,
+    rgba(3, 9, 59, 0.7) 42%,
+    rgba(3, 9, 59, 0.7) 100%
   );
 }
 
