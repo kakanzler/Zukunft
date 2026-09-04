@@ -2,11 +2,13 @@ import { renderToStaticMarkup } from "react-dom/server"
 import {
   type ScheduleTask,
   type ScheduledTask,
+  type MilestoneMark,
   computeStats,
   createTimeScale,
   edgeKey,
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
+import { estimateLabelWidth, packMilestones } from "../src/milestones"
 import { glowVar, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
 import { barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
@@ -274,6 +276,39 @@ const count = (haystack: string, pattern: RegExp): number =>
   }
   eq("an arrow follows the dragged bar's preview dates",
      links([{ fromTaskId: "b", toTaskId: "a" }], all, noCycle, dragging)[0]!.x2, 288)
+}
+
+// --- milestones: 段組み ---
+{
+  const mark = (id: string, title: string, dueOn: string): MilestoneMark => ({ id, title, dueOn })
+  const scale = createTimeScale("2026-09-01", "2026-09-30", "day")
+  const pack = (marks: MilestoneMark[], fontSize = 12) =>
+    packMilestones(marks, scale.toX, scale.pxPerDay, fontSize)
+
+  eq("wide (CJK) characters are estimated wider than narrow ones",
+     estimateLabelWidth("あ", 12) > estimateLabelWidth("a", 12), true)
+
+  // 離れていれば重ならないので全部 1 段のまま。
+  const apart = pack([mark("m1", "v1", "2026-09-01"), mark("m2", "v2", "2026-09-20")])
+  eq("well-spaced milestones stay on one lane", apart.laneCount, 1)
+  eq("well-spaced milestones are all on lane 0", apart.placed.map((p) => p.lane), [0, 0])
+
+  // 隣り合っていて重なれば、期日が後ろのものが 2 段目へ送られる。
+  const overlapping = pack([mark("m1", "非常に長いマイルストーンの題名です", "2026-09-01"), mark("m2", "v2", "2026-09-02")])
+  eq("overlapping milestones split into two lanes", overlapping.laneCount, 2)
+  eq("the later due date is pushed to lane 1",
+     overlapping.placed.map((p) => p.lane), [0, 1])
+
+  // 3 つが隣接して重なれば 3 段になる。
+  const triple = pack([
+    mark("m1", "長いマイルストーンの題名A", "2026-09-01"),
+    mark("m2", "長いマイルストーンの題名B", "2026-09-02"),
+    mark("m3", "長いマイルストーンの題名C", "2026-09-03"),
+  ])
+  eq("three overlapping milestones need three lanes", triple.laneCount, 3)
+
+  // 0 件でも帯は消えない。
+  eq("an empty list still reports one lane", pack([]).laneCount, 1)
 }
 
 /*

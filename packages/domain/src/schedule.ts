@@ -37,6 +37,15 @@ export type Milestone = {
   dueOn: ISODate | null
 }
 
+/** 盤面に描くマイルストーン。色は呼び出し側が後から差す（ドメインは誰の色かを知らない）。 */
+export type MilestoneMark = {
+  id: string
+  title: string
+  dueOn: ISODate
+  /** 割り当てられたカテゴリの色（"#rrggbb"）。無ければテーマ既定で描く */
+  color?: string
+}
+
 /**
  * Gantt の 1 行に対応するタスク（企画書 §7.1）。
  * Projects v2 の item と、それが指す Issue を統合したもの。

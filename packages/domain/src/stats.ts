@@ -1,5 +1,5 @@
 import { type ISODate, diffDays, inclusiveDays } from "./date"
-import { type Milestone, type ScheduleTask, isScheduled } from "./schedule"
+import { type Milestone, type MilestoneMark, type ScheduleTask, isScheduled } from "./schedule"
 
 /** 下部 KPI タイルの値（企画書 §6.4.2）。 */
 export type ProjectStats = {
@@ -232,16 +232,16 @@ function sortByStart(a: ScheduleTask, b: ScheduleTask): number {
 }
 
 /** タスク群のマイルストーンを期日順に返す（重複は畳む）。 */
-export function collectMilestones(
-  tasks: ScheduleTask[],
-): { title: string; dueOn: ISODate }[] {
-  const seen = new Map<string, ISODate>()
+export function collectMilestones(tasks: ScheduleTask[]): MilestoneMark[] {
+  // 同名は 1 つに畳むが、色やカテゴリを後から割り当てるには id が要る。
+  // 先に見た方の id を採るのは、期日と同じく「出所で結果が揺れない」ため。
+  const seen = new Map<string, { id: string; dueOn: ISODate }>()
   for (const task of tasks) {
     const m = task.milestone
-    if (m?.dueOn && !seen.has(m.title)) seen.set(m.title, m.dueOn)
+    if (m?.dueOn && !seen.has(m.title)) seen.set(m.title, { id: m.id, dueOn: m.dueOn })
   }
   return [...seen.entries()]
-    .map(([title, dueOn]) => ({ title, dueOn }))
+    .map(([title, { id, dueOn }]) => ({ id, title, dueOn }))
     .sort((a, b) => diffDays(b.dueOn, a.dueOn))
 }
 
@@ -256,15 +256,17 @@ export function collectMilestones(
  * どちらも同じマイルストーンを指す以上、出所で結果が揺れない方が読みやすいため。
  */
 export function mergeMilestones(
-  fromTasks: { title: string; dueOn: ISODate }[],
+  fromTasks: MilestoneMark[],
   fromRepositories: Milestone[],
-): { title: string; dueOn: ISODate }[] {
-  const seen = new Map<string, ISODate>()
-  for (const m of fromTasks) if (!seen.has(m.title)) seen.set(m.title, m.dueOn)
+): MilestoneMark[] {
+  // 同名は 1 つに畳む。id も先に見た方（Issue 側）を残すのは、
+  // 期日と同じく出所で結果が揺れない方が読みやすいため。
+  const seen = new Map<string, { id: string; dueOn: ISODate }>()
+  for (const m of fromTasks) if (!seen.has(m.title)) seen.set(m.title, { id: m.id, dueOn: m.dueOn })
   for (const m of fromRepositories) {
-    if (m.dueOn && !seen.has(m.title)) seen.set(m.title, m.dueOn)
+    if (m.dueOn && !seen.has(m.title)) seen.set(m.title, { id: m.id, dueOn: m.dueOn })
   }
   return [...seen.entries()]
-    .map(([title, dueOn]) => ({ title, dueOn }))
+    .map(([title, { id, dueOn }]) => ({ id, title, dueOn }))
     .sort((a, b) => diffDays(b.dueOn, a.dueOn))
 }
