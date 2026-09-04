@@ -16,6 +16,7 @@ import {
   detectCycles,
   isScheduled,
   maxDate,
+  milestoneDepths,
   milestoneLinkSources,
   resolveDependencies,
   timelineRange,
@@ -192,6 +193,11 @@ export function GanttChart({
   const cyclicEdges = useMemo(
     () => detectCycles(tasks, dependencies).cyclicEdges,
     [tasks, dependencies],
+  )
+  // Milestone からの距離。blue-system のバーと矢印の色相をこれで決める。
+  const taskMilestoneDepths = useMemo(
+    () => milestoneDepths(tasks, dependencies, cyclicEdges),
+    [tasks, dependencies, cyclicEdges],
   )
   /**
    * マイルストーンへ引く線。親を持たないタスクからだけ引く（milestoneLinkSources）。
@@ -387,6 +393,7 @@ export function GanttChart({
           dependencies={dependencies}
           milestoneLinks={milestoneLinks}
           cyclicEdges={cyclicEdges}
+          milestoneDepths={taskMilestoneDepths}
           theme={theme}
           onTaskDatesChange={onTaskDatesChange}
           readOnly={readOnly}

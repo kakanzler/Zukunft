@@ -13,6 +13,7 @@ import {
   milestoneLinkSources,
   countTaskListItems, toggleTaskListItem, isTaskListItemChecked,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
+  milestoneDepths,
   occurrences, occurrencesTruncated, isDone, toggleDone, MAX_OCCURRENCES, SPACED_GAPS,
   type ScheduleTask, type ProjectSchema, type Recurrence,
 } from "../src/index"
@@ -473,6 +474,53 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
 
   const selfRef = [{ ...dep(1, []), body: "blocked-by: #101" }]
   eq("self reference makes no edge", detectCycles(selfRef).cycles.length, 0)
+}
+
+// --- depth: Milestone からの距離（blue-system の色の基準） ---
+{
+  // mk は既定で Milestone を付けるので、距離 0 にしたいタスク以外は外す。
+  // 辺は「依存元 → 依存先」＝「待っている側 → 先に片付ける側」なので、
+  // Milestone を持つタスクが blocked-by で挙げた相手が 1 ホップ手前になる。
+  const dep = (n: number, refs: number[], milestone: boolean) => ({
+    ...mk(n, "Planning", "2026-09-01", "2026-09-05", null),
+    body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
+    issueNumber: 100 + n,
+    milestone: milestone ? { id: "ms-1", title: "v1", dueOn: "2026-09-30" } : null,
+  })
+  const depths = (tasks: ScheduleTask[]) => {
+    const dependencies = resolveDependencies(tasks)
+    const { cyclicEdges } = detectCycles(tasks, dependencies)
+    return [...milestoneDepths(tasks, dependencies, cyclicEdges)].sort(
+      (a, b) => a[0].localeCompare(b[0]),
+    )
+  }
+
+  eq("a milestone-bearing task is depth 0, the blocker it waits for is depth 1",
+     depths([dep(1, [2], true), dep(2, [], false)]), [["i1", 0], ["i2", 1]])
+
+  eq("depth grows one per dependency hop",
+     depths([dep(1, [2], true), dep(2, [3], false), dep(3, [], false)]),
+     [["i1", 0], ["i2", 1], ["i3", 2]])
+
+  // Milestone が付いていれば、どのタスクも独立した起点。
+  eq("every milestone-bearing task is its own source",
+     depths([dep(1, [3], true), dep(2, [4], true), dep(3, [], false), dep(4, [], false)]),
+     [["i1", 0], ["i2", 0], ["i3", 1], ["i4", 1]])
+
+  // i4 へは i1 から直に 1 ホップ、i2 → i3 を回れば 3 ホップ。短い方を採る。
+  eq("a branching graph takes the shortest distance",
+     depths([dep(1, [2, 4], true), dep(2, [3], false), dep(3, [4], false), dep(4, [], false)]),
+     [["i1", 0], ["i2", 1], ["i3", 2], ["i4", 1]])
+
+  // どの Milestone にも辿り着かないタスクは載せない。何色にするかは呼び出し側の話。
+  eq("a task with no reachable milestone is absent",
+     depths([dep(1, [], true), dep(2, [], false)]), [["i1", 0]])
+
+  // i2 ⇄ i3 は循環。辺を隣接から外すので回り続けず、循環の中だけにいる i3 には
+  // 距離が付かない（i1 → i2 は循環していないので i2 は 1 のまま）。
+  eq("a cyclic edge is not walked",
+     depths([dep(1, [2], true), dep(2, [3], false), dep(3, [2], false)]),
+     [["i1", 0], ["i2", 1]])
 }
 
 // --- cascade: 依存に合わせて後ろへ押す（§15.2） ---

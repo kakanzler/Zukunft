@@ -10,7 +10,7 @@ import {
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
 import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
-import { glowVar, rainbowColors, statusSlot, statusVar } from "../src/colors"
+import { glowVar, milestoneDepthColors, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
 import { MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
 import { KpiBar, StatusLegend } from "../src/KpiBar"
@@ -235,13 +235,16 @@ const count = (haystack: string, pattern: RegExp): number =>
   ])
   const all = { start: 0, end: 2 }
   const noCycle: ReadonlySet<string> = new Set()
+  // "a" は Milestone に直結（距離 0）、"b" はそこから 1 ホップ手前（距離 1）。
+  const depths: ReadonlyMap<string, number> = new Map([["a", 0], ["b", 1]])
   const links = (
     deps: { fromTaskId: string; toTaskId: string }[],
     visible = all,
     cyclic = noCycle,
     drag: DragState | null = null,
     blue = false,
-  ) => buildLinks(deps, placed, scale, ROW_HEIGHT, visible, cyclic, drag, "u", blue, placed.size)
+    milestoneDepths: ReadonlyMap<string, number> = depths,
+  ) => buildLinks(deps, placed, scale, ROW_HEIGHT, visible, cyclic, drag, "u", blue, milestoneDepths)
 
   const back = links([{ fromTaskId: "b", toTaskId: "a" }])
   eq("a dependency with both ends drawn becomes one arrow", back.length, 1)
@@ -254,12 +257,18 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("arrow ends sit on the vertical middle of their rows", [back[0]!.y1, back[0]!.y2], [48, 16])
   eq("an arrow is coloured from its own status to the target's", [back[0]!.fromColor, back[0]!.toColor],
      ["var(--status-1-to)", "var(--status-0-to)"])
-  // blue-system ではバーが行の位置で虹色になったので、矢印もそれに揃える。
+  // blue-system ではバーが Milestone からの距離で色付くので、矢印もそれに揃える。
   // 揃えないと矢印だけ古い Status の青系に取り残され、バーと食い違って見える。
   const backBlue = links([{ fromTaskId: "b", toTaskId: "a" }], all, noCycle, null, true)
-  eq("in blue-system an arrow's colours follow the bars' rainbow, not Status",
+  eq("in blue-system an arrow's colours follow the bars' milestone depth, not Status",
      [backBlue[0]!.fromColor, backBlue[0]!.toColor],
-     [rainbowColors(1, 2).to, rainbowColors(0, 2).to])
+     [milestoneDepthColors(1).to, milestoneDepthColors(0).to])
+  // 距離が引けないタスク（どの Milestone にも辿り着かない）は距離 0 と同じ色にする。
+  // 灰色や別扱いにすると「未接続」という状態が盤面に増えて、読む手間が増える。
+  const backUnknown = links([{ fromTaskId: "b", toTaskId: "a" }], all, noCycle, null, true, new Map())
+  eq("a task with no reachable milestone is coloured like depth 0",
+     [backUnknown[0]!.fromColor, backUnknown[0]!.toColor],
+     [milestoneDepthColors(0).to, milestoneDepthColors(0).to])
 
   const forward = links([{ fromTaskId: "a", toTaskId: "b" }])
   eq("a forward arrow leaves the right edge and lands on the left", [forward[0]!.x1, forward[0]!.x2], [64, 128])

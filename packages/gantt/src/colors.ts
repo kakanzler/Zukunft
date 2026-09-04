@@ -18,39 +18,35 @@ export function glowVar(statusIndex: number): string {
 /**
  * BlueSystem のバーの色（企画書に無い、見た目だけの規則）。
  *
- * Status の 4 色ではなく、盤面上の行の位置で色を連続的に変える——上から下へ辿ると
- * 青 → 紫 → マゼンタ → 橙 → 黄 → 緑と巡る。目標の参考画像
- * （specifications/apeearance/appearance_ideal_completion_image.png）を実測すると、
- * 同じ Status（例: IN PROGRESS）の中でも行ごとに色が違い、Status 単位ではなく
- * 行の並び順で色が決まっていることが確認できた。
+ * Status の 4 色ではなく、Milestone からの距離で色を決める。Milestone が付いた
+ * タスク（ゴールに最も近い）がオレンジで、依存を 1 つ遡るごとに黄 → 黄緑 → 緑 →
+ * 水色 → 青 → 青紫 → 赤紫 → ピンク → 赤と移る。盤面を横に見れば、暖色ほど
+ * ゴールに近く、寒色から先へ辿るほど手前の作業だと読める。
+ *
+ * 段は 10 色に固定し、連続に補間しない。行を足しただけで既存のバーの色が動くと、
+ * 覚えた色と実際の色がずれる。距離が同じなら盤面がどう変わっても同じ色になる。
  *
  * Status 色（凡例・KPI）はここでは変えない。凡例は Status 名に対する色の対応表
- * であって、行の位置とは無関係のため、位置基準の色を割り当てる先が無い。
+ * であって、Milestone からの距離とは無関係のため、距離基準の色を割り当てる先が無い。
  */
 
-/** 青から緑まで、紫・マゼンタ・橙・黄を経由する長い経路で回す。230° 始まり、
- *  480°（= 120° を 1 周後ろから）で終える——230→360→120 の順に進み、
- *  青とシアン側の近道（230→120 の 110°）は使わない。 */
-// 実機で確かめると 230° は紫寄りに見えた（彩度・明度を上げた分、同じ色相でも
-// 青の純度が下がって見える）。目標画像の最初の数本ははっきり青なので、下げる。
-const RAINBOW_START = 205
-const RAINBOW_END = 455
+/** オレンジ(0=Milestoneに最も近い) → 黄 → 黄緑 → 緑 → 水色 → 青 → 青紫 → 赤紫 → ピンク → 赤(9) */
+const DEPTH_HUES = [30, 55, 85, 130, 190, 220, 255, 300, 335, 355]
 
-export function rainbowHue(index: number, total: number): number {
-  if (total <= 1) return RAINBOW_START
-  const t = Math.min(1, Math.max(0, index / (total - 1)))
-  return (RAINBOW_START + (RAINBOW_END - RAINBOW_START) * t) % 360
+/** 段より遠いもの（10 ホップ以上）は最後の段に丸める。 */
+export function milestoneDepthHue(depth: number): number {
+  const clamped = Math.max(0, Math.min(DEPTH_HUES.length - 1, Math.round(depth)))
+  return DEPTH_HUES[clamped]!
 }
 
 export type RainbowColors = { from: string; to: string; glow: string }
 
-/** 行の位置からバー 1 本ぶんの色一式を作る。塗り・輪郭・発光をすべて同じ色相で揃える。 */
-export function rainbowColors(index: number, total: number): RainbowColors {
-  const hue = rainbowHue(index, total)
+/** 距離からバー 1 本ぶんの色一式を作る。塗り・輪郭・発光をすべて同じ色相で揃える。 */
+export function milestoneDepthColors(depth: number): RainbowColors {
+  const hue = milestoneDepthHue(depth)
   return {
-    from: `hsl(${hue.toFixed(1)}, 62%, 34%)`,
-    to: `hsl(${hue.toFixed(1)}, 78%, 58%)`,
-    glow: `hsla(${hue.toFixed(1)}, 88%, 60%, 0.75)`,
+    from: `hsl(${hue}, 62%, 34%)`,
+    to: `hsl(${hue}, 78%, 58%)`,
+    glow: `hsla(${hue}, 88%, 60%, 0.75)`,
   }
 }
-

@@ -20,7 +20,7 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { glowVar, rainbowColors, statusSlot, statusVar } from "./colors"
+import { glowVar, milestoneDepthColors, statusSlot, statusVar } from "./colors"
 import { estimateLabelWidth } from "./milestones"
 import type { GanttTheme } from "./theme"
 import type { Row } from "./rows"
@@ -124,6 +124,11 @@ type Props = {
   /** 循環している辺（cycle.ts の edgeKey）。危険色の破線で描く */
   cyclicEdges?: ReadonlySet<string>
   /**
+   * task id -> Milestone からの距離（depth.ts）。blue-system のバーと矢印の
+   * 色相をこれで決める。載っていないタスクは距離 0 と同じ扱いにする。
+   */
+  milestoneDepths?: ReadonlyMap<string, number>
+  /**
    * いまの縦スクロール位置。マイルストーンへの線の終点を帯の直下に保つのに使う。
    * 貼り付く帯は動かないのに本体は流れるので、渡さないと線の先が菱形から離れる。
    */
@@ -154,13 +159,15 @@ type Props = {
 const EMPTY_DEPENDENCIES: Dependency[] = []
 const EMPTY_MILESTONE_LINKS: MilestoneLink[] = []
 const EMPTY_EDGES: ReadonlySet<string> = new Set()
+const EMPTY_MILESTONE_DEPTHS: ReadonlyMap<string, number> = new Map()
 const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, milestoneHeight,
   dependencies = EMPTY_DEPENDENCIES,
   milestoneLinks = EMPTY_MILESTONE_LINKS,
-  cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
+  cyclicEdges = EMPTY_EDGES, milestoneDepths = EMPTY_MILESTONE_DEPTHS,
+  theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
   dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone, scrollTop = 0,
 }: Props) {
@@ -219,9 +226,10 @@ export function Timeline({
   const links = useMemo(
     () =>
       buildLinks(
-        dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue, rows.length,
+        dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue,
+        milestoneDepths,
       ),
-    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue, rows.length],
+    [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid, blue, milestoneDepths],
   )
 
   const msLinks = useMemo(
@@ -488,7 +496,8 @@ export function Timeline({
           return (
             <g key={row.key}>
               {dragging && <Bar task={task} y={y} scale={scale} rowHeight={rowHeight}
-                                statusIndex={row.statusIndex} index={index} total={rows.length}
+                                statusIndex={row.statusIndex} index={index}
+                                depth={milestoneDepths.get(task.id) ?? 0}
                                 blue={blue} uid={uid} ghost />}
               <g
                 className={dragging ? "zk-bar zk-bar--dragging" : "zk-bar"}
@@ -510,7 +519,8 @@ export function Timeline({
                 style={{ cursor: readOnly ? "pointer" : undefined }}
               >
                 <Bar task={shown} y={y} scale={scale} rowHeight={rowHeight}
-                     statusIndex={row.statusIndex} index={index} total={rows.length}
+                     statusIndex={row.statusIndex} index={index}
+                     depth={milestoneDepths.get(task.id) ?? 0}
                      blue={blue} uid={uid} />
               </g>
             </g>
@@ -591,8 +601,8 @@ type BarProps = {
   statusIndex: number
   /** 行番号。バーごとに要るグラデーションの id に使う */
   index: number
-  /** 盤面の行の総数。blue-system の虹色（行の位置で色相を決める）の分母に使う */
-  total: number
+  /** Milestone からの距離。blue-system の色相をこれで決める */
+  depth: number
   /** この Timeline だけの id 接頭辞 */
   uid: string
   blue: boolean
@@ -639,14 +649,14 @@ function PlainBar({ task, y, scale, rowHeight, statusIndex, uid, ghost = false }
  * 発光（.zk-bar-glow）は塗りではなく全体を包む <g> に掛ける。塗りだけを光らせると、
  * くっきりした柱が光る塊の上に貼り付いて見える。
  */
-function BlueBar({ task, y, scale, rowHeight, statusIndex, index, total, uid }: BarProps) {
+function BlueBar({ task, y, scale, rowHeight, statusIndex, index, depth, uid }: BarProps) {
   const x = scale.toX(task.startDate)
   const width = barWidth(task, scale)
   const height = rowHeight - BAR_INSET * 2
   const top = y + BAR_INSET
-  // Status ではなく行の位置で色相を決める（企画書に無い、見た目だけの規則。
-  // colors.ts の rainbowColors のコメントに実測の根拠がある）。
-  const rainbow = rainbowColors(index, total)
+  // Status ではなく Milestone からの距離で色相を決める（企画書に無い、見た目だけの
+  // 規則。colors.ts の milestoneDepthColors のコメントに根拠がある）。
+  const rainbow = milestoneDepthColors(depth)
   const solid = rainbow.to
   const glow = { "--bar-glow": rainbow.glow } as CSSProperties
   const gradId = `${uid}-rbow-grad-${index}`
@@ -836,12 +846,13 @@ export function buildLinks(
   cyclicEdges: ReadonlySet<string>,
   drag: DragState | null,
   uid: string,
-  /** blue-system かどうか。バーが虹色（行の位置基準）になったので、矢印の色も
-   *  それに揃える。揃えないと、矢印だけが古い Status の青系に取り残されて
-   *  バーと食い違って見える。 */
+  /** blue-system かどうか。バーが Milestone からの距離で色付くようになったので、
+   *  矢印の色もそれに揃える。揃えないと、矢印だけが古い Status の青系に
+   *  取り残されてバーと食い違って見える。 */
   blue: boolean,
-  /** 盤面の行の総数。rainbowColors の分母（bars と同じ関数・同じ分母を使う）。 */
-  total: number,
+  /** task id -> Milestone からの距離（bars と同じ関数・同じ距離を使う）。
+   *  載っていないタスクは距離 0 と同じ扱い。 */
+  milestoneDepths: ReadonlyMap<string, number>,
 ): Link[] {
   // ドラッグ中のタスクは仮の日付で描く。確定するまで線が元の位置に残ると、
   // 依存先を見ながら日程を動かすことができない。
@@ -881,8 +892,12 @@ export function buildLinks(
       path: `M ${x1} ${y1} C ${x1 + out1 * bend} ${y1}, ${x2 + out2 * bend} ${y2}, ${x2} ${y2}`,
       head: `M ${x2} ${y2} L ${x2 + out2 * ARROW} ${y2 - ARROW / 2} L ${x2 + out2 * ARROW} ${y2 + ARROW / 2} Z`,
       x1, y1, x2, y2,
-      fromColor: blue ? rainbowColors(from.index, total).to : statusVar(from.statusIndex),
-      toColor: blue ? rainbowColors(to.index, total).to : statusVar(to.statusIndex),
+      fromColor: blue
+        ? milestoneDepthColors(milestoneDepths.get(from.task.id) ?? 0).to
+        : statusVar(from.statusIndex),
+      toColor: blue
+        ? milestoneDepthColors(milestoneDepths.get(to.task.id) ?? 0).to
+        : statusVar(to.statusIndex),
     })
   })
   return links
