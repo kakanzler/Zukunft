@@ -98,6 +98,21 @@
   /* 左ペインの選択帯 rgba(45,107,255,0.18) を --bg-surface に重ねた合成色。 */
   --zk-band-solid: #132555;
   --zk-progress-edge: rgba(232, 240, 255, 0.34);
+
+  /* サイドバー。左がいちばん明るく、盤面へ近づくほど落とす
+     （specifications/apeearance/appearance_overall_color_bluesystem.png の実測値）。
+     画面の左端を光らせて、そこから盤面の闇へ向かう流れを作る。 */
+  --zk-sidebar-from: #2540b0;
+  --zk-sidebar-to: #17276b;
+
+  /* スクロールバーのつまみ。既定は青→シアンだが、BlueSystem では
+     シアンを Complete の Status 色として使っているので、つまみと取り違える。
+     ここは青だけで組み、明度差で立たせる。 */
+  --zk-scroll-from: #233da9;
+  --zk-scroll-to: #3567ff;
+
+  /* 盤面の文字の滲み。共有トークンの --glow-text は動かさない（ログペインが読む）。 */
+  --zk-glow-text: 0 0 8px rgba(120, 165, 255, 0.5), 0 0 20px rgba(45, 107, 255, 0.35);
 }
 
 /* 盤面の環境光。::before ではなく要素自身の背景にするのが要点。
@@ -148,6 +163,34 @@
   fill: var(--zk-milestone-fill);
   stroke: var(--zk-accent-red);
   stroke-width: 1.5;
+  /* バーの .zk-bar-glow と同じ 2 段（近い滲みと広い滲み）にする。盤面の中で
+     光り方の流儀を揃えないと、同じ絵の中に別々の光源があるように見える。
+     菱形は 12px 角と小さいので、バーより半径を詰める。 */
+  filter: drop-shadow(0 0 2px var(--zk-accent-red)) drop-shadow(0 0 7px rgba(255, 90, 48, 0.55));
+}
+
+/* 菱形だけ光って題が沈むと、何の期日なのかが読めないまま光だけが目に付く。 */
+[data-gantt-theme="blue-system"] .zk-milestone-label {
+  fill: var(--text-primary);
+  text-shadow: var(--zk-glow-text);
+}
+
+/* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。 */
+[data-gantt-theme="blue-system"] .zk-sidebar {
+  background: linear-gradient(90deg, var(--zk-sidebar-from), var(--zk-sidebar-to));
+}
+
+/* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
+   マイルストーン行の見出し — どれも「読む」より先に「位置を掴む」ための字で、
+   滲んでも意味が落ちない。
+   本文（行のタイトル、バーのラベル）には掛けない。1 文字ずつ読む字を滲ませると
+   遅くなるだけで、.zk-bar-label は 1efa13d で白い滲みと暗い縁の二重掛けを
+   解いたばかりでもある。 */
+[data-gantt-theme="blue-system"] .zk-sidebar-brand,
+[data-gantt-theme="blue-system"] .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label,
+[data-gantt-theme="blue-system"] .zk-row--group,
+[data-gantt-theme="blue-system"] .zk-pane-milestone {
+  text-shadow: var(--zk-glow-text);
 }
 
 /* 背景に層を敷くと、半透明の帯は下地の明るさに引きずられて横スクロールで色が
@@ -1321,9 +1364,31 @@
 /* 縦横が交わる角。塗らないと既定の明るい四角がひとつだけ残る。 */
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* BlueSystem のつまみ。上の指定は Default 用としてそのまま残す。
+   テーマの属性は .zk-shell に付いていてログペインもその内側にあるため、
+   この指定はログペインのスクロールバーにも掛かる — 盤面と揃えるための選択。
+   box-shadow は溝の内側に収まるよう内向き（inset）ではなく外向きの淡い光にし、
+   つまみ自身の細さは border + padding-box のまま変えない。 */
+[data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
+  box-shadow: 0 0 6px rgba(53, 103, 255, 0.55);
+}
+[data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #3a58d0, #5b86ff) padding-box;
+  box-shadow: 0 0 10px rgba(53, 103, 255, 0.75);
+}
+[data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--zk-scroll-to), var(--zk-scroll-to)) padding-box;
+}
+
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--accent, #3b82f6) rgba(6, 11, 26, 0.6);
+  }
+  /* Firefox には疑似要素が無く、単色しか指定できない。グラデーションの
+     中ほどの色を採って、Chromium 側の見え方に寄せる。 */
+  [data-gantt-theme="blue-system"] * {
+    scrollbar-color: var(--zk-scroll-to, #3567ff) rgba(6, 11, 26, 0.6);
   }
 }
