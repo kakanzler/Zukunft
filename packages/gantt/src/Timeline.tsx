@@ -124,6 +124,11 @@ type Props = {
   milestoneLinks?: MilestoneLink[]
   /** 循環している辺（cycle.ts の edgeKey）。危険色の破線で描く */
   cyclicEdges?: ReadonlySet<string>
+  /**
+   * いまの縦スクロール位置。マイルストーンへの線の終点を帯の直下に保つのに使う。
+   * 貼り付く帯は動かないのに本体は流れるので、渡さないと線の先が菱形から離れる。
+   */
+  scrollTop?: number
   /** 盤面の意匠。形が違うところをここで分ける */
   theme?: GanttTheme
   /**
@@ -158,7 +163,7 @@ export function Timeline({
   milestoneLinks = EMPTY_MILESTONE_LINKS,
   cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
-  dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
+  dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone, scrollTop = 0,
 }: Props) {
   const { drag, begin, move, end, cancel } = useBarDrag({
     scale,
@@ -218,8 +223,11 @@ export function Timeline({
   )
 
   const msLinks = useMemo(
-    () => buildMilestoneLinks(milestoneLinks, placed, milestones, scale, rowHeight, visible, drag),
-    [milestoneLinks, placed, milestones, scale, rowHeight, visible, drag],
+    () =>
+      buildMilestoneLinks(
+        milestoneLinks, placed, milestones, scale, rowHeight, visible, drag, scrollTop,
+      ),
+    [milestoneLinks, placed, milestones, scale, rowHeight, visible, drag, scrollTop],
   )
 
   return (
@@ -334,6 +342,20 @@ export function Timeline({
           {/* バーの芯。縦方向に「透明 → 白寄り → 透明」。フィルタでぼかさない —
               バーは十数本あり、1 本ずつ blur を掛けると重い。階調なら滲みが出て、
               足す描画は矩形 1 枚で済む。 */}
+          {/* 芯を左右で消す遮蔽。芯を端まで通すと、バー自身の横方向の階調
+              （左が透けて右が濃い）が白で塗り潰されて、開始側の透明が消える。
+              objectBoundingBox なので、幅の違うバーでも同じ割合で効く。 */}
+          {blue && (
+            <mask id={`${uid}-core-mask`} maskContentUnits="objectBoundingBox">
+              <linearGradient id={`${uid}-core-fade`} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#000000" />
+                <stop offset="26%" stopColor="#ffffff" />
+                <stop offset="74%" stopColor="#ffffff" />
+                <stop offset="100%" stopColor="#000000" />
+              </linearGradient>
+              <rect x="0" y="0" width="1" height="1" fill={`url(#${uid}-core-fade)`} />
+            </mask>
+          )}
           {blue && (
             <linearGradient id={`${uid}-core`} x1="0" y1="0" x2="0" y2="1">
               {/* 明るい帯が行の 0.7 ほどを占める。15% と 85% で立ち上げ、
@@ -666,7 +688,7 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
       {/* 中心の芯。バー自身の色の上に白寄りの帯を重ね、真ん中がいちばん明るくなる。
           進捗の上に載せるのは、芯が進捗の境目で途切れると 1 本の光に見えないため。 */}
       <path className="zk-bar-core" d={barPath(x, top, width, height)}
-            fill={`url(#${uid}-core)`} />
+            fill={`url(#${uid}-core)`} mask={`url(#${uid}-core-mask)`} />
 
       {/* 輪郭は 0.5px 内側に描く。線はパスの上に半分ずつ載るので、x=0 のバーは
           外半分が SVG の外に出て欠ける。内側に寄せると欠けが消え、同時に
@@ -859,6 +881,14 @@ export function buildMilestoneLinks(
   rowHeight: number,
   visible: { start: number; end: number },
   drag: DragState | null,
+  /**
+   * いまのスクロール位置。線の終点をここに置く。
+   *
+   * 菱形の帯は貼り付いて動かないのに、本体は一緒に流れる。終点を本体の y = 0 に
+   * 固定すると、スクロールした分だけ線の先が菱形から離れていく。本体の座標で
+   * 「画面の一番上」は常にスクロール量そのものなので、そこで切ると帯の直下に着く。
+   */
+  scrollTop: number,
 ): MilestoneLinkPath[] {
   if (links.length === 0) return []
   const marks = new Map(milestones.map((m) => [m.mark.id, m.mark]))
@@ -890,12 +920,17 @@ export function buildMilestoneLinks(
     // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
     const bend = Math.max(24, Math.min(90, Math.abs(x2 - x1) / 2))
     // 手前に着く線も左から差したいので、行き先の制御点は常に左側へ置く。
-    const rise = Math.max(24, y1 / 2)
+    // 終点は帯の直下（本体の座標ではスクロール量）。0 に固定すると、下へ辿るほど
+    // 線の先が菱形から離れて宙に浮く。
+    const y2 = scrollTop
+    // 制御点は 2 点の中ほど。y1 と y2 のどちらが上でも間に入るので、行が視野より
+    // 上にあるときに曲線が終点より下へ垂れることがない。
+    const rise = (y1 + y2) / 2
 
     paths.push({
       key: `${link.taskId}>${link.milestoneId}`,
       path:
-        `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${rise}, ${x2} 0`,
+        `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${rise}, ${x2} ${y2}`,
       // 色が無ければ菱形と同じ変数を読む（Default は紫、blue-system は橙）。
       color: mark.color ?? "var(--zk-milestone-color)",
     })

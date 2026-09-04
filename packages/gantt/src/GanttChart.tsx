@@ -382,6 +382,7 @@ export function GanttChart({
           visible={visible}
           milestones={placedMilestones}
           milestoneHeight={milestoneHeight}
+          scrollTop={scrollTop}
           onMilestoneOpen={onMilestoneOpen}
           dependencies={dependencies}
           milestoneLinks={milestoneLinks}

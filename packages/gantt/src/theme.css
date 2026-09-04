@@ -102,8 +102,8 @@
   /* サイドバー。左がいちばん明るく、盤面へ近づくほど落とす
      （specifications/apeearance/appearance_overall_color_bluesystem.png の実測値）。
      画面の左端を光らせて、そこから盤面の闇へ向かう流れを作る。 */
-  --zk-sidebar-from: #2540b0;
-  --zk-sidebar-to: #17276b;
+  --zk-sidebar-from: #0e28ed;
+  --zk-sidebar-to: #03093b;
 
   /* スクロールバーのつまみ。既定は青→シアンだが、BlueSystem では
      シアンを Complete の Status 色として使っているので、つまみと取り違える。
@@ -221,17 +221,18 @@
 [data-gantt-theme="blue-system"] .zk-milestone-row,
 [data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.5); }
 
-/* MILESTONE の見出し。サイドバーの青（--zk-sidebar-from #2540b0）を白へ寄せた色。
-   滲ませるのは box-shadow ではなく text-shadow —— box-shadow は箱の縁に付くだけで、
-   文字はぼけない。 */
+/* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
+   text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
 [data-gantt-theme="blue-system"] .zk-pane-milestone {
-  color: #dbe6ff;
-  /* 滲みは文字の色ではなく青そのもので出す。白を混ぜた滲みだと、光ではなく
-     ぼやけた文字に見える。近い滲みから広い滲みへ、彩度の高い青で 3 段。 */
+  /* 菱形（--zk-accent-red）と同じ橙の系統。見出しと印を同じ色にして、
+     どの帯の話かを色で結ぶ。 */
+  color: #ffcbb0;
+  /* 滲みも橙そのもので出す。白を混ぜると光ではなくぼやけた文字に見える。
+     近い滲みから広い滲みへ 3 段。 */
   text-shadow:
-    0 0 4px rgba(93, 160, 255, 0.95),
-    0 0 12px rgba(45, 107, 255, 0.9),
-    0 0 26px rgba(29, 78, 216, 0.7);
+    0 0 4px rgba(255, 160, 110, 0.95),
+    0 0 12px rgba(255, 90, 48, 0.9),
+    0 0 26px rgba(214, 66, 26, 0.7);
 }
 
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
@@ -241,12 +242,12 @@
    そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
   /* 階調の両端に 0.5 を掛ける。背後の光球を通すため。
-     #2540b0 -> rgba(37,64,176,.5) / #17276b -> rgba(23,39,107,.5) */
+     #0e28ed -> rgba(14,40,237,.5) / #03093b -> rgba(3,9,59,.5) */
   background: linear-gradient(
     90deg,
-    rgba(37, 64, 176, 0.5) 0%,
-    rgba(23, 39, 107, 0.5) 42%,
-    rgba(23, 39, 107, 0.5) 100%
+    rgba(14, 40, 237, 0.5) 0%,
+    rgba(3, 9, 59, 0.5) 42%,
+    rgba(3, 9, 59, 0.5) 100%
   );
 }
 
