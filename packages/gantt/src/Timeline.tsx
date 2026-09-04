@@ -184,16 +184,21 @@ export function Timeline({
   const gradId = (slot: number) => `${uid}-grad-${slot}`
   const edgeId = (slot: number) => `${uid}-edge-${slot}`
 
-  /** 矢印を引くのに要る、タスクごとの行番号・色・バーの位置。 */
+  /**
+   * 矢印を引くのに要る、タスクごとの行番号・色・バーの位置。
+   *
+   * 日課（dailyTasks にあるもの）はここから除く。日課はバーではなく点で描くので、
+   * バーの端を前提にした矢印を引くと空間に向かって着いてしまう。
+   */
   const placed = useMemo(() => {
     const map = new Map<string, { index: number; statusIndex: number; task: ScheduledTask }>()
     rows.forEach((row, index) => {
-      if (row.kind === "task" && isScheduled(row.task)) {
+      if (row.kind === "task" && isScheduled(row.task) && !dailyTasks[row.task.id]) {
         map.set(row.task.id, { index, statusIndex: row.statusIndex, task: row.task })
       }
     })
     return map
-  }, [rows])
+  }, [rows, dailyTasks])
 
   // drag を placed の依存に入れると、ポインタが動くたびに全行の Map を作り直すことに
   // なる。辺の数はたかが知れているので、buildLinks の中で 1 本ずつ差し替える。
@@ -672,7 +677,7 @@ function DailyDots({
   const dates = occurrences(
     task.startDate,
     task.endDate,
-    recurrence.intervalDays,
+    recurrence.rule,
     scale.end,
   ).filter((date) => date >= scale.origin)
 

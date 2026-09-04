@@ -185,7 +185,8 @@ export function TaskModal({
    * 日課の間隔。Progress と同じく文字列で持つ。数値にすると打ち消した瞬間に
    * 0（＝日課をやめる）になり、「消して打ち直す」だけで日課が消えてしまう。
    */
-  const dailyInterval = daily?.intervalDays ?? null
+  // UI が扱う日課はまだ interval モードだけ（spaced の画面対応は後続作業）。
+  const dailyInterval = daily?.rule.kind === "interval" ? daily.rule.intervalDays : null
   const [intervalText, setIntervalText] = useState(
     dailyInterval === null ? "1" : String(dailyInterval),
   )

@@ -161,7 +161,8 @@ export async function loadDailyTasks(): Promise<Record<string, Recurrence>> {
         continue
       }
       result[id] = {
-        intervalDays: Math.floor(intervalDays),
+        // 保存形式はまだ interval だけ（spaced の設定対応は後続作業）。
+        rule: { kind: "interval", intervalDays: Math.floor(intervalDays) },
         done: Array.isArray(done) ? done.filter((d): d is ISODate => typeof d === "string") : [],
       }
     }
@@ -186,7 +187,7 @@ export async function saveDailyTask(
   // 触ったものが画面に出ないと、実機を立ち上げるまで確かめられない。
   const current = await loadDailyTasks()
   if (intervalDays === 0) delete current[taskId]
-  else current[taskId] = { intervalDays, done }
+  else current[taskId] = { rule: { kind: "interval", intervalDays }, done }
   window.sessionStorage.setItem(DAILY_TASK_STORAGE_KEY, JSON.stringify(current))
 }
 

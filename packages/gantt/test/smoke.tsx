@@ -533,7 +533,8 @@ const count = (haystack: string, pattern: RegExp): number =>
   })
   // 無期限（Target Date が空）。横軸の右端まで並ぶ。
   const endless = task({ id: "e", issueNumber: 22, status: "Todo", startDate: "2026-09-01" })
-  const daily = { d: { intervalDays: 3, done: ["2026-09-04" as const] } }
+  const dailyRule = { kind: "interval" as const, intervalDays: 3 }
+  const daily = { d: { rule: dailyRule, done: ["2026-09-04" as const] } }
   const rows = buildRows([bounded], STATUS_ORDER, new Set())
   const html = renderToStaticMarkup(
     <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
@@ -545,7 +546,7 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a daily task draws no bar", count(html, /class="zk-bar"/g), 0)
   eq("a daily task draws one dot per occurrence",
      count(html, /class="zk-daily-dot/g),
-     occurrences("2026-09-01", "2026-09-07", 3, scale.end).length)
+     occurrences("2026-09-01", "2026-09-07", dailyRule, scale.end).length)
   // 実行済みだけが光る。未実行まで光ると、どこまでやったのかが読めない。
   eq("only the done occurrences glow",
      [count(html, /zk-daily-dot--done/g), count(html, /zk-daily-dot--todo/g)], [1, 2])
@@ -562,11 +563,12 @@ const count = (haystack: string, pattern: RegExp): number =>
     <Timeline rows={endlessRows} scale={scale} rowHeight={32}
               visible={{ start: 0, end: endlessRows.length }}
               milestones={[]} milestoneHeight={32}
-              dailyTasks={{ e: { intervalDays: 7, done: [] } }} onTaskDatesChange={() => {}} />,
+              dailyTasks={{ e: { rule: { kind: "interval", intervalDays: 7 }, done: [] } }}
+              onTaskDatesChange={() => {}} />,
   )
   eq("an open-ended daily task runs to the right edge of the axis",
      count(endlessHtml, /class="zk-daily-dot/g),
-     occurrences("2026-09-01", null, 7, scale.end).length)
+     occurrences("2026-09-01", null, { kind: "interval", intervalDays: 7 }, scale.end).length)
   // ハンドラを渡さない読み取り専用ビューでは押せないままにする。
   eq("a board without a handler leaves the dots unclickable",
      endlessHtml.includes("cursor:pointer"), false)
@@ -576,7 +578,8 @@ const count = (haystack: string, pattern: RegExp): number =>
   const undatedHtml = renderToStaticMarkup(
     <Timeline rows={undated} scale={scale} rowHeight={32} visible={{ start: 0, end: undated.length }}
               milestones={[]} milestoneHeight={32}
-              dailyTasks={{ u: { intervalDays: 1, done: [] } }} onTaskDatesChange={() => {}} />,
+              dailyTasks={{ u: { rule: { kind: "interval", intervalDays: 1 }, done: [] } }}
+              onTaskDatesChange={() => {}} />,
   )
   eq("a daily task with no start date draws nothing",
      count(undatedHtml, /class="zk-daily-dot/g), 0)
@@ -586,7 +589,7 @@ const count = (haystack: string, pattern: RegExp): number =>
   const pane = renderToStaticMarkup(
     <TaskPane rows={endlessRows} rowHeight={32} milestoneHeight={32}
               visible={{ start: 0, end: endlessRows.length }} onToggleGroup={() => {}}
-              dailyTasks={{ e: { intervalDays: 7, done: [] } }} />,
+              dailyTasks={{ e: { rule: { kind: "interval", intervalDays: 7 }, done: [] } }} />,
   )
   eq("a daily task is not shown as unscheduled", count(pane, /zk-row--unscheduled/g), 0)
   const paneWithout = renderToStaticMarkup(
@@ -595,6 +598,45 @@ const count = (haystack: string, pattern: RegExp): number =>
   )
   eq("the same task without the daily setting is still unscheduled",
      count(paneWithout, /zk-row--unscheduled/g), 1)
+}
+
+/*
+ * --- Timeline: 日課には依存の矢印を引かない ---
+ *
+ * 日課はバーではなく点で描く。矢印はバーの端を掴んで引くので、日課を端に持つ
+ * 依存をそのまま渡すと空間に向かって着いてしまう。placed から日課を外して、
+ * それ以外の組は今までどおり矢印が出ることも合わせて確かめる。
+ */
+{
+  const scale = createTimeScale("2026-09-01", "2026-09-30", "day")
+  const normalTasks = [
+    task({ id: "a", issueNumber: 31, status: "Todo", startDate: "2026-09-01", endDate: "2026-09-02" }),
+    task({ id: "b", issueNumber: 32, status: "Todo", startDate: "2026-09-05", endDate: "2026-09-06" }),
+  ]
+  const rows = buildRows(normalTasks, STATUS_ORDER, new Set())
+  const normalHtml = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[]} milestoneHeight={32}
+              dependencies={[{ fromTaskId: "b", toTaskId: "a" }]}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("a dependency between two ordinary tasks still draws an arrow",
+     count(normalHtml, /class="zk-dep"/g), 1)
+
+  const withDaily = [
+    task({ id: "c", issueNumber: 33, status: "Todo", startDate: "2026-09-01", endDate: "2026-09-02" }),
+    task({ id: "d", issueNumber: 34, status: "Todo", startDate: "2026-09-05" }),
+  ]
+  const dailyRows = buildRows(withDaily, STATUS_ORDER, new Set())
+  const dailyHtml = renderToStaticMarkup(
+    <Timeline rows={dailyRows} scale={scale} rowHeight={32} visible={{ start: 0, end: dailyRows.length }}
+              milestones={[]} milestoneHeight={32}
+              dailyTasks={{ d: { rule: { kind: "interval", intervalDays: 1 }, done: [] } }}
+              dependencies={[{ fromTaskId: "d", toTaskId: "c" }]}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("a dependency touching a daily task draws no arrow",
+     count(dailyHtml, /class="zk-dep"/g), 0)
 }
 
 /*

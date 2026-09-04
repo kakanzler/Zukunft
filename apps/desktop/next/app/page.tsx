@@ -1328,7 +1328,8 @@ function Workspace({
               await saveDailyTask(created.id, dailyIntervalDays, [])
               setDailyTasks((prev) => ({
                 ...prev,
-                [created.id]: { intervalDays: dailyIntervalDays, done: [] },
+                // 画面側の入力は当面「間隔 N」だけなので interval 固定。spaced の UI は後続作業。
+                [created.id]: { rule: { kind: "interval", intervalDays: dailyIntervalDays }, done: [] },
               }))
             } catch (error) {
               logAppend({
@@ -1477,7 +1478,9 @@ function Workspace({
       dailyTasksRef.current = { ...dailyTasksRef.current, [taskId]: next }
       setDailyTasks(dailyTasksRef.current)
       try {
-        await saveDailyTask(taskId, next.intervalDays, next.done)
+        // 保存 API はまだ interval だけを受ける（spaced の保存対応は後続作業）。
+        const intervalDays = next.rule.kind === "interval" ? next.rule.intervalDays : 1
+        await saveDailyTask(taskId, intervalDays, next.done)
       } catch (error) {
         const reverted = dailyTasksRef.current[taskId]
         if (reverted) {
@@ -1517,7 +1520,7 @@ function Workspace({
           const next = { ...prev }
           // 0 は「日課をやめる」。設定側も項目ごと消えるので、手元も消す。
           if (intervalDays === 0) delete next[taskId]
-          else next[taskId] = { intervalDays, done }
+          else next[taskId] = { rule: { kind: "interval", intervalDays }, done }
           return next
         })
       } catch (error) {

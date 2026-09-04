@@ -12,7 +12,7 @@ import {
   parseDependencyRefs, resolveDependencies, withDependencyRefs,
   countTaskListItems, toggleTaskListItem, isTaskListItemChecked,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
-  occurrences, occurrencesTruncated, isDone, toggleDone, MAX_OCCURRENCES,
+  occurrences, occurrencesTruncated, isDone, toggleDone, MAX_OCCURRENCES, SPACED_GAPS,
   type ScheduleTask, type ProjectSchema, type Recurrence,
 } from "../src/index"
 
@@ -725,47 +725,72 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
 
 // --- recurrence: 日課の実行日と実施済みフラグ ---
 {
+  const interval = (intervalDays: number) => ({ kind: "interval" as const, intervalDays })
+  const spaced = { kind: "spaced" as const }
+
   eq("interval 1 lists every day",
-     occurrences("2026-09-01", null, 1, "2026-09-05"),
+     occurrences("2026-09-01", null, interval(1), "2026-09-05"),
      ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"])
   eq("interval 2 skips a day",
-     occurrences("2026-09-01", null, 2, "2026-09-08"),
+     occurrences("2026-09-01", null, interval(2), "2026-09-08"),
      ["2026-09-01", "2026-09-03", "2026-09-05", "2026-09-07"])
   eq("interval 7 is weekly",
-     occurrences("2026-09-01", null, 7, "2026-09-22"),
+     occurrences("2026-09-01", null, interval(7), "2026-09-22"),
      ["2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22"])
 
   eq("until stops the sequence",
-     occurrences("2026-09-01", "2026-09-03", 1, "2026-12-31"),
+     occurrences("2026-09-01", "2026-09-03", interval(1), "2026-12-31"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
   eq("null until runs to fallbackEnd",
-     occurrences("2026-09-01", null, 1, "2026-09-03"),
+     occurrences("2026-09-01", null, interval(1), "2026-09-03"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
   eq("until beyond fallbackEnd is clamped to fallbackEnd",
-     occurrences("2026-09-01", "2027-01-01", 1, "2026-09-03"),
+     occurrences("2026-09-01", "2027-01-01", interval(1), "2026-09-03"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
   eq("until before start is empty",
-     occurrences("2026-09-05", "2026-09-01", 1, "2026-12-31"), [])
+     occurrences("2026-09-05", "2026-09-01", interval(1), "2026-12-31"), [])
 
   // 0 / 負数 / 小数はすべて 1 として扱う。0 のまま渡ると addDays が進まず無限ループになる。
   eq("interval 0 falls back to daily",
-     occurrences("2026-09-01", null, 0, "2026-09-03"),
+     occurrences("2026-09-01", null, interval(0), "2026-09-03"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
   eq("interval -1 falls back to daily",
-     occurrences("2026-09-01", null, -1, "2026-09-03"),
+     occurrences("2026-09-01", null, interval(-1), "2026-09-03"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
   eq("interval 1.5 falls back to daily",
-     occurrences("2026-09-01", null, 1.5, "2026-09-03"),
+     occurrences("2026-09-01", null, interval(1.5), "2026-09-03"),
      ["2026-09-01", "2026-09-02", "2026-09-03"])
 
-  // 上限で打ち切ったことは黙って捨てず、truncated で分かるようにする。
-  const long = occurrencesTruncated("2026-01-01", null, 1, "2030-01-01")
-  eq("truncated result stops at the cap", long.dates.length, MAX_OCCURRENCES)
-  eq("truncation is reported, not silent", long.truncated, true)
-  const short = occurrencesTruncated("2026-01-01", "2026-01-10", 1, "2030-01-01")
-  eq("no truncation when under the cap", short.truncated, false)
+  // 「開始日から 1 日後、そこから 3 日後、そこから 5 日後…」なので間隔そのものが広がる。
+  // 累積すると start, +1, +4, +9, +16, +27, +42 の 7 点。
+  eq("spaced widens the gap each time",
+     occurrences("2026-01-01", null, spaced, "2026-12-31"),
+     ["2026-01-01", "2026-01-02", "2026-01-05", "2026-01-10", "2026-01-17", "2026-01-28", "2026-02-12"])
+  eq("spaced sequence length matches SPACED_GAPS plus the start date",
+     occurrences("2026-01-01", null, spaced, "2026-12-31").length, SPACED_GAPS.length + 1)
+  eq("spaced stops early when until cuts the sequence",
+     occurrences("2026-01-01", "2026-01-10", spaced, "2026-12-31"),
+     ["2026-01-01", "2026-01-02", "2026-01-05", "2026-01-10"])
 
-  const r: Recurrence = { intervalDays: 1, done: ["2026-09-02"] }
+  // until が null でも開始日から 1 年で頭を打つ。fallbackEnd を 2 年先に伸ばしても変わらない。
+  const uncapped = occurrences("2026-01-01", null, interval(1), "2028-01-01")
+  eq("null until still stops at one year, not fallbackEnd",
+     uncapped[uncapped.length - 1], "2027-01-01")
+  eq("one-year cap on daily interval yields 366 points",
+     uncapped.length, 366)
+  // until に 1 年より先を渡しても同じ上限で止まる。
+  const untilPastCap = occurrences("2026-01-01", "2028-06-01", interval(1), "2030-01-01")
+  eq("until beyond one year is clamped to the one-year cap",
+     untilPastCap[untilPastCap.length - 1], "2027-01-01")
+
+  // 1 年の上限がある限り、毎日刻みでも最大 366〜367 点にしかならず MAX_OCCURRENCES(400)
+  // には normally 届かない。上限そのものは until/fallbackEnd が壊れて渡ってきたときの
+  // 安全弁として値だけ確認する。
+  eq("safety-net cap is 400", MAX_OCCURRENCES, 400)
+  const short = occurrencesTruncated("2026-01-01", "2026-01-10", interval(1), "2030-01-01")
+  eq("no truncation under normal use", short.truncated, false)
+
+  const r: Recurrence = { rule: interval(1), done: ["2026-09-02"] }
   eq("isDone reads existing entries", isDone(r, "2026-09-02"), true)
   eq("isDone is false for other days", isDone(r, "2026-09-03"), false)
 

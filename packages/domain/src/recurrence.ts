@@ -5,15 +5,22 @@
  * 開始日・終了日・間隔から実行日の一覧をこちら側で毎回計算する。
  */
 
-import { type ISODate, addDays, minDate } from "./date"
+import { type ISODate, addDays, addYears, minDate } from "./date"
 
-/** 一度に描く実行日の上限。無期限 × 長い横軸で点が数千個になり、
- *  盤面が重くなるだけで読めなくなるのを防ぐ。 */
-export const MAX_OCCURRENCES = 1000
+/** until や fallbackEnd が壊れて渡ってきたときの安全弁。1 年 × 毎日でも最大 366 点なので、
+ *  まともな入力ではまず当たらない。 */
+export const MAX_OCCURRENCES = 400
+
+/** 広がる並びの間隔（日）。開始日の次から順に空ける。 */
+export const SPACED_GAPS = [1, 3, 5, 7, 11, 15]
+
+/** 繰り返し方。間隔を自分で決めるか、決まった広がる並びを使うかの 2 つだけ。 */
+export type RecurrenceRule =
+  | { kind: "interval"; intervalDays: number }
+  | { kind: "spaced" }
 
 export type Recurrence = {
-  /** 何日ごとに繰り返すか。1 なら毎日 */
-  intervalDays: number
+  rule: RecurrenceRule
   /** 実行した日。順序は問わない */
   done: ISODate[]
 }
@@ -34,23 +41,41 @@ function normalizeInterval(intervalDays: number): number {
 export function occurrencesTruncated(
   start: ISODate,
   until: ISODate | null,
-  intervalDays: number,
+  rule: RecurrenceRule,
   fallbackEnd: ISODate,
 ): { dates: ISODate[]; truncated: boolean } {
-  const interval = normalizeInterval(intervalDays)
-  // until が横軸の外（fallbackEnd より後ろ）まで指定されていても、描けない分は計算しない。
-  const end = until === null ? fallbackEnd : minDate(until, fallbackEnd)
+  // until を無期限のまま延ばすと、開き続けたアプリで軸が伸びるたびに点も伸びてしまう。
+  // 開始日から 1 年で頭を打たせる（until が指定されていても同じ上限を超えない）。
+  const oneYearCap = addYears(start, 1)
+  const end = minDate(until === null ? fallbackEnd : minDate(until, fallbackEnd), oneYearCap)
   if (end < start) return { dates: [], truncated: false }
 
   const dates: ISODate[] = []
   let truncated = false
   // ISODate は `YYYY-MM-DD` 固定長なので文字列比較がそのまま日付順になる（date.ts の他の関数と同じ前提）。
-  for (let d = start; d <= end; d = addDays(d, interval)) {
-    if (dates.length >= MAX_OCCURRENCES) {
-      truncated = true
-      break
+  if (rule.kind === "interval") {
+    const interval = normalizeInterval(rule.intervalDays)
+    for (let d = start; d <= end; d = addDays(d, interval)) {
+      if (dates.length >= MAX_OCCURRENCES) {
+        truncated = true
+        break
+      }
+      dates.push(d)
     }
-    dates.push(d)
+  } else {
+    // 開始日を 1 点目とし、そこから SPACED_GAPS を順に足していく。間隔そのものが
+    // 広がっていく並びなので、等間隔の interval とは別ループにする。
+    let d = start
+    if (d <= end) dates.push(d)
+    for (const gap of SPACED_GAPS) {
+      d = addDays(d, gap)
+      if (d > end) break
+      if (dates.length >= MAX_OCCURRENCES) {
+        truncated = true
+        break
+      }
+      dates.push(d)
+    }
   }
   return { dates, truncated }
 }
@@ -59,10 +84,10 @@ export function occurrencesTruncated(
 export function occurrences(
   start: ISODate,
   until: ISODate | null,
-  intervalDays: number,
+  rule: RecurrenceRule,
   fallbackEnd: ISODate,
 ): ISODate[] {
-  return occurrencesTruncated(start, until, intervalDays, fallbackEnd).dates
+  return occurrencesTruncated(start, until, rule, fallbackEnd).dates
 }
 
 export function isDone(recurrence: Recurrence, date: ISODate): boolean {
