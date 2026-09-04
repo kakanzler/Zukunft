@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { ISODate, NewMilestoneInput, RepositorySummary } from "@zukunft/domain"
+import type { ISODate, Label, NewMilestoneInput, RepositorySummary } from "@zukunft/domain"
 import { isISODate } from "@zukunft/domain"
 
 type Props = {
@@ -12,8 +12,14 @@ type Props = {
    */
   repositoryId: string
   onChangeRepository: (id: string) => void
+  /** カテゴリに割り当てられるラベル。名前で重複を除いたもの */
+  candidates: Label[]
   busy: boolean
-  onCreate: (repositoryId: string, input: NewMilestoneInput) => void
+  /**
+   * カテゴリは GitHub には送らない（第 3 引数）。作成が返す node id に対して
+   * アプリ側の設定として書くので、作る側でしか結び付けられない。
+   */
+  onCreate: (repositoryId: string, input: NewMilestoneInput, category: string) => void
   onClose: () => void
 }
 
@@ -25,11 +31,13 @@ type Props = {
  * ここに置くと「盤面から消した」のか「GitHub から消した」のかが曖昧になる。
  */
 export function NewMilestoneModal({
-  repositories, repositoryId, onChangeRepository, busy, onCreate, onClose,
+  repositories, repositoryId, onChangeRepository, candidates, busy, onCreate, onClose,
 }: Props) {
   const [title, setTitle] = useState("")
   const [dueOn, setDueOn] = useState("")
   const [description, setDescription] = useState("")
+  // 盤面の菱形の色になるだけの、アプリ内の割り当て。空文字はカテゴリなし。
+  const [category, setCategory] = useState("")
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -44,11 +52,15 @@ export function NewMilestoneModal({
 
   const submit = () => {
     if (!canSubmit) return
-    onCreate(repositoryId, {
-      title: title.trim(),
-      dueOn: dueOn === "" ? null : (dueOn as ISODate),
-      description: description.trim(),
-    })
+    onCreate(
+      repositoryId,
+      {
+        title: title.trim(),
+        dueOn: dueOn === "" ? null : (dueOn as ISODate),
+        description: description.trim(),
+      },
+      category,
+    )
   }
 
   // 候補が 1 つしか無いのに選ばせても、選択肢のふりをした表示にしかならない。
@@ -116,6 +128,50 @@ export function NewMilestoneModal({
               onChange={(e) => setDueOn(e.target.value)}
             />
           </label>
+
+          {/* 割り当ては作成後に node id が返ってから設定へ書く。ここで選べないと、
+              作った直後に盤面の菱形だけ色が付かず、もう一度押しに行くことになる。 */}
+          <div className="zk-field">
+            <span className="zk-field-label">カテゴリ</span>
+            {candidates.length === 0 ? (
+              <span className="zk-field-value zk-muted" style={{ fontSize: 11 }}>
+                ラベルがありません。Issue にラベルを付けると候補に出ます。
+              </span>
+            ) : (
+              <div className="zk-label-picker">
+                <button
+                  type="button"
+                  className="zk-chip zk-chip--button"
+                  aria-pressed={category === ""}
+                  disabled={busy}
+                  onClick={() => setCategory("")}
+                >
+                  カテゴリなし
+                </button>
+                {candidates.map((label) => (
+                  <button
+                    type="button"
+                    key={label.name}
+                    className="zk-chip zk-chip--button"
+                    aria-pressed={category === label.name}
+                    disabled={busy}
+                    onClick={() => setCategory(label.name)}
+                    style={
+                      category === label.name
+                        ? { borderColor: `#${label.color}`, color: `#${label.color}` }
+                        : undefined
+                    }
+                  >
+                    <span
+                      className="zk-legend-dot"
+                      style={{ background: label.color ? `#${label.color}` : "currentColor" }}
+                    />
+                    {label.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <label className="zk-field">
             <span className="zk-field-label">説明</span>

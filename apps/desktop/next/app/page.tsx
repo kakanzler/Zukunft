@@ -41,6 +41,7 @@ import { FilterBar } from "@/FilterBar"
 import { ManualModal } from "@/ManualModal"
 import { SettingsModal } from "@/SettingsModal"
 import { LogPane } from "@/LogPane"
+import { MilestoneCategoryModal } from "@/MilestoneCategoryModal"
 import { NewMilestoneModal } from "@/NewMilestoneModal"
 import { NewTaskModal } from "@/NewTaskModal"
 import { TaskModal } from "@/TaskModal"
@@ -51,10 +52,12 @@ import {
   DEFAULT_WINDOW_SETTINGS,
   exitFullscreen,
   loadAutoReschedule,
+  loadMilestoneCategories,
   loadParentLabels,
   loadTheme,
   loadWindowSettings,
   saveAutoReschedule,
+  saveMilestoneCategory,
   saveTheme,
   saveParentLabels,
   saveWindowSettings,
@@ -308,6 +311,13 @@ function Workspace({
   // フィールドでも Issue でもないので、取り消しや競合の対象にならない。
   const [creatingMilestone, setCreatingMilestone] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
+  // カテゴリを割り当てるために開いているマイルストーンの node id。
+  // 題名ではなく id で持つのは、GitHub 上で題名を変えても割り当てが外れないため。
+  const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null)
+  // マイルストーンの node id -> 割り当てたカテゴリ（ラベル名）。
+  // GitHub ではなくアプリ側の設定で、盤面の菱形の色にしかならない。
+  const [milestoneCategories, setMilestoneCategories] = useState<Record<string, string>>({})
+  const [savingMilestoneCategory, setSavingMilestoneCategory] = useState(false)
   // 親カテゴリとして扱うラベル名。GitHub ではなくアプリ側の設定（Project ごと）。
   const [parentLabels, setParentLabels] = useState<string[]>([])
   const [savingCategories, setSavingCategories] = useState(false)
@@ -542,6 +552,11 @@ function Workspace({
     })
     void loadTheme().then((loaded) => {
       if (alive) setGanttTheme(loaded)
+    })
+    // マイルストーンの割り当ては Project に依らない（鍵はマイルストーンの id）。
+    // 親カテゴリと違い、Project を切り替えても読み直さない。
+    void loadMilestoneCategories().then((loaded) => {
+      if (alive) setMilestoneCategories(loaded)
     })
     return () => {
       alive = false
@@ -1046,7 +1061,7 @@ function Workspace({
    * どちらもここを見ているので、取り直さなくても両方に出る。
    */
   const createMilestone = useCallback(
-    async (repositoryId: string, input: NewMilestoneInput) => {
+    async (repositoryId: string, input: NewMilestoneInput, category: string) => {
       const repo = repositories.find((r) => r.id === repositoryId)
       if (!repo) {
         logAppend({
@@ -1063,6 +1078,21 @@ function Workspace({
           ...prev,
           [repositoryId]: [...(prev[repositoryId] ?? []), created],
         }))
+        // カテゴリの割り当ては node id を鍵にするので、作成が返るまで書けない。
+        if (category !== "") {
+          try {
+            await saveMilestoneCategory(created.id, category)
+            setMilestoneCategories((prev) => ({ ...prev, [created.id]: category }))
+          } catch {
+            // 作成そのものは済んでいる。ここを作成の失敗として扱うと、
+            // GitHub にはあるものが作れなかったように見える。
+            logAppend({
+              level: "warn",
+              message: `マイルストーン「${created.title}」のカテゴリを保存できませんでした`,
+              hint: "盤面の菱形に色が付きません。菱形を押すと割り当て直せます。",
+            })
+          }
+        }
         setMilestoneOpen(false)
         logAppend({
           level: "info",
@@ -1301,6 +1331,7 @@ function Workspace({
     creatingOpen ||
     milestoneOpen ||
     categoryOpen ||
+    openMilestoneId !== null ||
     settingsOpen ||
     manualOpen ||
     openTaskId !== null
@@ -1365,9 +1396,63 @@ function Workspace({
    * 盤面に出ない。畳み込みと期日順の整理は GanttChart の中（mergeMilestones）に任せる。
    * useMemo なのは、毎レンダリング別の配列になると盤面の再計算が止まらないため。
    */
-  const allMilestones = useMemo(
-    () => Object.values(milestonesByRepo).flat(),
-    [milestonesByRepo],
+  const allMilestones = useMemo(() => {
+    // リポジトリごとの一覧は、そのリポジトリを触るまで取りに行かない。
+    // 一覧がまだ無くても Issue 側から盤面に出るものがあるので、タスクが持つ分も
+    // ここに混ぜる。混ぜないと、そういうマイルストーンだけ色が付かない
+    // （題名の重複は GanttChart の mergeMilestones が畳む）。
+    const known: Milestone[] = [...Object.values(milestonesByRepo).flat()]
+    for (const task of schedule.tasks) if (task.milestone) known.push(task.milestone)
+
+    // ラベル名 -> 色。Label.color は # の付かない 6 桁 hex なので前置する。
+    const colorByName = new Map(labelCandidates.map((l) => [l.name, l.color]))
+    return known.map((m) => {
+      const color = colorByName.get(milestoneCategories[m.id] ?? "")
+      return color ? { ...m, color: `#${color}` } : m
+    })
+  }, [milestonesByRepo, schedule.tasks, labelCandidates, milestoneCategories])
+
+  /** カテゴリを割り当てるために開いているマイルストーン。題名を画面に出すために引く。 */
+  const openMilestone = useMemo(
+    () => allMilestones.find((m) => m.id === openMilestoneId) ?? null,
+    [allMilestones, openMilestoneId],
+  )
+
+  /**
+   * マイルストーンのカテゴリを決める（空文字で外す）。
+   *
+   * GitHub には何も送らない。保存できたときだけ手元の割り当てを差し替えるので、
+   * 失敗したときに画面だけ色が変わって残ることはない。
+   */
+  const assignMilestoneCategory = useCallback(
+    async (milestoneId: string, label: string) => {
+      setSavingMilestoneCategory(true)
+      try {
+        await saveMilestoneCategory(milestoneId, label)
+        setMilestoneCategories((prev) => {
+          const next = { ...prev }
+          if (label === "") delete next[milestoneId]
+          else next[milestoneId] = label
+          return next
+        })
+        setOpenMilestoneId(null)
+      } catch (error) {
+        // GitHub 呼び出しではないので GitHubError には包まない。
+        // Rust 側は { kind, message } を reject するため、message だけ拾う。
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        logAppend({
+          level: "error",
+          message: "マイルストーンのカテゴリを保存できませんでした",
+          hint: detail,
+        })
+      } finally {
+        setSavingMilestoneCategory(false)
+      }
+    },
+    [logAppend],
   )
 
   // GanttChart の keydown リスナが毎レンダリング張り直されないよう、関数の identity を保つ。
@@ -1531,6 +1616,7 @@ function Workspace({
         groupBy={groupBy}
         parentLabels={parentLabels}
         milestones={allMilestones}
+        onMilestoneOpen={setOpenMilestoneId}
         theme={ganttTheme}
         onTaskDatesChange={changeTaskDates}
         readOnly={!editable}
@@ -1584,9 +1670,22 @@ function Workspace({
           repositories={repositories}
           repositoryId={newMilestoneRepositoryId}
           onChangeRepository={setNewMilestoneRepositoryId}
+          candidates={labelCandidates}
           busy={creatingMilestone}
           onCreate={createMilestone}
           onClose={() => setMilestoneOpen(false)}
+        />
+      )}
+      {/* 盤面の菱形から開く割り当て。候補が届く前でも開けるよう、
+          マイルストーンが引けたことだけを条件にする。 */}
+      {openMilestone && (
+        <MilestoneCategoryModal
+          title={openMilestone.title}
+          candidates={labelCandidates}
+          selected={milestoneCategories[openMilestone.id] ?? null}
+          busy={savingMilestoneCategory}
+          onSelect={(label) => void assignMilestoneCategory(openMilestone.id, label)}
+          onClose={() => setOpenMilestoneId(null)}
         />
       )}
       {categoryOpen && (

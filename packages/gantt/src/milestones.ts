@@ -33,6 +33,21 @@ export function estimateLabelWidth(title: string, fontSize: number): number {
 }
 
 /**
+ * 横軸に載るものだけを残す。
+ *
+ * 段を数える前に落とすためのもの。描かれないものが段を占めると、盤面には何も
+ * 無いのに帯だけ 1 段高くなる。軸より手前の期日は x が負になるので、左端に
+ * 居座って、見えているマイルストーンを下の段へ押し出してしまう。
+ */
+export function onAxisMilestones(
+  marks: MilestoneMark[],
+  origin: ISODate,
+  end: ISODate,
+): MilestoneMark[] {
+  return marks.filter((m) => m.dueOn >= origin && m.dueOn <= end)
+}
+
+/**
  * 重なるマイルストーンを下の段へ送る。
  *
  * 期日の昇順に見て、その段に既に置いたものと重ならない最上段（lane 0 に近い方）

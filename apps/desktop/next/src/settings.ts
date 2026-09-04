@@ -36,6 +36,8 @@ export const MIN_WINDOW_HEIGHT = 600
 /** Rust 側の `AppSettings`（apps/desktop/src-tauri/src/settings.rs）に対応する。 */
 type AppSettings = {
   parentLabels?: Record<string, string[]>
+  /** マイルストーンの node id -> 割り当てたカテゴリ（ラベル名） */
+  milestoneCategories?: Record<string, string>
   window?: Partial<WindowSettings>
   autoReschedule?: boolean
   theme?: string
@@ -47,6 +49,7 @@ type AppSettings = {
  * localStorage ではなく sessionStorage なのはそのため — タブを閉じれば消える。
  */
 const STORAGE_PREFIX = "zukunft.parentLabels."
+const MILESTONE_CATEGORY_STORAGE_KEY = "zukunft.milestoneCategories"
 const WINDOW_STORAGE_KEY = "zukunft.window"
 const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
 const THEME_STORAGE_KEY = "zukunft.theme"
@@ -87,6 +90,44 @@ export async function saveParentLabels(projectId: string, labels: string[]): Pro
     return
   }
   window.sessionStorage.setItem(STORAGE_PREFIX + projectId, JSON.stringify(labels))
+}
+
+/**
+ * マイルストーンに割り当てたカテゴリ（ラベル名）。鍵はマイルストーンの node id。
+ *
+ * 親カテゴリと同じく、読めないことを画面の失敗にはしない。色が付かないだけで
+ * 盤面は問題なく描けるため。値が文字列でないものは落とす — 手で書き換えられた
+ * 設定ファイルの 1 項目のために、全部の割り当てを捨てたくない。
+ */
+export async function loadMilestoneCategories(): Promise<Record<string, string>> {
+  try {
+    const raw: unknown = isTauri()
+      ? (await invokeCommand<AppSettings>("get_settings", {})).milestoneCategories
+      : JSON.parse(window.sessionStorage.getItem(MILESTONE_CATEGORY_STORAGE_KEY) ?? "{}")
+    if (typeof raw !== "object" || raw === null) return {}
+    const result: Record<string, string> = {}
+    for (const [id, label] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof label === "string" && label !== "") result[id] = label
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+/** 空文字なら割り当てを外す。Rust 側もそのときは項目ごと消す。 */
+export async function saveMilestoneCategory(milestoneId: string, label: string): Promise<void> {
+  if (!milestoneId) return
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("set_milestone_category", { milestoneId, label })
+    return
+  }
+  // モックには Rust の読み書きが無いので、同じ「消す / 入れる」をここで行う。
+  // 触ったものが画面に出ないと、実機を立ち上げるまで確かめられない。
+  const current = await loadMilestoneCategories()
+  if (label === "") delete current[milestoneId]
+  else current[milestoneId] = label
+  window.sessionStorage.setItem(MILESTONE_CATEGORY_STORAGE_KEY, JSON.stringify(current))
 }
 
 /**

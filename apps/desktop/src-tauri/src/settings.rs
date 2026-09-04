@@ -92,6 +92,13 @@ pub struct AppSettings {
     /// project id -> 親カテゴリとして扱うラベル名
     #[serde(default)]
     pub parent_labels: BTreeMap<String, Vec<String>>,
+    /// マイルストーンの node id -> 割り当てたカテゴリ（ラベル名）。
+    ///
+    /// 題名ではなく id を鍵にするのは、GitHub 上で題名を変えても割り当てが
+    /// 外れないようにするため。Project ではなくマイルストーンに属する設定なので、
+    /// parent_labels のように project id で括らない。
+    #[serde(default)]
+    pub milestone_categories: BTreeMap<String, String>,
     /// 窓の見せ方。Project に依らないので、こちらはキーを持たない。
     #[serde(default)]
     pub window: WindowSettings,
@@ -120,6 +127,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             parent_labels: BTreeMap::new(),
+            milestone_categories: BTreeMap::new(),
             window: WindowSettings::default(),
             auto_reschedule: default_true(),
             theme: default_theme(),
@@ -223,6 +231,28 @@ pub async fn set_parent_labels(
         settings.parent_labels.remove(&project_id);
     } else {
         settings.parent_labels.insert(project_id, labels);
+    }
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// マイルストーンに割り当てるカテゴリ（ラベル名）を決める。
+///
+/// 空文字なら項目ごと消す。set_parent_labels と同じ流儀で、
+/// 「割り当てを外した」印としての空文字がファイルに溜まらないようにするため。
+#[tauri::command]
+pub async fn set_milestone_category(
+    app: tauri::AppHandle,
+    milestone_id: String,
+    label: String,
+) -> Result<AppSettings, AppError> {
+    let mut settings = read(&app);
+    // 突き合わせはラベル名で行うので、見えない前後の空白を持ち込ませない。
+    let label = label.trim().to_owned();
+    if label.is_empty() {
+        settings.milestone_categories.remove(&milestone_id);
+    } else {
+        settings.milestone_categories.insert(milestone_id, label);
     }
     write(&app, &settings)?;
     Ok(settings)
@@ -335,6 +365,7 @@ mod tests {
         assert!(settings.auto_reschedule);
         assert_eq!(settings.theme, "default");
         assert!(settings.parent_labels.is_empty());
+        assert!(settings.milestone_categories.is_empty());
     }
 
     #[test]

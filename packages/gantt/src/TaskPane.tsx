@@ -6,6 +6,11 @@ import type { Row } from "./rows"
 type Props = {
   rows: Row[]
   rowHeight: number
+  /**
+   * 盤面のマイルストーン帯の高さ（段数 × 行の高さ）。
+   * 向こうが多段になったぶんだけ、こちらの見出しも高くする。
+   */
+  milestoneHeight: number
   visible: { start: number; end: number }
   onToggleGroup: (key: string) => void
   onTaskOpen?: (taskId: string) => void
@@ -14,14 +19,15 @@ type Props = {
 }
 
 export function TaskPane({
-  rows, rowHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
+  rows, rowHeight, milestoneHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
 }: Props) {
   return (
     <>
-      {/* 盤面のマイルストーン行と対になる見出し。高さも貼り付き方も向こうと
-          揃えないと、以降の行がまるごと横にずれて見える。
+      {/* 盤面のマイルストーン帯と対になる見出し。高さも貼り付き方も向こうと
+          揃えないと、以降の行がまるごと横にずれて見える。段が増えて帯が高く
+          なったときも同じで、行の高さではなく帯の高さに合わせる。
           畳めないので、グループ見出しと違ってクリックは受けない。 */}
-      <div className="zk-pane-milestone" style={{ height: rowHeight }}>MILESTONE</div>
+      <div className="zk-pane-milestone" style={{ height: milestoneHeight }}>MILESTONE</div>
       <div style={{ height: rows.length * rowHeight, position: "relative" }}>
         {rows.slice(visible.start, visible.end).map((row, i) => {
           const index = visible.start + i

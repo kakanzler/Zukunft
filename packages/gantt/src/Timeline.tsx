@@ -4,8 +4,8 @@ import { type CSSProperties, useEffect, useId, useMemo, useState } from "react"
 import {
   type DateChange,
   type Dependency,
-  type ISODate,
   edgeKey,
+  type MilestoneMark,
   type ScheduledTask,
   type TimeScale,
   inclusiveDays,
@@ -15,6 +15,7 @@ import {
   today,
 } from "@zukunft/domain"
 import { glowVar, statusSlot, statusVar } from "./colors"
+import { estimateLabelWidth } from "./milestones"
 import type { GanttTheme } from "./theme"
 import type { Row } from "./rows"
 import { type DragState, useBarDrag } from "./useBarDrag"
@@ -22,6 +23,42 @@ import { type DragState, useBarDrag } from "./useBarDrag"
 const BAR_INSET = 5
 /** 矢印の先端の大きさ（px）。行の高さ 32 に対して主張しすぎない程度。 */
 const ARROW = 8
+
+/**
+ * マイルストーンの題名の大きさ（px）。theme.css の .zk-milestone-label と同じ値。
+ *
+ * 段組みを決める packMilestones は題名の幅からしか重なりを判定できないので、
+ * 実際に描く大きさをここから GanttChart へ渡す。CSS と食い違うと、重なって
+ * いないものが段を分けたり、重なったものが同じ段に並んだりする。
+ */
+export const MILESTONE_FONT_SIZE = 10
+/** 菱形の中心から左右への半幅。milestones.ts の DIAMOND_HALF_WIDTH と同じ値。 */
+const DIAMOND_HALF_WIDTH = 6
+/** 菱形の中心から題名の開始位置まで。milestones.ts の LABEL_OFFSET と同じ値。 */
+const LABEL_OFFSET = 10
+
+/** 段の決まったマイルストーン 1 件。段は GanttChart が packMilestones で詰める。 */
+export type PlacedMilestone = { mark: MilestoneMark; lane: number }
+
+/**
+ * 割り当てられたカテゴリ色を菱形に載せる。
+ *
+ * 輪郭をその色にし、内部は同じ色を薄くして塗る — blue-system の
+ * --zk-accent-red（輪郭）と --zk-milestone-fill（不透明度 0.18 の塗り）の
+ * 関係をそのまま移したもの。発光まで色に従わせたいが、光らせるかどうかは
+ * 意匠ごとに違うので、filter はここで書かず、色だけを変数で渡して
+ * theme.css の blue-system に読ませる。
+ */
+function milestoneTint(color: string): CSSProperties {
+  return {
+    stroke: color,
+    // 0.18 ≒ 0x2e / 0xff、0.55 ≒ 0x8c / 0xff。--zk-milestone-fill と
+    // blue-system の広い滲みの不透明度に合わせている。
+    fill: `${color}2e`,
+    "--zk-ms-color": color,
+    "--zk-ms-glow": `${color}8c`,
+  } as CSSProperties
+}
 
 /**
  * blue-system でバーに何を載せるかの境目（px）。
@@ -47,7 +84,18 @@ type Props = {
   scale: TimeScale
   rowHeight: number
   visible: { start: number; end: number }
-  milestones: { title: string; dueOn: ISODate }[]
+  /** 段まで決まったマイルストーン。どの段に置くかは GanttChart が決める */
+  milestones: PlacedMilestone[]
+  /**
+   * マイルストーン帯の高さ（段数 × 行の高さ）。
+   * 左ペインの .zk-pane-milestone と 1px でも違うと、以降の行が横にずれる。
+   */
+  milestoneHeight: number
+  /**
+   * 菱形と題名を押したとき。渡さない読み取り専用ビューでは押せないままにする
+   * （当たり判定もカーソルも足さない）。
+   */
+  onMilestoneOpen?: (milestoneId: string) => void
   /** Issue 間の依存関係。両端が描かれている行のときだけ矢印にする */
   dependencies?: Dependency[]
   /** 循環している辺（cycle.ts の edgeKey）。危険色の破線で描く */
@@ -69,9 +117,10 @@ const EMPTY_DEPENDENCIES: Dependency[] = []
 const EMPTY_EDGES: ReadonlySet<string> = new Set()
 
 export function Timeline({
-  rows, scale, rowHeight, visible, milestones, dependencies = EMPTY_DEPENDENCIES,
+  rows, scale, rowHeight, visible, milestones, milestoneHeight,
+  dependencies = EMPTY_DEPENDENCIES,
   cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
-  onTaskOpen, onScroll, selectedTaskId = null, scrollRef,
+  onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
 }: Props) {
   const { drag, begin, move, end, cancel } = useBarDrag({
     scale,
@@ -142,20 +191,65 @@ export function Timeline({
 
       {/* マイルストーンは盤面と一緒には流さない。本体の SVG に描くと、
           行を下へ辿った先で期日がどこにも見えなくなる。月・週ヘッダと同じ作りの
-          帯にして、縦には貼り付かせ、横だけ盤面と一緒に流す。 */}
-      <div className="zk-milestone-row" style={{ width: scale.width, height: rowHeight }}>
-        <svg width={scale.width} height={rowHeight} style={{ display: "block" }}>
-          {milestones.map((m) => {
-            if (m.dueOn < scale.origin || m.dueOn > scale.end) return null
-            const x = scale.toX(m.dueOn) + scale.pxPerDay / 2
-            const cy = rowHeight / 2
+          帯にして、縦には貼り付かせ、横だけ盤面と一緒に流す。
+
+          高さは段数ぶん（milestoneHeight）。重なった題名を下の段へ送っても、
+          帯が 1 行のままだと、送った先が帯の外にはみ出して行に重なる。 */}
+      <div className="zk-milestone-row" style={{ width: scale.width, height: milestoneHeight }}>
+        <svg width={scale.width} height={milestoneHeight} style={{ display: "block" }}>
+          {/* 軸の外は段を数える前（GanttChart）で落としてある。ここで落とすと、
+              帯の高さは落とす前の段数のままになり、空の段が残る。 */}
+          {milestones.map(({ mark, lane }) => {
+            const x = scale.toX(mark.dueOn) + scale.pxPerDay / 2
+            const top = lane * rowHeight
+            // 段の中では今までどおり中央。段が増えても菱形と題名の関係は変えない。
+            const cy = top + rowHeight / 2
+            // 色が無ければテーマ既定のまま（Default は紫、blue-system は橙）。
+            // 割り当てがあるときだけ、その色で輪郭と薄い塗りを作る。
+            const tint = mark.color
+            const open = onMilestoneOpen
             return (
-              <g key={m.title}>
+              <g
+                key={mark.id}
+                onClick={open ? () => open(mark.id) : undefined}
+                onKeyDown={
+                  open
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") open(mark.id)
+                      }
+                    : undefined
+                }
+                role={open ? "button" : undefined}
+                tabIndex={open ? 0 : undefined}
+                style={open ? { cursor: "pointer" } : undefined}
+              >
+                {/* 菱形は 12px 角しかなく、狙って押させるには小さすぎる。
+                    題名まで含めた矩形を透明で敷いて当たり判定を広げる。
+                    押せないビューには敷かない — 押せない場所に反応する見た目
+                    （カーソルの変化）だけが残ってしまう。 */}
+                {open && (
+                  <rect
+                    className="zk-milestone-hit"
+                    x={x - DIAMOND_HALF_WIDTH - 2}
+                    y={top + 2}
+                    width={
+                      DIAMOND_HALF_WIDTH + 2 + LABEL_OFFSET +
+                      estimateLabelWidth(mark.title, MILESTONE_FONT_SIZE)
+                    }
+                    height={rowHeight - 4}
+                  />
+                )}
                 <path
-                  className="zk-milestone"
-                  d={`M ${x} ${cy - 6} L ${x + 6} ${cy} L ${x} ${cy + 6} L ${x - 6} ${cy} Z`}
+                  className={tint ? "zk-milestone zk-milestone--tinted" : "zk-milestone"}
+                  style={tint ? milestoneTint(tint) : undefined}
+                  d={
+                    `M ${x} ${cy - DIAMOND_HALF_WIDTH} L ${x + DIAMOND_HALF_WIDTH} ${cy}` +
+                    ` L ${x} ${cy + DIAMOND_HALF_WIDTH} L ${x - DIAMOND_HALF_WIDTH} ${cy} Z`
+                  }
                 />
-                <text className="zk-milestone-label" x={x + 10} y={cy}>{m.title}</text>
+                <text className="zk-milestone-label" x={x + LABEL_OFFSET} y={cy}>
+                  {mark.title}
+                </text>
               </g>
             )
           })}

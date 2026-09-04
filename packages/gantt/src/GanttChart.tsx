@@ -21,19 +21,26 @@ import {
 } from "@zukunft/domain"
 import type { GanttTheme } from "./theme"
 import { TaskPane } from "./TaskPane"
-import { Timeline } from "./Timeline"
+import { MILESTONE_FONT_SIZE, Timeline } from "./Timeline"
 import { isTyping } from "./keyboard"
+import { onAxisMilestones, packMilestones } from "./milestones"
 import { buildRows, visibleRange } from "./rows"
 
 const ROW_HEIGHT = 32
 /** タイムラインの上に貼り付く月・週ヘッダの高さ。選択行がこの下に隠れないようにする。 */
 const THEAD_HEIGHT = 48
-/** ヘッダの直下に貼り付くマイルストーン行の高さ。他の行と同じにして横並びを保つ。 */
-const MILESTONE_ROW_HEIGHT = ROW_HEIGHT
+
+/**
+ * 盤面に出すリポジトリ側のマイルストーンと、割り当てられたカテゴリの色。
+ *
+ * ドメインの Milestone は色を持たない（誰の色かを知らない）ので、
+ * 設定から引いた色をアプリ側がここで添える。
+ */
+export type ColoredMilestone = Milestone & { color?: string }
 
 /** 既定値をその場で書くと毎回別の配列になり、行の再計算が止まらなくなる。 */
 const EMPTY_PARENTS: string[] = []
-const EMPTY_MILESTONES: Milestone[] = []
+const EMPTY_MILESTONES: ColoredMilestone[] = []
 
 export type GanttChartProps = {
   tasks: ScheduleTask[]
@@ -68,8 +75,14 @@ export type GanttChartProps = {
   /**
    * リポジトリ側のマイルストーン一覧。Issue が 1 件も付いていないものも
    * 盤面に出すために使う。渡さない読み取り専用ビューは Issue 側だけで描く。
+   * color を添えると、その色で菱形を描く。
    */
-  milestones?: Milestone[]
+  milestones?: ColoredMilestone[]
+  /**
+   * 盤面のマイルストーンを押したとき。カテゴリの割り当てを開く用途。
+   * 渡さない読み取り専用ビューでは押せないままにする。
+   */
+  onMilestoneOpen?: (milestoneId: string) => void
   /** タスクが 0 件のときに出す案内 */
   emptyMessage?: ReactNode
   toolbar?: ReactNode
@@ -81,6 +94,7 @@ export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
   milestones: repositoryMilestones = EMPTY_MILESTONES, emptyMessage, toolbar, subHeader,
+  onMilestoneOpen,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
@@ -118,10 +132,37 @@ export function GanttChart({
     return createTimeScale(origin, end, zoom)
   }, [tasks, zoom, endOverride, defaultEnd])
 
-  const milestones = useMemo(
-    () => mergeMilestones(collectMilestones(tasks), repositoryMilestones),
-    [tasks, repositoryMilestones],
+  const milestones = useMemo(() => {
+    const merged = mergeMilestones(collectMilestones(tasks), repositoryMilestones)
+    // mergeMilestones は畳んだ結果を組み立て直すので、渡された色はそこで落ちる。
+    // 残るのは id なので、そちらで引き直して差し直す（題名を変えても割り当てが
+    // 外れないよう、鍵は題名ではなく id にしてある）。
+    const colors = new Map(
+      repositoryMilestones.flatMap((m) => (m.color ? [[m.id, m.color] as const] : [])),
+    )
+    return merged.map((m) => {
+      const color = colors.get(m.id)
+      return color ? { ...m, color } : m
+    })
+  }, [tasks, repositoryMilestones])
+
+  /**
+   * マイルストーンの段組み。重なる題名は下の段へ送る。
+   *
+   * 帯の高さは段数で決まり、Timeline・左ペインの見出し・revealRow の視野の
+   * 3 か所がこの同じ値を見る。ずれると行が横にずれるか、選択行が帯の裏に隠れる。
+   */
+  const { placed: placedMilestones, laneCount } = useMemo(
+    () =>
+      packMilestones(
+        onAxisMilestones(milestones, scale.origin, scale.end),
+        scale.toX,
+        scale.pxPerDay,
+        MILESTONE_FONT_SIZE,
+      ),
+    [milestones, scale],
   )
+  const milestoneHeight = laneCount * ROW_HEIGHT
   // 依存関係は Issue 本文の宣言から起こす。折り畳みやズームでは変わらない。
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks])
   // 循環した依存は成立しない日程を表している。消さずに、そうと分かる線で描く。
@@ -155,14 +196,15 @@ export function GanttChart({
     const el = timelineRef.current
     if (!el) return
     const top = rowIndex * ROW_HEIGHT
-    // 上に居座る 2 段（月・週ヘッダとマイルストーン行）は視野ではない。
+    // 上に居座る 2 段（月・週ヘッダとマイルストーン帯）は視野ではない。
     // 引かないと、k で上へ戻ったとき選択行が固定行の裏に入って見えなくなる。
-    const viewHeight = el.clientHeight - THEAD_HEIGHT - MILESTONE_ROW_HEIGHT
+    // マイルストーン帯は段が増えると高くなるので、固定値ではなく今の高さを引く。
+    const viewHeight = el.clientHeight - THEAD_HEIGHT - milestoneHeight
     if (top < el.scrollTop) el.scrollTop = top
     else if (top + ROW_HEIGHT > el.scrollTop + viewHeight) {
       el.scrollTop = top + ROW_HEIGHT - viewHeight
     }
-  }, [])
+  }, [milestoneHeight])
 
   const moveSelection = useCallback(
     (delta: number) => {
@@ -282,6 +324,7 @@ export function GanttChart({
             <TaskPane
               rows={rows}
               rowHeight={ROW_HEIGHT}
+              milestoneHeight={milestoneHeight}
               visible={visible}
               onToggleGroup={toggleGroup}
               onTaskOpen={onTaskOpen ? openTask : undefined}
@@ -295,7 +338,9 @@ export function GanttChart({
           scale={scale}
           rowHeight={ROW_HEIGHT}
           visible={visible}
-          milestones={milestones}
+          milestones={placedMilestones}
+          milestoneHeight={milestoneHeight}
+          onMilestoneOpen={onMilestoneOpen}
           dependencies={dependencies}
           cyclicEdges={cyclicEdges}
           theme={theme}

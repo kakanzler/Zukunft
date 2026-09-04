@@ -8,10 +8,10 @@ import {
   edgeKey,
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
-import { estimateLabelWidth, packMilestones } from "../src/milestones"
+import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
 import { glowVar, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
-import { barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
+import { MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
 import { KpiBar, StatusLegend } from "../src/KpiBar"
 import { TaskPane } from "../src/TaskPane"
 import { Timeline } from "../src/Timeline"
@@ -288,6 +288,24 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("wide (CJK) characters are estimated wider than narrow ones",
      estimateLabelWidth("あ", 12) > estimateLabelWidth("a", 12), true)
 
+  // 軸の外は段を数える前に落とす。描かれないものが段を占めると、盤面には何も
+  // 無いのに帯だけ 1 段高くなる。軸より手前は x が負になるので、左端に居座って
+  // 見えている方を下の段へ押し出す。
+  const spanning = [
+    mark("before", "軸より前", "2026-08-01"),
+    mark("inside", "軸の中", "2026-09-10"),
+    mark("after", "軸より後", "2026-10-15"),
+  ]
+  eq("milestones off the axis are dropped before packing",
+     onAxisMilestones(spanning, scale.origin, scale.end).map((m) => m.id), ["inside"])
+  eq("the edges of the axis count as on it",
+     onAxisMilestones(
+       [mark("o", "左端", scale.origin), mark("e", "右端", scale.end)],
+       scale.origin, scale.end,
+     ).length, 2)
+  eq("dropping the off-axis ones keeps the band at one lane",
+     pack(onAxisMilestones(spanning, scale.origin, scale.end)).laneCount, 1)
+
   // 離れていれば重ならないので全部 1 段のまま。
   const apart = pack([mark("m1", "v1", "2026-09-01"), mark("m2", "v2", "2026-09-20")])
   eq("well-spaced milestones stay on one lane", apart.laneCount, 1)
@@ -377,8 +395,8 @@ const count = (haystack: string, pattern: RegExp): number =>
   const ROW_HEIGHT = 32
   // ハンドラを渡さない読み取り専用の使い方でも落ちないこと（Web ビューがこれ）。
   const html = renderToStaticMarkup(
-    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} visible={{ start: 0, end: rows.length }}
-              onToggleGroup={() => {}} />,
+    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} milestoneHeight={ROW_HEIGHT}
+              visible={{ start: 0, end: rows.length }} onToggleGroup={() => {}} />,
   )
 
   eq("the task pane draws exactly one element per row", count(html, /class="zk-row[ "]/g), rows.length)
@@ -398,7 +416,8 @@ const count = (haystack: string, pattern: RegExp): number =>
 
   // 仮想化。可視範囲の外は組み立てないこと。
   const windowed = renderToStaticMarkup(
-    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} visible={{ start: 1, end: 3 }} onToggleGroup={() => {}} />,
+    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} milestoneHeight={ROW_HEIGHT}
+              visible={{ start: 1, end: 3 }} onToggleGroup={() => {}} />,
   )
   eq("only the visible slice of rows is built", count(windowed, /class="zk-row[ "]/g), 2)
   eq("a row outside the visible slice is not built", windowed.includes("日付未定"), false)
@@ -406,8 +425,8 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a windowed row keeps its absolute position", windowed.includes(`top:${1 * ROW_HEIGHT}px`), true)
 
   const selected = renderToStaticMarkup(
-    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} visible={{ start: 0, end: rows.length }}
-              onToggleGroup={() => {}} selectedTaskId="b" />,
+    <TaskPane rows={rows} rowHeight={ROW_HEIGHT} milestoneHeight={ROW_HEIGHT}
+              visible={{ start: 0, end: rows.length }} onToggleGroup={() => {}} selectedTaskId="b" />,
   )
   eq("exactly one row is marked as selected", count(selected, /zk-row--selected/g), 1)
 }
@@ -421,26 +440,77 @@ const count = (haystack: string, pattern: RegExp): number =>
   ]
   const rows = buildRows(tasks, STATUS_ORDER, new Set())
   const scale = createTimeScale("2026-09-01", "2026-09-30", "day")
+  // 段を決めるのは GanttChart の仕事なので、ここでは詰めた結果を渡す。
+  const inRange: MilestoneMark = { id: "m1", title: "v1", dueOn: "2026-09-30" }
+  const outOfRange: MilestoneMark = { id: "m2", title: "圏外", dueOn: "2026-12-01" }
   const html = renderToStaticMarkup(
     <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
-              milestones={[{ title: "v1", dueOn: "2026-09-30" }, { title: "圏外", dueOn: "2026-12-01" }]}
+              milestones={[{ mark: inRange, lane: 0 }, { mark: outOfRange, lane: 0 }]}
+              milestoneHeight={32}
               onTaskDatesChange={() => {}} />,
   )
 
   // 日付の無いタスクとグループ見出しにはバーが無い。数が合わないと、
   // 引けないバーを引いて盤面が壊れるか、引けるバーが消えている。
   eq("the board draws one bar per scheduled task", count(html, /class="zk-bar"/g), 2)
-  eq("a milestone inside the range gets a diamond", count(html, /class="zk-milestone"/g), 1)
-  eq("a milestone past the end of the axis is dropped", html.includes("圏外"), false)
-  // 菱形は本体の外の、貼り付く 1 行に描く。本体に描くと下へ辿った先で消える。
+  // Timeline は渡されたものをそのまま描く。軸の外を落とすのは段を数える前
+  // （GanttChart の onAxisMilestones）— ここで落とすと、帯の高さだけが
+  // 落とす前の段数のまま残って空の段ができる。
+  eq("the board draws every milestone it is given", count(html, /class="zk-milestone"/g), 2)
+  // 菱形は本体の外の、貼り付く帯に描く。本体に描くと下へ辿った先で消える。
   eq("the milestone lives in its own pinned row", count(html, /class="zk-milestone-row"/g), 1)
+  // ハンドラを渡さない読み取り専用ビューでは押せないままにする。
+  eq("a board without a handler leaves milestones unclickable",
+     [html.includes("zk-milestone-hit"), html.includes("cursor:pointer")], [false, false])
   // その帯を出した以上、本体には余白が要らない。残っていると左ペインとずれる。
   eq("the board is exactly as tall as its rows", html.includes(`height="${rows.length * 32}"`), true)
   eq("the board is as wide as the time scale", html.includes(`width="${scale.width}"`), true)
 
+  // 押せる盤面だけ、題名まで覚えた当たり判定を敷く。
+  const clickable = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[{ mark: inRange, lane: 0 }]} milestoneHeight={32}
+              onMilestoneOpen={() => {}} onTaskDatesChange={() => {}} />,
+  )
+  eq("a board with a handler gets a wide hit area",
+     count(clickable, /class="zk-milestone-hit"/g), 1)
+
+  // カテゴリの色は菱形に直接乗せる。発光もその色に従わせるので、
+  // 塗り・輪郭だけでなく CSS 変数も一緒に出ていないといけない。
+  const tinted = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[{ mark: { ...inRange, color: "#ff8800" }, lane: 0 }]}
+              milestoneHeight={32} onTaskDatesChange={() => {}} />,
+  )
+  eq("a milestone with a category colour paints the diamond with it",
+     [tinted.includes("zk-milestone--tinted"), tinted.includes("stroke:#ff8800"),
+      tinted.includes("--zk-ms-color:#ff8800")],
+     [true, true, true])
+
+  // 2 段になったら帯も 2 段ぶん高くなる。1 段のままだと、下の段の菱形が
+  // 帯の外へはみ出して、下から上がってくる行に重なる。
+  const packed = packMilestones(
+    [
+      { id: "m1", title: "非常に長いマイルストーンの題名です", dueOn: "2026-09-01" },
+      { id: "m2", title: "v2", dueOn: "2026-09-02" },
+    ],
+    scale.toX, scale.pxPerDay, MILESTONE_FONT_SIZE,
+  )
+  const twoLanes = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={packed.placed} milestoneHeight={packed.laneCount * 32}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("overlapping milestones need a second lane", packed.laneCount, 2)
+  eq("the milestone band is as tall as the lanes it holds",
+     twoLanes.includes("height:64px"), true)
+  // 2 段目の高さは 1 段目の真下（lane * rowHeight の中央）。
+  eq("the second lane is drawn a whole row below the first",
+     twoLanes.includes('y="48"'), true)
+
   const empty = renderToStaticMarkup(
     <Timeline rows={[]} scale={scale} rowHeight={32} visible={{ start: 0, end: 0 }}
-              milestones={[]} onTaskDatesChange={() => {}} />,
+              milestones={[]} milestoneHeight={32} onTaskDatesChange={() => {}} />,
   )
   eq("an empty board still draws the axis and no bars",
      [count(empty, /class="zk-bar"/g), count(empty, /class="zk-thead-month"/g) > 0], [0, true])

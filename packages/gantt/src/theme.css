@@ -124,8 +124,9 @@
    z-index も pointer-events も要らず、.zk-pane は何もせず不透明のまま。
 
    放射の中心を上端 0% ではなく 26% に置くのは、上を不透明な帯が覆っているため
-   （.zk-thead の 48px と .zk-milestone-row の 32px で 80px）。26% のままでよいのは、
-   盤面の高さがどのみち 80px よりずっと大きく、中心は帯の下に残るから。
+   （.zk-thead の 48px と .zk-milestone-row の 32px × 段数で、1 段なら 80px）。
+   26% のままでよいのは、盤面の高さがどのみちそれよりずっと大きく、
+   段が増えても中心は帯の下に残るから。
    右下の赤を 94% にするのは横スクロールバーのぶん。
 
    ここに filter / backdrop-filter / transform / will-change を足してはいけない。
@@ -165,9 +166,26 @@
   stroke-width: 1.5;
   /* バーの .zk-bar-glow と同じ 2 段（近い滲みと広い滲み）にする。盤面の中で
      光り方の流儀を揃えないと、同じ絵の中に別々の光源があるように見える。
-     菱形は 12px 角と小さいので、バーより半径を詰める。 */
-  filter: drop-shadow(0 0 2px var(--zk-accent-red)) drop-shadow(0 0 7px rgba(255, 90, 48, 0.55));
+     菱形は 12px 角と小さいので、バーより半径を詰める。
+
+     カテゴリ色が割り当てられた菱形は --zk-ms-color / --zk-ms-glow を持って来る
+     （Timeline.tsx が要素に載せる）。輪郭だけその色にして光は橙のままにすると、
+     色を変えた覚えのない光が残って、割り当てが効いていないように見える。
+     割り当てが無ければ変数も無いので、今までどおり橙で光る。 */
+  filter:
+    drop-shadow(0 0 2px var(--zk-ms-color, var(--zk-accent-red)))
+    drop-shadow(0 0 7px var(--zk-ms-glow, rgba(255, 90, 48, 0.55)));
 }
+
+/* カテゴリ色を当てた菱形。塗りと輪郭の色は Timeline.tsx がインラインで置くので、
+   ここで決めるのは線の太さだけ。書かないと既定の 1px になり、Default だけ
+   blue-system より細い輪郭になる。 */
+.zk-root .zk-milestone--tinted { stroke-width: 1.5; }
+
+/* 菱形と題名の当たり判定。12px 角の菱形だけでは狙って押せないので、
+   題名まで覆う矩形を透明で敷く。塗りが none だとクリックを拾わないため、
+   display: none ではなく transparent で置く。 */
+.zk-root .zk-milestone-hit { fill: transparent; }
 
 /* 菱形だけ光って題が沈むと、何の期日なのかが読めないまま光だけが目に付く。 */
 [data-gantt-theme="blue-system"] .zk-milestone-label {
@@ -441,12 +459,14 @@
 
 /* ---- マイルストーン行 ----
 
-   月・週ヘッダの真下に貼り付く 1 行。縦だけ固定して横は盤面と一緒に流すので、
+   月・週ヘッダの真下に貼り付く帯。縦だけ固定して横は盤面と一緒に流すので、
    .zk-thead と同じ sticky の作りにし、top をヘッダの高さ（48px）に置く。
 
    背景は必ず不透明にする。透けると、下から上がってくる行が菱形に重なって読めない。
-   高さは他の行と同じ --row-height。左ペインの .zk-pane-milestone と 1px でも
-   違うと、以降の行がまるごと横にずれて見える。 */
+   高さは段数で決まるので実際の値は要素の style で入る（GanttChart が
+   packMilestones の段数から出す）。ここの --row-height は 1 段のときの値。
+   左ペインの .zk-pane-milestone と 1px でも違うと、以降の行がまるごと
+   横にずれて見える。 */
 .zk-milestone-row {
   position: sticky; top: 48px; z-index: 2;
   box-sizing: border-box;
@@ -456,7 +476,7 @@
 }
 
 /* 左ペイン側の対。見た目はグループ見出しに寄せるが、畳めないので手も出さない
-   （cursor も aria-expanded も付けない）。 */
+   （cursor も aria-expanded も付けない）。高さは盤面の帯と同じく style で入る。 */
 .zk-pane-milestone {
   position: sticky; top: 0; z-index: 2;
   box-sizing: border-box;
