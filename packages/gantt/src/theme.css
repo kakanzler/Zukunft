@@ -105,7 +105,7 @@
   /* サイドバー。左がいちばん明るく、盤面へ近づくほど落とす
      （specifications/apeearance/appearance_overall_color_bluesystem.png の実測値）。
      画面の左端を光らせて、そこから盤面の闇へ向かう流れを作る。 */
-  --zk-sidebar-from: #4351ff;
+  --zk-sidebar-from: #141c7f;
   --zk-sidebar-to: #000534;
 
   /* スクロールバーのつまみ。既定は青→シアンだが、BlueSystem では
@@ -225,8 +225,7 @@
    崩さない濃さにする。それより上（Project 選択・day/week/month の帯と、
    タイトルで絞り込む行）とサイドバー・ログペインは 0.7——常に視野に入るが
    長時間見つめる場所ではないので、より透けさせてよい。
-   GANTT 本体とログペインは固有色を #01071B（rgb(1, 7, 27)）に統一。
-   ヘッダ・フィルタ行だけは --bg-elevated #121d3d のまま触れない。 */
+   GANTT 本体とログペインは固有色を #01071B（rgb(1, 7, 27)）に統一。 */
 [data-gantt-theme="blue-system"] .zk-pane { background: rgba(1, 7, 27, 0.6); }
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
@@ -234,9 +233,10 @@
 [data-gantt-theme="blue-system"] .zk-log { background: rgba(1, 7, 27, 0.7); }
 /* ヘッダ（Project 選択・day/week/month・New Issue の帯）とフィルタ行
    （「番号かタイトルで絞り込む」）。GANTT の本体より上に固定されている帯なので、
-   本体側（0.6）とは別の濃さ（0.7）にする。 */
+   本体側（#01071B, 0.6）とは別の固有色 #070F75（rgb(7, 15, 117)）に、
+   同じ 0.7 を掛ける。 */
 [data-gantt-theme="blue-system"] .zk-header,
-[data-gantt-theme="blue-system"] .zk-filter { background: rgba(18, 29, 61, 0.7); }
+[data-gantt-theme="blue-system"] .zk-filter { background: rgba(7, 15, 117, 0.7); }
 
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
    text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
@@ -254,11 +254,10 @@
 
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
 
-   2 色だけの単純な階調に変更。左端の #4351ff は不透明のまま光らせ、
-   右端の #000534 は自身の alpha（4a = 0.29）で早々に透けさせる —
-   間に止め位置を置いて明るさを保つ必要がなくなった分、記述も単純になる。 */
+   2 色だけの単純な階調。左端の #141c7f は不透明のまま光らせ、
+   右端の #000534 は自身の alpha（4a = 0.29）で早々に透けさせる。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  background: linear-gradient(90deg, rgba(67, 81, 255, 1), rgba(0, 5, 52, 0.29));
+  background: linear-gradient(90deg, rgba(20, 28, 127, 1), rgba(0, 5, 52, 0.29));
 }
 
 /* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
