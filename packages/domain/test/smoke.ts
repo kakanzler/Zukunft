@@ -12,7 +12,8 @@ import {
   parseDependencyRefs, resolveDependencies, withDependencyRefs,
   countTaskListItems, toggleTaskListItem, isTaskListItemChecked,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
-  type ScheduleTask, type ProjectSchema,
+  occurrences, occurrencesTruncated, isDone, toggleDone, MAX_OCCURRENCES,
+  type ScheduleTask, type ProjectSchema, type Recurrence,
 } from "../src/index"
 
 let failures = 0
@@ -720,6 +721,59 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
 
   // 行頭でない [ ] は対象外。本文の文章を壊さない。
   eq("ignores brackets inside a line", countTaskListItems("これは - [ ] ではない"), 0)
+}
+
+// --- recurrence: 日課の実行日と実施済みフラグ ---
+{
+  eq("interval 1 lists every day",
+     occurrences("2026-09-01", null, 1, "2026-09-05"),
+     ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"])
+  eq("interval 2 skips a day",
+     occurrences("2026-09-01", null, 2, "2026-09-08"),
+     ["2026-09-01", "2026-09-03", "2026-09-05", "2026-09-07"])
+  eq("interval 7 is weekly",
+     occurrences("2026-09-01", null, 7, "2026-09-22"),
+     ["2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22"])
+
+  eq("until stops the sequence",
+     occurrences("2026-09-01", "2026-09-03", 1, "2026-12-31"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+  eq("null until runs to fallbackEnd",
+     occurrences("2026-09-01", null, 1, "2026-09-03"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+  eq("until beyond fallbackEnd is clamped to fallbackEnd",
+     occurrences("2026-09-01", "2027-01-01", 1, "2026-09-03"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+  eq("until before start is empty",
+     occurrences("2026-09-05", "2026-09-01", 1, "2026-12-31"), [])
+
+  // 0 / 負数 / 小数はすべて 1 として扱う。0 のまま渡ると addDays が進まず無限ループになる。
+  eq("interval 0 falls back to daily",
+     occurrences("2026-09-01", null, 0, "2026-09-03"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+  eq("interval -1 falls back to daily",
+     occurrences("2026-09-01", null, -1, "2026-09-03"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+  eq("interval 1.5 falls back to daily",
+     occurrences("2026-09-01", null, 1.5, "2026-09-03"),
+     ["2026-09-01", "2026-09-02", "2026-09-03"])
+
+  // 上限で打ち切ったことは黙って捨てず、truncated で分かるようにする。
+  const long = occurrencesTruncated("2026-01-01", null, 1, "2030-01-01")
+  eq("truncated result stops at the cap", long.dates.length, MAX_OCCURRENCES)
+  eq("truncation is reported, not silent", long.truncated, true)
+  const short = occurrencesTruncated("2026-01-01", "2026-01-10", 1, "2030-01-01")
+  eq("no truncation when under the cap", short.truncated, false)
+
+  const r: Recurrence = { intervalDays: 1, done: ["2026-09-02"] }
+  eq("isDone reads existing entries", isDone(r, "2026-09-02"), true)
+  eq("isDone is false for other days", isDone(r, "2026-09-03"), false)
+
+  const marked = toggleDone(r, "2026-09-03")
+  eq("toggleDone adds a day", isDone(marked, "2026-09-03"), true)
+  const cleared = toggleDone(marked, "2026-09-03")
+  eq("toggling twice returns to the original set", cleared.done, r.done)
+  eq("toggleDone does not mutate the input", r.done, ["2026-09-02"])
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)
