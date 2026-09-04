@@ -223,6 +223,10 @@
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
 [data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.2); }
+/* ヘッダ（Project 選択・day/week/month・New Issue の帯）。サイドバー・左ペイン・
+   ログ・盤面は透けるのに、ここだけ取り残されて不透明のままだった
+   （実機のスクリーンショットで確認）。同じ --bg-elevated に同じ 0.2 を掛ける。 */
+[data-gantt-theme="blue-system"] .zk-header { background: rgba(18, 29, 61, 0.2); }
 
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
    text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */

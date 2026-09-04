@@ -358,12 +358,15 @@ export function Timeline({
           )}
           {blue && (
             <linearGradient id={`${uid}-core`} x1="0" y1="0" x2="0" y2="1">
-              {/* 明るい帯が行の 0.7 ほどを占める。15% と 85% で立ち上げ、
-                  残った上下の 15% ずつにだけ元の色を見せる。 */}
+              {/* 明るい帯が行の 0.7 ほどを占めるのは変えないが、中心の不透明度は
+                  0.82 から落とす。0.82 だと白が Status の色をほぼ覆ってしまい、
+                  短いバーは Planning も Review も同じ白に見えていた（実機で確認）。
+                  艶（ハイライト）として乗る強さに抑え、色そのものは地の塗りに
+                  語らせる。 */}
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-              <stop offset="15%" stopColor="#eaf2ff" stopOpacity="0.30" />
-              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.82" />
-              <stop offset="85%" stopColor="#eaf2ff" stopOpacity="0.30" />
+              <stop offset="15%" stopColor="#eaf2ff" stopOpacity="0.14" />
+              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.38" />
+              <stop offset="85%" stopColor="#eaf2ff" stopOpacity="0.14" />
               <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
             </linearGradient>
           )}
