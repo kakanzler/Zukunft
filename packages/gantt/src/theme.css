@@ -225,11 +225,13 @@
    滲ませるのは box-shadow ではなく text-shadow —— box-shadow は箱の縁に付くだけで、
    文字はぼけない。 */
 [data-gantt-theme="blue-system"] .zk-pane-milestone {
-  color: #cddcff;
+  color: #dbe6ff;
+  /* 滲みは文字の色ではなく青そのもので出す。白を混ぜた滲みだと、光ではなく
+     ぼやけた文字に見える。近い滲みから広い滲みへ、彩度の高い青で 3 段。 */
   text-shadow:
-    0 0 3px rgba(205, 220, 255, 0.9),
-    0 0 10px rgba(77, 148, 255, 0.75),
-    0 0 22px rgba(45, 107, 255, 0.45);
+    0 0 4px rgba(93, 160, 255, 0.95),
+    0 0 12px rgba(45, 107, 255, 0.9),
+    0 0 26px rgba(29, 78, 216, 0.7);
 }
 
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。

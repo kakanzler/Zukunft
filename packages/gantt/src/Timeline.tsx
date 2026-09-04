@@ -336,10 +336,12 @@ export function Timeline({
               足す描画は矩形 1 枚で済む。 */}
           {blue && (
             <linearGradient id={`${uid}-core`} x1="0" y1="0" x2="0" y2="1">
+              {/* 明るい帯が行の 0.7 ほどを占める。15% と 85% で立ち上げ、
+                  残った上下の 15% ずつにだけ元の色を見せる。 */}
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-              <stop offset="38%" stopColor="#eef4ff" stopOpacity="0.06" />
-              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.42" />
-              <stop offset="62%" stopColor="#eef4ff" stopOpacity="0.06" />
+              <stop offset="15%" stopColor="#eaf2ff" stopOpacity="0.30" />
+              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.82" />
+              <stop offset="85%" stopColor="#eaf2ff" stopOpacity="0.30" />
               <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
             </linearGradient>
           )}
@@ -877,14 +879,23 @@ export function buildMilestoneLinks(
     // 期日に寄せながら日程を動かすことができない。
     const task =
       drag?.taskId === placement.task.id ? { ...placement.task, ...drag.preview } : placement.task
-    const x1 = scale.toX(task.startDate) + barWidth(task, scale) / 2
-    const y1 = placement.index * rowHeight + BAR_INSET
+    // 依存の矢印と同じ流儀で、バーの右端から出す。中央から真上に伸ばすと
+    // バーを跨いで生えたように見え、どこから出た線なのかが読めない。
+    const x1 = scale.toX(task.startDate) + barWidth(task, scale)
+    const y1 = placement.index * rowHeight + rowHeight / 2
     // 菱形と同じ式。ずれると線が隣の期日を指してしまう。
     const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2
 
+    // 出るときは右へ、着くときは左から。制御点を左右に振ることで、
+    // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
+    const bend = Math.max(24, Math.min(90, Math.abs(x2 - x1) / 2))
+    // 手前に着く線も左から差したいので、行き先の制御点は常に左側へ置く。
+    const rise = Math.max(24, y1 / 2)
+
     paths.push({
       key: `${link.taskId}>${link.milestoneId}`,
-      path: `M ${x1} ${y1} L ${x2} 0`,
+      path:
+        `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${rise}, ${x2} 0`,
       // 色が無ければ菱形と同じ変数を読む（Default は紫、blue-system は橙）。
       color: mark.color ?? "var(--zk-milestone-color)",
     })

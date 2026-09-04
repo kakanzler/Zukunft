@@ -676,7 +676,15 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a milestone link is drawn for the task it is given",
      count(one, /class="zk-ms-link"/g), 1)
   // 線の上端は本体の上端（y = 0）。菱形は貼り付く別の帯にあり、またげない。
-  eq("the line stops at the top of the board", one.includes(` L ${scale.toX("2026-09-20") + scale.pxPerDay / 2} 0"`), true)
+  // 曲線なので終点は 3 次ベジエの最後の座標として出る。
+  eq("the line stops at the top of the board",
+     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2} 0"`), true)
+  // 依存の矢印と同じで、出るのはバーの右端。中央から真上に伸ばすと、バーを跨いで
+  // 生えたように見えてどこから出た線か読めない。
+  // a は 09-01..09-03 の 3 日ぶん。day ズームは 1 日 32px なので右端は原点 + 96。
+  eq("the line leaves from the right edge of the bar",
+     one.includes(`M ${scale.toX("2026-09-01") + 96} `), true)
+  eq("the line is a curve, not a straight run", one.includes(" C "), true)
   // 色は菱形と同じ。揃えないと、どの菱形へ向かう線か分からない。
   eq("the line takes the milestone colour", one.includes('stroke="var(--zk-milestone-color)"'), true)
   // 依存の矢印とは別物。先端（marker）は付けない。
