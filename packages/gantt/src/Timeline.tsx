@@ -60,9 +60,8 @@ function milestoneTint(color: string): CSSProperties {
     // 変数は菱形ではなく包む <g> に置く。菱形に置くと題名から読めず、
     // カテゴリ色を当てたときに片方だけが変わってしまう。
     "--zk-milestone-color": color,
-    // 0.18 ≒ 0x2e / 0xff、0.55 ≒ 0x8c / 0xff。--zk-milestone-fill と
-    // blue-system の広い滲みの不透明度に合わせている。
-    "--zk-ms-fill": `${color}2e`,
+    // 0.6 ≒ 0x99 / 0xff。--zk-milestone-fill と揃える（実測で 0.18 は薄すぎた）。
+    "--zk-ms-fill": `${color}99`,
     "--zk-ms-color": color,
     "--zk-ms-glow": `${color}8c`,
   } as CSSProperties
