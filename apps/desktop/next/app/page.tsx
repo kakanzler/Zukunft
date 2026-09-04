@@ -383,6 +383,14 @@ function Workspace({
    * 載らないので、そのぶんは線が引かれない。
    */
   const [parentByIssueId, setParentByIssueId] = useState<Record<string, string | null>>({})
+  /**
+   * 親を一度でも引けたか。
+   *
+   * 親は Issue ごとに 1 つで、地図に無い＝親が設定されていない（「分からない」という
+   * 状態は持たない）。そのぶん、取得そのものに失敗した状態をこの旗で区別しないと、
+   * 全タスクが「親なし」に化けて線が束になり、菱形の手前を塗り潰す。
+   */
+  const [parentsLoaded, setParentsLoaded] = useState(false)
   const log = useLog()
   // 依存配列に入れてよいのはこちら。log そのものは entries が変わるたびに
   // identity が変わるので、通信する effect の依存に入れると回り続ける。
@@ -650,31 +658,46 @@ function Workspace({
    * クエリごと失敗するので、混ぜると盤面が丸ごと出なくなる。別に引けば、失敗しても
    * 線が出ないだけで済む。
    *
-   * 引くのは Project につき 1 回。同期のたびに呼ぶと、盤面に触るたびに 100 件単位の
-   * 問い合わせが増える割に、親子関係はアプリからはほとんど変わらない。
+   * 同期のたびには引かない。盤面に触るたびに 100 件単位の問い合わせが増える割に、
+   * 親子関係はそう頻繁には変わらない。代わりに、変わりうる場面で取り直す:
+   * Project を開いたとき、Alt+\ の再読み込み、アプリから親を付け替えた直後。
    */
+  const refreshParents = useCallback(
+    (issueIds: string[]) => {
+      if (issueIds.length === 0) return
+      void repository
+        .listIssueParents(issueIds)
+        .then((map) => {
+          setParentByIssueId(map)
+          setParentsLoaded(true)
+        })
+        .catch((error) => {
+          const err =
+            error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+          // 読めなかったときは 1 本も引かない。全部を「親が無い」と読み替えると、
+          // 同じ期日へ向かう線が束になって菱形の手前を塗り潰す。
+          setParentsLoaded(false)
+          logAppend({
+            level: "warn",
+            message: "親 Issue を読めませんでした",
+            hint: `${err.message}　マイルストーンへの線は引きません。`,
+            dedupeKey: "issue-parents",
+          })
+        })
+    },
+    [repository, logAppend],
+  )
+
   const parentsFetched = useRef(new Set<string>())
   useEffect(() => {
     if (!projectId || schedule.load.phase !== "ready") return
     if (schedule.tasks.length === 0) return
     if (parentsFetched.current.has(projectId)) return
-    // 結果ではなく発行時点で印を付ける。失敗したものを再描画のたびに叩き直さない。
+    // 結果ではなく発行時点で印を付ける。失敗したものを再描画のたびに叩き直さない
+    //（取り直しは再読み込みと親の付け替えが受け持つ）。
     parentsFetched.current.add(projectId)
-    void repository
-      .listIssueParents(schedule.tasks.map((task) => task.issueId))
-      .then(setParentByIssueId)
-      .catch((error) => {
-        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
-        // 読めなかったときは 1 本も引かない。全部を「親が無い」と読み替えると、
-        // 同じ期日へ向かう線が束になって菱形の手前を塗り潰す。
-        logAppend({
-          level: "warn",
-          message: "親 Issue を読めませんでした",
-          hint: `${err.message}　マイルストーンへの線は引きません。`,
-          dedupeKey: "issue-parents",
-        })
-      })
-  }, [repository, projectId, schedule.load.phase, schedule.tasks, logAppend])
+    refreshParents(schedule.tasks.map((task) => task.issueId))
+  }, [projectId, schedule.load.phase, schedule.tasks, refreshParents])
 
   // 親カテゴリの設定を読む。ラベル名の意味は Project ごとに違うので、
   // 切り替えたらいったん空に戻してから読み直す。前の Project の指定で
@@ -1099,6 +1122,9 @@ function Workspace({
     async (issueId: string, parentIssueId: string | null) => {
       try {
         await repository.setParentIssue(issueId, parentIssueId)
+        // 線は「親を持たないタスクからだけ」引くので、付け替えたら取り直さないと
+        // 盤面の線が実際の親子関係とずれたままになる。
+        refreshParents(schedule.tasks.map((task) => task.issueId))
         logAppend({
           level: "info",
           message: parentIssueId ? "親 Issue を設定しました" : "親 Issue を外しました",
@@ -1114,7 +1140,7 @@ function Workspace({
         throw error
       }
     },
-    [repository, logAppend],
+    [repository, logAppend, refreshParents, schedule.tasks],
   )
 
   /**
@@ -1504,8 +1530,11 @@ function Workspace({
   const reloadAll = useCallback(() => {
     onReloadSchema()
     reload()
+    // 親子関係も取り直す。GitHub 側で付け替えられていても、ここを通さないと
+    // 線が古いままになる。
+    refreshParents(schedule.tasks.map((task) => task.issueId))
     logSyncStanding()
-  }, [onReloadSchema, reload, logSyncStanding])
+  }, [onReloadSchema, reload, refreshParents, schedule.tasks, logSyncStanding])
 
   /**
    * 日付の変更。押し出しを伴うかどうかは設定で決まるので、ここで足してから渡す。
@@ -1821,7 +1850,7 @@ function Workspace({
         milestones={allMilestones}
         // 線は「親を持たないタスク」からだけ引く。読めなかった Issue は
         // ここに載らず、そのぶんは引かれない（読み取り専用ビューは渡さない）。
-        parentByIssueId={parentByIssueId}
+        parentByIssueId={parentsLoaded ? parentByIssueId : undefined}
         onMilestoneOpen={setOpenMilestoneId}
         dailyTasks={dailyTasks}
         // 点はここでは常に押せる。実行した記録の行き先はアプリの設定だけで、

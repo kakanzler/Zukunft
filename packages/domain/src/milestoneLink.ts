@@ -17,9 +17,11 @@ export type MilestoneLink = {
  * 線が束になって菱形の手前が塗り潰され、どのバーの話かがかえって読めなくなる。
  * 親のあるタスクは親の下でまとまっているので、最も上位の 1 本だけを引く。
  *
- * `parentByIssueId` に載っていないタスクは「親が分からない」として落とす。
- * 親を引く経路は失敗しうるが、そのときに「親が無い」と読み替えると、
- * 避けたかった線だらけの盤面がそのまま出てしまう。分からないなら引かない。
+ * 親は Issue ごとに 1 つで、`null`（および地図に載っていないこと）は
+ * 「親が設定されていない」を意味する。「分からない」という状態は持たない。
+ *
+ * 取得そのものに失敗したときは、ここではなく呼び出し側が線を出さないことで
+ * 塞ぐ。1 件ずつの札ではなく「引けたかどうか」の旗 1 つで足りる。
  */
 export function milestoneLinkSources(
   tasks: ScheduleTask[],
@@ -30,10 +32,8 @@ export function milestoneLinkSources(
     // 日付が無いタスクにはバーが無い。線の出どころが盤面に存在しない。
     if (!isScheduled(task)) continue
     if (!task.milestone) continue
-    // in で見るのは、値が null（親が無い）と「鍵ごと無い」（分からない）が
-    // 別の意味だから。?? で畳むと後者が前者に化ける。
-    if (!(task.issueId in parentByIssueId)) continue
-    if (parentByIssueId[task.issueId] !== null) continue
+    // 載っていなければ親なし。null と同じ扱いにする。
+    if (parentByIssueId[task.issueId] != null) continue
     links.push({ taskId: task.id, milestoneId: task.milestone.id })
   }
   return links

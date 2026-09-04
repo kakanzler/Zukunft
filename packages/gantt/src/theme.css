@@ -158,6 +158,15 @@
 }
 .zk-today-halo { fill: var(--zk-today-halo); }
 
+/* 今日線の芯。下の線と同じ破線を、細く白寄りで重ねる。1 本だけだと縁まで
+   同じ濃さで、光っているというより「太い線」に見える。 */
+[data-gantt-theme="blue-system"] .zk-today-core {
+  stroke: #ffe6dc;
+  stroke-width: 0.8;
+  stroke-dasharray: 6 4;
+  opacity: 0.85;
+}
+
 [data-gantt-theme="blue-system"] .zk-dep-line--cyclic { stroke-width: 2; }
 
 [data-gantt-theme="blue-system"] {
@@ -202,17 +211,40 @@
     0 0 7px var(--zk-ms-glow, rgba(255, 90, 48, 0.55));
 }
 
+/* 背景の光球を通すため、上に載る面を半透明にする（BlueSystem のみ）。
+   rgba を手で書くのは color-mix が WebView2 の版によって効かないため。
+   地は .zk-root の --bg-base（不透明）のままで、透けて見えるのは光球の層。
+   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に 0.5 を掛けたもの。 */
+[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.5); }
+[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.5); }
+[data-gantt-theme="blue-system"] .zk-thead,
+[data-gantt-theme="blue-system"] .zk-milestone-row,
+[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.5); }
+
+/* MILESTONE の見出し。サイドバーの青（--zk-sidebar-from #2540b0）を白へ寄せた色。
+   滲ませるのは box-shadow ではなく text-shadow —— box-shadow は箱の縁に付くだけで、
+   文字はぼけない。 */
+[data-gantt-theme="blue-system"] .zk-pane-milestone {
+  color: #cddcff;
+  text-shadow:
+    0 0 3px rgba(205, 220, 255, 0.9),
+    0 0 10px rgba(77, 148, 255, 0.75),
+    0 0 22px rgba(45, 107, 255, 0.45);
+}
+
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
 
    途中に止め位置を置いて、左端から早く暗くする。端から端まで一様に落とすと
    全体が明るいままで、盤面の闇へ向かう流れが出ない。42% で落としきり、
    そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
+  /* 階調の両端に 0.5 を掛ける。背後の光球を通すため。
+     #2540b0 -> rgba(37,64,176,.5) / #17276b -> rgba(23,39,107,.5) */
   background: linear-gradient(
     90deg,
-    var(--zk-sidebar-from) 0%,
-    var(--zk-sidebar-to) 42%,
-    var(--zk-sidebar-to) 100%
+    rgba(37, 64, 176, 0.5) 0%,
+    rgba(23, 39, 107, 0.5) 42%,
+    rgba(23, 39, 107, 0.5) 100%
   );
 }
 
@@ -224,8 +256,7 @@
    解いたばかりでもある。 */
 [data-gantt-theme="blue-system"] .zk-sidebar-brand,
 [data-gantt-theme="blue-system"] .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label,
-[data-gantt-theme="blue-system"] .zk-row--group,
-[data-gantt-theme="blue-system"] .zk-pane-milestone {
+[data-gantt-theme="blue-system"] .zk-row--group {
   text-shadow: var(--zk-glow-text);
 }
 
@@ -240,6 +271,9 @@
 .zk-bar-outline { stroke-width: 1; }
 .zk-bar-riser { shape-rendering: crispEdges; }
 .zk-bar-progress-edge { fill: var(--zk-progress-edge); }
+/* 芯は塗りだけの飾りなので、当たり判定を取らない。バーの上に重なるため、
+   ここを通すとドラッグの掴みどころが芯の帯だけになってしまう。 */
+.zk-root .zk-bar-core { pointer-events: none; }
 
 /* ---- ヘッダ ---- */
 .zk-header {
@@ -1337,6 +1371,24 @@
 
 /* ---- サイドバー（意匠は Appearance_button.jpg に準拠） ---- */
 .zk-shell { display: flex; flex: 1 1 auto; min-height: 0; }
+
+/* 背景に散らすオレンジの光球（BlueSystem のみ）。
+   この上に載る面を半透明にして透かすので、層はいちばん下＝ .zk-shell に置く。
+   .zk-root ではなくここなのは、テーマの属性が .zk-shell に付いているため。
+
+   ぼかしにフィルタは使わない。祖先に filter を足すと固定配置の包含ブロックになり、
+   ドラッグ中のツールチップ（position: fixed）が切られて位置もずれる
+   —— .zk-timeline のコメントにある禁じ手と同じ理由。階調の止め位置を緩くして、
+   輪郭の出ない球にする。 */
+.zk-shell[data-gantt-theme="blue-system"] {
+  background-image:
+    radial-gradient(38% 46% at 12% 22%, rgba(255, 122, 60, 0.16) 0%, transparent 70%),
+    radial-gradient(30% 38% at 74% 12%, rgba(255, 138, 70, 0.11) 0%, transparent 72%),
+    radial-gradient(46% 52% at 88% 68%, rgba(255, 106, 48, 0.13) 0%, transparent 68%),
+    radial-gradient(34% 40% at 34% 82%, rgba(255, 150, 84, 0.10) 0%, transparent 74%),
+    radial-gradient(26% 34% at 56% 48%, rgba(255, 120, 56, 0.08) 0%, transparent 76%);
+  background-repeat: no-repeat;
+}
 .zk-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 
 .zk-sidebar {
@@ -1469,6 +1521,18 @@
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
   box-shadow: 0 0 6px rgba(53, 103, 255, 0.55);
+}
+/* 芯。短い辺の中央を白寄りにして、光っている管のように見せる。
+   短い辺は縦棒なら横、横棒なら縦なので、向きを分けて当てる。 */
+[data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:vertical {
+  background:
+    linear-gradient(90deg, transparent 18%, rgba(233, 240, 255, 0.6) 50%, transparent 82%),
+    linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
+}
+[data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:horizontal {
+  background:
+    linear-gradient(180deg, transparent 18%, rgba(233, 240, 255, 0.6) 50%, transparent 82%),
+    linear-gradient(90deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
 }
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #3a58d0, #5b86ff) padding-box;

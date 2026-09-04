@@ -331,6 +331,18 @@ export function Timeline({
               </linearGradient>
             ),
           )}
+          {/* バーの芯。縦方向に「透明 → 白寄り → 透明」。フィルタでぼかさない —
+              バーは十数本あり、1 本ずつ blur を掛けると重い。階調なら滲みが出て、
+              足す描画は矩形 1 枚で済む。 */}
+          {blue && (
+            <linearGradient id={`${uid}-core`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
+              <stop offset="38%" stopColor="#eef4ff" stopOpacity="0.06" />
+              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.42" />
+              <stop offset="62%" stopColor="#eef4ff" stopOpacity="0.06" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            </linearGradient>
+          )}
           {/* 輪郭。塗りが手放した左端をここで取り返すので、左をいちばん明るくする。 */}
           {blue &&
             [0, 1, 2, 3].map((i) => (
@@ -405,6 +417,11 @@ export function Timeline({
               <rect className="zk-today-halo" x={todayX - 4} y={0} width={8} height={bodyHeight} />
             )}
             <line className="zk-today-line" x1={todayX} y1={0} x2={todayX} y2={bodyHeight} />
+            {/* 芯。同じ破線を細く白寄りで重ねる。1 本だけだと縁まで同じ濃さで、
+                光っているというより「太い線」に見える。 */}
+            {blue && (
+              <line className="zk-today-core" x1={todayX} y1={0} x2={todayX} y2={bodyHeight} />
+            )}
           </g>
         )}
 
@@ -526,13 +543,13 @@ export function barWidth(task: ScheduledTask, scale: TimeScale): number {
  * 高さ 22px の楕円（レンズ）になってしまう。
  */
 export function barPath(x: number, y: number, w: number, h: number): string {
-  const r = Math.min(h / 2, w / 2)
-  // 左はごく小さく丸める。完全な角にすると光る塊ではなく「箱」に見える。
-  const l = Math.min(2, r)
+  // 四隅ともごく小さく丸める。完全な角にすると光る塊ではなく「箱」に見えるが、
+  // 右だけ半円にすると帯の終わりが尖って、始まりと終わりの重みが揃わない。
+  const r = Math.min(2, h / 2, w / 2)
   return (
-    `M ${x + l} ${y} H ${x + w - r} A ${r} ${r} 0 0 1 ${x + w} ${y + r}` +
-    ` V ${y + h - r} A ${r} ${r} 0 0 1 ${x + w - r} ${y + h} H ${x + l}` +
-    ` A ${l} ${l} 0 0 1 ${x} ${y + h - l} V ${y + l} A ${l} ${l} 0 0 1 ${x + l} ${y} Z`
+    `M ${x + r} ${y} H ${x + w - r} A ${r} ${r} 0 0 1 ${x + w} ${y + r}` +
+    ` V ${y + h - r} A ${r} ${r} 0 0 1 ${x + w - r} ${y + h} H ${x + r}` +
+    ` A ${r} ${r} 0 0 1 ${x} ${y + h - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
   )
 }
 
@@ -643,6 +660,11 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
           )}
         </>
       )}
+
+      {/* 中心の芯。バー自身の色の上に白寄りの帯を重ね、真ん中がいちばん明るくなる。
+          進捗の上に載せるのは、芯が進捗の境目で途切れると 1 本の光に見えないため。 */}
+      <path className="zk-bar-core" d={barPath(x, top, width, height)}
+            fill={`url(#${uid}-core)`} />
 
       {/* 輪郭は 0.5px 内側に描く。線はパスの上に半分ずつ載るので、x=0 のバーは
           外半分が SVG の外に出て欠ける。内側に寄せると欠けが消え、同時に

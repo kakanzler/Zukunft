@@ -205,10 +205,12 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a one-day task is still one day wide", barWidth(bar("2026-09-01", "2026-09-01"), day), 32)
   eq("zooming out shrinks the bar with the scale", barWidth(bar("2026-09-01", "2026-09-03"), month), 12)
 
+  // 四隅とも同じ小さな角。右だけ半円にすると帯の終わりが尖って、
+  // 始まりと終わりの重みが揃わない。
   eq(
-    "a wide bar is squared off on the left and round on the right",
+    "a wide bar has the same small corner at both ends",
     barPath(0, 0, 100, 22),
-    "M 2 0 H 89 A 11 11 0 0 1 100 11 V 11 A 11 11 0 0 1 89 22 H 2" +
+    "M 2 0 H 98 A 2 2 0 0 1 100 2 V 20 A 2 2 0 0 1 98 22 H 2" +
       " A 2 2 0 0 1 0 20 V 2 A 2 2 0 0 1 2 0 Z",
   )
   // rect の rx が横と縦を別々に丸めていたころ、幅 2px のバーは高さ 22px の

@@ -144,12 +144,12 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
   eq("every parentless task gets its own link",
      milestoneLinkSources(linked, { gh1: null, gh2: null, gh3: "gh1" }).map((l) => l.taskId),
      ["i1", "i2"])
-  // 親を引く経路は失敗しうる。載っていないタスクは「親が無い」ではなく
-  // 「分からない」— 読み替えると避けたかった線だらけの盤面が出る。
-  eq("a task missing from the parent map draws nothing",
-     milestoneLinkSources(linked, { gh1: null }).map((l) => l.taskId), ["i1"])
-  eq("with no parents known at all there are no links",
-     milestoneLinkSources(linked, {}), [])
+  // 親は Issue ごとに 1 つで、null も「載っていない」も同じ「親が設定されていない」。
+  // 「分からない」という状態は持たない（取得の失敗は呼び出し側が旗で塞ぐ）。
+  eq("a task missing from the parent map counts as parentless",
+     milestoneLinkSources(linked, { gh2: "gh1", gh3: "gh1" }).map((l) => l.taskId), ["i1"])
+  eq("an empty parent map makes every task a source",
+     milestoneLinkSources(linked, {}).map((l) => l.taskId), ["i1", "i2", "i3"])
   // マイルストーンが無ければ行き先が無い。日付が無ければ出どころのバーが無い。
   const noMilestone = { ...mk(4, "Planning", "2026-09-01", "2026-09-07", 0), milestone: null }
   const undated = { ...mk(5, "Planning", "2026-09-01", "2026-09-07", 0), startDate: null, endDate: null }
