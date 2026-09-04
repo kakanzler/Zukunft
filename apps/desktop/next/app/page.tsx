@@ -77,6 +77,15 @@ import { useSchedule } from "@/useSchedule"
  */
 const SYNC_LOG_KEY = "sync"
 
+/**
+ * 再読み込み（Alt+\）に使う物理キー。
+ *
+ * 「\」の物理キーは配列で違う。US は Backslash、JIS は ¥ の IntlYen と
+ * ろ の IntlRo が両方とも「\」の刻印を持つ。どれを押しても同じ操作になるよう、
+ * 3 つとも受ける。
+ */
+const RELOAD_CODES = new Set(["Backslash", "IntlYen", "IntlRo"])
+
 export default function Page() {
   const [repository, setRepository] = useState<GitHubScheduleRepository | null>(null)
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -416,7 +425,7 @@ function Workspace({
         `${missing.map((f) => `${f.name} (${f.expectedType})`).join(" / ")} が必要です。` +
         `　現在のフィールド: ${present || "なし"}` +
         `　大文字小文字と空白は無視するので Start date / End date / Due date なども可。` +
-        `　作成したら Alt+R で読み直してください。`,
+        `　作成したら Alt+\ で読み直してください。`,
       dedupeKey: key,
     })
   }, [schema, missing, logAppend])
@@ -476,7 +485,7 @@ function Workspace({
     logAppend(standing.entry)
   }, [standing, schedule.load.phase, logAppend])
 
-  /** 再読み込み（Alt+R）から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
+  /** 再読み込み（Alt+\）から呼ぶ。変化が無くても、そのときの状況をあらためて出す。 */
   const logSyncStanding = useCallback(() => {
     lastStanding.current = standing.kind
     logAppend(standing.entry)
@@ -651,7 +660,7 @@ function Workspace({
    *
    * 「取りに行ったか」は結果ではなく発行時点で記録する。取得できたかどうかで
    * 判断すると、失敗したリポジトリを再描画のたびに叩き直すことになるため。
-   * 取り直したいときは Alt+R がある。
+   * 取り直したいときは Alt+\ がある。
    */
   const ensureRepoMeta = useCallback(
     (repositoryId: string) => {
@@ -1448,7 +1457,7 @@ function Workspace({
   }, [undo, redo, stepZoom, anyModalOpen])
 
   /**
-   * 再読み込み（Alt+R）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
+   * 再読み込み（Alt+\）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
    * スキーマも一緒に取り直すのは、GitHub 側でフィールドを足した直後に
    * タスクだけ取り直しても編集が閉じたままになるため。
    */
@@ -1684,7 +1693,7 @@ function Workspace({
         const moved = current + (e.code === "ArrowDown" ? 1 : -1)
         const next = modes[Math.min(modes.length - 1, Math.max(0, moved))]
         if (next && next !== groupBy) onGroupBy(next)
-      } else if (e.code === "KeyR") {
+      } else if (RELOAD_CODES.has(e.code)) {
         if (!projectId) return
         e.preventDefault()
         reloadAll()

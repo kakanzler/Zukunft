@@ -26,7 +26,7 @@ const SECTIONS: Section[] = [
 const HOTKEYS: [string, string][] = [
   ["Alt+M", "このマニュアルを開く / 閉じる"],
   ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
-  ["Alt+R", "スキーマとタスクを読み直す（Project 選択中のみ）"],
+  ["Alt+\\", "スキーマとタスクを読み直す（Project 選択中のみ）"],
   ["Alt+↑ / Alt+↓", "サイドバーの表示を上下に切り替える"],
   ["Ctrl++ / Ctrl+-", "Gantt の横軸を拡大 / 縮小する"],
   ["Alt+Shift+← / →", "ズームを day / week / month の間で移す（Ctrl++/- と同じ）"],
@@ -295,7 +295,7 @@ function SyncSection() {
       <Block title="いつログに出るか">
         <p className="zk-manual-text">
           状態が変わったときに 1 行だけ出ます。未同期のまま件数が増えても行は増えません。
-          いま同期できているかを確かめたいときは Alt+R で読み直すと、そのときの状態を
+          いま同期できているかを確かめたいときは Alt+\ で読み直すと、そのときの状態を
           あらためてログに出します。
         </p>
       </Block>

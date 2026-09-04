@@ -160,9 +160,12 @@
 
 [data-gantt-theme="blue-system"] .zk-dep-line--cyclic { stroke-width: 2; }
 
+[data-gantt-theme="blue-system"] {
+  --zk-milestone-color: var(--zk-accent-red);
+}
 [data-gantt-theme="blue-system"] .zk-milestone {
   fill: var(--zk-milestone-fill);
-  stroke: var(--zk-accent-red);
+  stroke: var(--zk-milestone-color);
   stroke-width: 1.5;
   /* バーの .zk-bar-glow と同じ 2 段（近い滲みと広い滲み）にする。盤面の中で
      光り方の流儀を揃えないと、同じ絵の中に別々の光源があるように見える。
@@ -180,22 +183,37 @@
 /* カテゴリ色を当てた菱形。塗りと輪郭の色は Timeline.tsx がインラインで置くので、
    ここで決めるのは線の太さだけ。書かないと既定の 1px になり、Default だけ
    blue-system より細い輪郭になる。 */
-.zk-root .zk-milestone--tinted { stroke-width: 1.5; }
+.zk-root .zk-milestone--tinted {
+  stroke: var(--zk-milestone-color);
+  fill: var(--zk-ms-fill);
+  stroke-width: 1.5;
+}
 
 /* 菱形と題名の当たり判定。12px 角の菱形だけでは狙って押せないので、
    題名まで覆う矩形を透明で敷く。塗りが none だとクリックを拾わないため、
    display: none ではなく transparent で置く。 */
 .zk-root .zk-milestone-hit { fill: transparent; }
 
-/* 菱形だけ光って題が沈むと、何の期日なのかが読めないまま光だけが目に付く。 */
+/* 題名も菱形と同じ色で、同じように光らせる。菱形だけ光って題が沈むと、
+   何の期日なのかが読めないまま光だけが目に付く。 */
 [data-gantt-theme="blue-system"] .zk-milestone-label {
-  fill: var(--text-primary);
-  text-shadow: var(--zk-glow-text);
+  text-shadow:
+    0 0 2px var(--zk-milestone-color),
+    0 0 7px var(--zk-ms-glow, rgba(255, 90, 48, 0.55));
 }
 
-/* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。 */
+/* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
+
+   途中に止め位置を置いて、左端から早く暗くする。端から端まで一様に落とすと
+   全体が明るいままで、盤面の闇へ向かう流れが出ない。42% で落としきり、
+   そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  background: linear-gradient(90deg, var(--zk-sidebar-from), var(--zk-sidebar-to));
+  background: linear-gradient(
+    90deg,
+    var(--zk-sidebar-from) 0%,
+    var(--zk-sidebar-to) 42%,
+    var(--zk-sidebar-to) 100%
+  );
 }
 
 /* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
@@ -539,8 +557,14 @@
 /* 循環した依存。成立しない日程なので、色と破線の両方で他と区別する。 */
 .zk-dep-line--cyclic { stroke-dasharray: 5 4; opacity: 1; }
 
-.zk-milestone { fill: #a855f7; }
-.zk-milestone-label { fill: var(--text-secondary); font-size: 10px; dominant-baseline: middle; }
+/* 菱形と題名で同じ色を読む。別々に持つと、カテゴリ色を当てたときに
+   片方だけが変わって「どの期日の話か」が結び付かなくなる。 */
+.zk-root { --zk-milestone-color: #a855f7; }
+.zk-milestone { fill: var(--zk-milestone-color); }
+.zk-milestone-label {
+  fill: var(--zk-milestone-color);
+  font-size: 10px; dominant-baseline: middle;
+}
 
 .zk-tooltip {
   position: fixed; z-index: 10;

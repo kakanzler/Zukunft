@@ -476,17 +476,21 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a board with a handler gets a wide hit area",
      count(clickable, /class="zk-milestone-hit"/g), 1)
 
-  // カテゴリの色は菱形に直接乗せる。発光もその色に従わせるので、
-  // 塗り・輪郭だけでなく CSS 変数も一緒に出ていないといけない。
+  // カテゴリの色は菱形と題名を包む <g> に変数として乗せる。菱形だけに乗せると
+  // 題名から読めず、色を当てたときに片方だけが変わる。
   const tinted = renderToStaticMarkup(
     <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
               milestones={[{ mark: { ...inRange, color: "#ff8800" }, lane: 0 }]}
               milestoneHeight={32} onTaskDatesChange={() => {}} />,
   )
-  eq("a milestone with a category colour paints the diamond with it",
-     [tinted.includes("zk-milestone--tinted"), tinted.includes("stroke:#ff8800"),
+  eq("a milestone with a category colour puts it on the group both shapes read",
+     [tinted.includes("zk-milestone--tinted"),
+      tinted.includes("--zk-milestone-color:#ff8800"),
       tinted.includes("--zk-ms-color:#ff8800")],
      [true, true, true])
+  // 変数は菱形ではなく <g> 側。ここが菱形に戻ると題名が色に付いてこない。
+  eq("the tint is not pinned to the diamond alone",
+     /<path class="zk-milestone zk-milestone--tinted"[^>]*style=/.test(tinted), false)
 
   // 2 段になったら帯も 2 段ぶん高くなる。1 段のままだと、下の段の菱形が
   // 帯の外へはみ出して、下から上がってくる行に重なる。

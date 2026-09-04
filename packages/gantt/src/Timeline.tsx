@@ -56,10 +56,12 @@ export type PlacedMilestone = { mark: MilestoneMark; lane: number }
  */
 function milestoneTint(color: string): CSSProperties {
   return {
-    stroke: color,
+    // 変数は菱形ではなく包む <g> に置く。菱形に置くと題名から読めず、
+    // カテゴリ色を当てたときに片方だけが変わってしまう。
+    "--zk-milestone-color": color,
     // 0.18 ≒ 0x2e / 0xff、0.55 ≒ 0x8c / 0xff。--zk-milestone-fill と
     // blue-system の広い滲みの不透明度に合わせている。
-    fill: `${color}2e`,
+    "--zk-ms-fill": `${color}2e`,
     "--zk-ms-color": color,
     "--zk-ms-glow": `${color}8c`,
   } as CSSProperties
@@ -254,7 +256,10 @@ export function Timeline({
                 }
                 role={open ? "button" : undefined}
                 tabIndex={open ? 0 : undefined}
-                style={open ? { cursor: "pointer" } : undefined}
+                style={{
+                  ...(open ? { cursor: "pointer" } : undefined),
+                  ...(tint ? milestoneTint(tint) : undefined),
+                }}
               >
                 {/* 菱形は 12px 角しかなく、狙って押させるには小さすぎる。
                     題名まで含めた矩形を透明で敷いて当たり判定を広げる。
@@ -274,7 +279,6 @@ export function Timeline({
                 )}
                 <path
                   className={tint ? "zk-milestone zk-milestone--tinted" : "zk-milestone"}
-                  style={tint ? milestoneTint(tint) : undefined}
                   d={
                     `M ${x} ${cy - DIAMOND_HALF_WIDTH} L ${x + DIAMOND_HALF_WIDTH} ${cy}` +
                     ` L ${x} ${cy + DIAMOND_HALF_WIDTH} L ${x - DIAMOND_HALF_WIDTH} ${cy} Z`
