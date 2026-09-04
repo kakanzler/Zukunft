@@ -794,6 +794,7 @@ pub fn run() {
             settings::set_parent_labels,
             settings::set_milestone_category,
             settings::set_daily_task,
+            settings::prune_daily_tasks,
             settings::set_window_settings,
             settings::set_auto_reschedule,
             settings::set_theme,

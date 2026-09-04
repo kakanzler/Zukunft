@@ -397,7 +397,7 @@ export function Timeline({
           if (row.kind === "group") return null
           const task = row.task
 
-          // 日課はバーより先に見る。無期限の日課は Target Date が空で
+          // 日課はバーより先に見る。終わりを決めていない日課は Target Date が空で
           // isScheduled が false になり、バーの分岐に入ると何も描かれずに消える。
           const recurrence = dailyTasks[task.id]
           if (recurrence) {
@@ -657,7 +657,8 @@ type DailyDotsProps = {
  *
  * 日課は「いつからいつまで」ではなく「その日にやったかどうか」の列なので、
  * バーを引かずに点を置く。Start Date が最初の実行日、Target Date が最後の実行日
- * （空なら無期限＝横軸の右端まで）。日付は Issue 側のものをそのまま読むので、
+ * （空なら開始日から 1 年。横軸の右端が手前ならそこまで）。日付は Issue 側のものを
+ * そのまま読むので、
  * 依存関係も絞り込みも日課でこれまでどおり効く。
  *
  * 点はドラッグの対象にしない。幅が数 px しかなく、バーの左右端を掴み分ける

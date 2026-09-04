@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tauri::Manager;
 
 use crate::error::{AppError, AppResult, ErrorKind};
@@ -81,19 +81,85 @@ impl WindowSettings {
     }
 }
 
+/// 繰り返し方。packages/domain の `RecurrenceRule` と同じ形（`kind` で判別）にする。
+///
+/// 画面側の型に寄せるのは、設定ファイルと TypeScript の間で詰め替えを挟まないため。
+/// 詰め替えを入れると、繰り返し方が増えるたびに両側の対応表を直すことになる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum RecurrenceRule {
+    /// N 日ごと。1 なら毎日
+    #[serde(rename_all = "camelCase")]
+    Interval { interval_days: u32 },
+    /// 1, 3, 5, 7, 11, 15 日で広がる並び。間隔は決まっているので値を持たない
+    Spaced,
+}
+
+impl RecurrenceRule {
+    /// 実行日の計算が進む値かどうか。間隔 0 は点が並ばないので日課として意味を持たない。
+    fn is_usable(&self) -> bool {
+        match self {
+            Self::Interval { interval_days } => *interval_days >= 1,
+            Self::Spaced => true,
+        }
+    }
+}
+
 /// 日課（繰り返し）の設定。
 ///
 /// 日付はここに持たない。最初の実行日は Issue の Start Date、最後の実行日は
-/// Target Date（空なら無期限）をそのまま使う。設定側にも日付を持つと、横軸の
+/// Target Date（空なら開始日から 1 年）をそのまま使う。設定側にも日付を持つと、横軸の
 /// 範囲や絞り込みが見ている GitHub 側の日付と二重管理になって食い違う。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyTask {
-    /// 何日ごとに繰り返すか。1 なら毎日
-    pub interval_days: u32,
+    /// 繰り返し方
+    pub rule: RecurrenceRule,
     /// 実行した日（YYYY-MM-DD）。順序は問わない
     #[serde(default)]
     pub done: Vec<String>,
+}
+
+/// project id -> task id -> 日課の設定。
+pub type DailyTasks = BTreeMap<String, BTreeMap<String, DailyTask>>;
+
+/// 日課の設定を、読める項目だけ拾って組み立てる。
+///
+/// 素直に derive した Deserialize に任せると、形の合わない項目が 1 つあるだけで
+/// JSON 全体の解釈が失敗する。read() は失敗を既定値に倒すので、日課 1 件の
+/// 食い違いで親カテゴリもテーマも窓の大きさも消える。捨てるのはその項目だけにする。
+fn collect_daily_tasks(raw: &serde_json::Value) -> DailyTasks {
+    let mut result = DailyTasks::new();
+    let Some(projects) = raw.as_object() else {
+        return result;
+    };
+    for (project_id, tasks) in projects {
+        let Some(tasks) = tasks.as_object() else {
+            continue;
+        };
+        let mut kept: BTreeMap<String, DailyTask> = BTreeMap::new();
+        for (task_id, value) in tasks {
+            let Ok(task) = serde_json::from_value::<DailyTask>(value.clone()) else {
+                continue;
+            };
+            if task.rule.is_usable() {
+                kept.insert(task_id.clone(), task);
+            }
+        }
+        // 中身が全部落ちた Project の項目は残さない。set_daily_task の削除と同じ形にする。
+        if !kept.is_empty() {
+            result.insert(project_id.clone(), kept);
+        }
+    }
+    result
+}
+
+fn deserialize_daily_tasks<'de, D>(deserializer: D) -> Result<DailyTasks, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(collect_daily_tasks(&raw))
 }
 
 /// アプリ内だけの設定。GitHub には一切書き戻さない。
@@ -126,13 +192,15 @@ pub struct AppSettings {
     /// 意匠が増えるたびに Rust を直さずに済ませる。
     #[serde(default = "default_theme")]
     pub theme: String,
-    /// task id -> 日課の設定。
+    /// project id -> task id -> 日課の設定。
     ///
-    /// Project ではなくタスクに属する設定なので、milestone_categories と同じく
-    /// project id で括らない。BTreeMap なのも同じ理由で、保存のたびに JSON の
-    /// キー順が入れ替わって差分が読めなくなるのを避けるため。
-    #[serde(default)]
-    pub daily_tasks: BTreeMap<String, DailyTask>,
+    /// 鍵はタスクの id だが、parent_labels と同じく Project で括る。読み込まれる
+    /// タスクの一覧は「いま開いている Project の分」だけなので、平らな対応表のまま
+    /// 「消えた Issue の分を掘り取る」と、別の Project の日課まで巻き添えで消える。
+    /// BTreeMap なのは、保存のたびに JSON のキー順が入れ替わって差分が読めなく
+    /// なるのを避けるため。
+    #[serde(default, deserialize_with = "deserialize_daily_tasks")]
+    pub daily_tasks: DailyTasks,
 }
 
 fn default_true() -> bool {
@@ -153,7 +221,7 @@ impl Default for AppSettings {
             window: WindowSettings::default(),
             auto_reschedule: default_true(),
             theme: default_theme(),
-            daily_tasks: BTreeMap::new(),
+            daily_tasks: DailyTasks::new(),
         }
     }
 }
@@ -281,39 +349,96 @@ pub async fn set_milestone_category(
     Ok(settings)
 }
 
-/// 日課の項目を入れ替える。0 なら消す。
+/// 日課の項目を入れ替える。rule が無ければ（＝日課をやめるなら）消す。
 ///
 /// コマンド本体から切り出しているのは、AppHandle 無しで確かめられるようにするため。
 /// normalize と同じ扱いで、判断そのものはテストから直接呼ぶ。
 fn put_daily_task(
     settings: &mut AppSettings,
+    project_id: String,
     task_id: String,
-    interval_days: u32,
+    rule: Option<RecurrenceRule>,
     done: Vec<String>,
 ) {
-    if interval_days == 0 {
-        settings.daily_tasks.remove(&task_id);
-    } else {
-        settings
-            .daily_tasks
-            .insert(task_id, DailyTask { interval_days, done });
-    }
+    // 間隔 0 は点が並ばないので、日課として残しても意味がない。null と同じ扱いで消す。
+    let rule = rule.filter(RecurrenceRule::is_usable);
+    let Some(rule) = rule else {
+        let Some(tasks) = settings.daily_tasks.get_mut(&project_id) else {
+            return;
+        };
+        tasks.remove(&task_id);
+        // 中が空になった Project の項目は落とす。set_parent_labels が空配列で
+        // 項目を消すのと同じ流儀で、空の入れ物がファイルに溜まらないようにするため。
+        if tasks.is_empty() {
+            settings.daily_tasks.remove(&project_id);
+        }
+        return;
+    };
+    settings
+        .daily_tasks
+        .entry(project_id)
+        .or_default()
+        .insert(task_id, DailyTask { rule, done });
 }
 
-/// タスクを日課にする、または日課の内容（間隔・実行した日）を置き換える。
+/// タスクを日課にする、または日課の内容（繰り返し方・実行した日）を置き換える。
 ///
-/// interval_days が 0 なら項目ごと消す ＝ 日課をやめる。set_parent_labels と
-/// 同じ流儀で、「やめた」印としての 0 がファイルに溜まらないようにするため。
+/// rule が null なら項目ごと消す ＝ 日課をやめる。set_parent_labels と
+/// 同じ流儀で、「やめた」印がファイルに溜まらないようにするため。
 #[tauri::command]
 pub async fn set_daily_task(
     app: tauri::AppHandle,
+    project_id: String,
     task_id: String,
-    interval_days: u32,
+    rule: Option<RecurrenceRule>,
     done: Vec<String>,
 ) -> Result<AppSettings, AppError> {
     let mut settings = read(&app);
-    put_daily_task(&mut settings, task_id, interval_days, done);
+    put_daily_task(&mut settings, project_id, task_id, rule, done);
     write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// その Project の日課から、いま存在しないタスクの分を落とす。消したら true。
+///
+/// task_ids が空なら何もしない。「タスクを読み込めなかった」と「本当に 0 件」を
+/// ここでは区別できず、掘り取ると読み込みが失敗しただけでその Project の
+/// 日課の設定が丸ごと消える。
+fn prune_daily_tasks_of(settings: &mut AppSettings, project_id: &str, task_ids: &[String]) -> bool {
+    if task_ids.is_empty() {
+        return false;
+    }
+    let Some(tasks) = settings.daily_tasks.get_mut(project_id) else {
+        return false;
+    };
+    let alive: std::collections::HashSet<&str> = task_ids.iter().map(String::as_str).collect();
+    let before = tasks.len();
+    tasks.retain(|task_id, _| alive.contains(task_id.as_str()));
+    let removed = tasks.len() != before;
+    if tasks.is_empty() {
+        settings.daily_tasks.remove(project_id);
+    }
+    removed
+}
+
+/// 消えた Issue の日課の設定を掘り取る。
+///
+/// 鍵にしている task id は GitHub 側の都合で消える（Issue を消した、Project から
+/// 外した）が、設定ファイルには残り続ける。同じ Project を開くたびに増える一方に
+/// ならないよう、いま見えているタスクに無い分をここで落とす。
+///
+/// 何も消さなかったときは書かない。Project を切り替えるたびに同じ内容で
+/// 設定ファイルを書き直すことになるため。
+#[tauri::command]
+pub async fn prune_daily_tasks(
+    app: tauri::AppHandle,
+    project_id: String,
+    task_ids: Vec<String>,
+) -> Result<AppSettings, AppError> {
+    let mut settings = read(&app);
+    if prune_daily_tasks_of(&mut settings, &project_id, &task_ids) {
+        write(&app, &settings)?;
+    }
     Ok(settings)
 }
 
@@ -430,16 +555,135 @@ mod tests {
         assert!(settings.daily_tasks.is_empty());
     }
 
+    fn interval(days: u32) -> RecurrenceRule {
+        RecurrenceRule::Interval { interval_days: days }
+    }
+
+    /// テスト用に日課を 1 件入れる。
+    fn with_daily(settings: &mut AppSettings, project_id: &str, task_id: &str) {
+        put_daily_task(
+            settings,
+            project_id.to_owned(),
+            task_id.to_owned(),
+            Some(interval(3)),
+            Vec::new(),
+        );
+    }
+
+    #[test]
+    fn dropping_the_rule_removes_the_daily_task() {
+        let mut settings = AppSettings::default();
+        put_daily_task(
+            &mut settings,
+            "p1".to_owned(),
+            "t1".to_owned(),
+            Some(interval(3)),
+            vec!["2026-09-01".to_owned()],
+        );
+        assert_eq!(settings.daily_tasks["p1"]["t1"].rule, interval(3));
+        assert_eq!(settings.daily_tasks["p1"]["t1"].done, vec!["2026-09-01".to_owned()]);
+
+        // 「やめた」印としての項目を残すと、日課でないタスクの分がファイルに溜まる。
+        // Project の中が空になったら、その入れ物ごと落とす。
+        put_daily_task(&mut settings, "p1".to_owned(), "t1".to_owned(), None, Vec::new());
+        assert!(settings.daily_tasks.is_empty());
+    }
+
     #[test]
     fn a_zero_interval_removes_the_daily_task() {
         let mut settings = AppSettings::default();
-        put_daily_task(&mut settings, "t1".to_owned(), 3, vec!["2026-09-01".to_owned()]);
-        assert_eq!(settings.daily_tasks["t1"].interval_days, 3);
-        assert_eq!(settings.daily_tasks["t1"].done, vec!["2026-09-01".to_owned()]);
-
-        // 「やめた」印としての 0 を残すと、日課でないタスクの項目がファイルに溜まる。
-        put_daily_task(&mut settings, "t1".to_owned(), 0, Vec::new());
+        with_daily(&mut settings, "p1", "t1");
+        // 間隔 0 では点が 1 つも並ばない。日課として残しても意味を持たないので消す。
+        put_daily_task(
+            &mut settings,
+            "p1".to_owned(),
+            "t1".to_owned(),
+            Some(interval(0)),
+            Vec::new(),
+        );
         assert!(settings.daily_tasks.is_empty());
+    }
+
+    #[test]
+    fn a_spaced_rule_survives_a_round_trip() {
+        let mut settings = AppSettings::default();
+        put_daily_task(
+            &mut settings,
+            "p1".to_owned(),
+            "t1".to_owned(),
+            Some(RecurrenceRule::Spaced),
+            Vec::new(),
+        );
+        let text = serde_json::to_string(&settings).unwrap();
+        let read_back: AppSettings = serde_json::from_str(&text).unwrap();
+        assert_eq!(read_back.daily_tasks["p1"]["t1"].rule, RecurrenceRule::Spaced);
+    }
+
+    #[test]
+    fn pruning_without_task_ids_keeps_everything() {
+        let mut settings = AppSettings::default();
+        with_daily(&mut settings, "p1", "t1");
+        // タスクを読み込めなかった場合と「本当に 0 件」を区別できない。
+        // ここで掘ると、読み込みが失敗しただけで日課の設定が丸ごと消える。
+        assert!(!prune_daily_tasks_of(&mut settings, "p1", &[]));
+        assert!(settings.daily_tasks["p1"].contains_key("t1"));
+    }
+
+    #[test]
+    fn pruning_keeps_the_other_projects() {
+        let mut settings = AppSettings::default();
+        with_daily(&mut settings, "p1", "t1");
+        with_daily(&mut settings, "p2", "t2");
+
+        // 読み込まれるタスクは開いている Project の分だけ。p1 を掘るときに
+        // p2 の日課まで巻き添えにしてはならない。
+        assert!(prune_daily_tasks_of(&mut settings, "p1", &["t9".to_owned()]));
+        assert!(!settings.daily_tasks.contains_key("p1"));
+        assert!(settings.daily_tasks["p2"].contains_key("t2"));
+    }
+
+    #[test]
+    fn pruning_empties_the_project_entry() {
+        let mut settings = AppSettings::default();
+        with_daily(&mut settings, "p1", "t1");
+        with_daily(&mut settings, "p1", "t2");
+
+        // 残る分があるうちは Project の項目もそのまま。
+        assert!(prune_daily_tasks_of(&mut settings, "p1", &["t1".to_owned()]));
+        assert_eq!(settings.daily_tasks["p1"].len(), 1);
+
+        // 全部消えたら、空の入れ物を残さず Project の項目ごと落とす。
+        assert!(prune_daily_tasks_of(&mut settings, "p1", &["t9".to_owned()]));
+        assert!(settings.daily_tasks.is_empty());
+    }
+
+    #[test]
+    fn the_old_flat_shape_does_not_take_the_settings_down() {
+        // 未リリースなので移行はしないが、手元に残っている古い形（task id を直に
+        // 鍵にし、interval_days を持つ）で設定が丸ごと既定値に落ちてはいけない。
+        let text = r#"{
+            "parentLabels": { "p1": ["design"] },
+            "dailyTasks": { "t1": { "intervalDays": 3, "done": [] } }
+        }"#;
+        let settings: AppSettings = serde_json::from_str(text).unwrap();
+        assert_eq!(settings.parent_labels["p1"], vec!["design".to_owned()]);
+        // 読めない項目は捨てる。
+        assert!(settings.daily_tasks.is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_daily_task_does_not_drop_its_neighbours() {
+        let text = r#"{
+            "dailyTasks": {
+                "p1": {
+                    "broken": { "rule": { "kind": "nonesuch" } },
+                    "t1": { "rule": { "kind": "spaced" }, "done": ["2026-09-01"] }
+                }
+            }
+        }"#;
+        let settings: AppSettings = serde_json::from_str(text).unwrap();
+        assert!(!settings.daily_tasks["p1"].contains_key("broken"));
+        assert_eq!(settings.daily_tasks["p1"]["t1"].rule, RecurrenceRule::Spaced);
     }
 
     #[test]

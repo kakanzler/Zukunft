@@ -12,6 +12,7 @@ import type {
   NewMilestoneInput,
   NewTaskInput,
   Recurrence,
+  RecurrenceRule,
   TaskContent,
   ProjectSchema,
   ProjectSummary,
@@ -60,6 +61,7 @@ import {
   loadParentLabels,
   loadTheme,
   loadWindowSettings,
+  pruneDailyTasks,
   saveAutoReschedule,
   saveDailyTask,
   saveMilestoneCategory,
@@ -577,15 +579,53 @@ function Workspace({
     void loadMilestoneCategories().then((loaded) => {
       if (alive) setMilestoneCategories(loaded)
     })
-    // 日課も Project に依らない（鍵はタスクの id）。マイルストーンの割り当てと同じく、
-    // Project を切り替えても読み直さない。
-    void loadDailyTasks().then((loaded) => {
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /**
+   * 日課の設定を読む。鍵はタスクの id だが、保存は Project ごとに分かれている。
+   *
+   * 切り替えたらいったん空に戻してから読み直す。前の Project の設定を残したままだと、
+   * 読み込みが返るまでのあいだ、覚えのないタスクがバーではなく点で描かれる。
+   */
+  useEffect(() => {
+    setDailyTasks({})
+    if (!projectId) return
+    let alive = true
+    void loadDailyTasks(projectId).then((loaded) => {
       if (alive) setDailyTasks(loaded)
     })
     return () => {
       alive = false
     }
-  }, [])
+  }, [projectId])
+
+  /**
+   * 消えた Issue の日課の設定を掘り取る。
+   *
+   * task id は GitHub 側の都合で消える（Issue を消した、Project から外した）が、
+   * 設定には残り続ける。読み込みが済んで 1 件以上あるときにだけ掘る — 失敗して
+   * 0 件なのか本当に 0 件なのかをここでは区別できず、掘ると設定が丸ごと消える。
+   *
+   * 掘るのは Project につき 1 回。同期のたびに呼ぶと、取りこぼしのある読み込みが
+   * 返るたびに設定ファイルを書き直すことになる。
+   */
+  const prunedProjects = useRef(new Set<string>())
+  useEffect(() => {
+    if (!projectId || schedule.load.phase !== "ready") return
+    if (schedule.tasks.length === 0) return
+    if (prunedProjects.current.has(projectId)) return
+    // 結果ではなく発行時点で印を付ける。失敗したものを再描画のたびに叩き直さない。
+    prunedProjects.current.add(projectId)
+    void pruneDailyTasks(
+      projectId,
+      schedule.tasks.map((task) => task.id),
+    ).catch(() => {
+      // 掘れなくても盤面は描ける。消し損ねた設定が残るだけなので、画面には出さない。
+    })
+  }, [projectId, schedule.load.phase, schedule.tasks])
 
   // 親カテゴリの設定を読む。ラベル名の意味は Project ごとに違うので、
   // 切り替えたらいったん空に戻してから読み直す。前の Project の指定で
@@ -1311,7 +1351,7 @@ function Workspace({
   )
 
   const createTask = useCallback(
-    async (input: NewTaskInput, dailyIntervalDays: number | null) => {
+    async (input: NewTaskInput, dailyRule: RecurrenceRule | null) => {
       try {
         const created = await sendCreateTask(input)
         setCreatingOpen(false)
@@ -1323,13 +1363,12 @@ function Workspace({
           // 日課の設定はアプリ側にしか無く、鍵は作ってみるまで分からない task id。
           // ここが失敗しても Issue は既にあるので、起票そのものは成功として扱い、
           // 「日課にならなかった」ことだけを warn で残す。
-          if (dailyIntervalDays !== null) {
+          if (dailyRule !== null && projectId) {
             try {
-              await saveDailyTask(created.id, dailyIntervalDays, [])
+              await saveDailyTask(projectId, created.id, dailyRule, [])
               setDailyTasks((prev) => ({
                 ...prev,
-                // 画面側の入力は当面「間隔 N」だけなので interval 固定。spaced の UI は後続作業。
-                [created.id]: { rule: { kind: "interval", intervalDays: dailyIntervalDays }, done: [] },
+                [created.id]: { rule: dailyRule, done: [] },
               }))
             } catch (error) {
               logAppend({
@@ -1350,7 +1389,7 @@ function Workspace({
         })
       }
     },
-    [sendCreateTask, logAppend],
+    [sendCreateTask, logAppend, projectId],
   )
 
   /**
@@ -1470,7 +1509,7 @@ function Workspace({
   const toggleDailyDone = useCallback(
     async (taskId: string, date: ISODate) => {
       const current = dailyTasksRef.current[taskId]
-      if (!current) return
+      if (!current || !projectId) return
       const next = toggleDone(current, date)
       // 先に画面を進める。保存を待ってから進めると、待っているあいだの押下が
       // 消える。失敗したときは同じ日をもう一度切り替えて戻す（あいだに押された
@@ -1478,9 +1517,7 @@ function Workspace({
       dailyTasksRef.current = { ...dailyTasksRef.current, [taskId]: next }
       setDailyTasks(dailyTasksRef.current)
       try {
-        // 保存 API はまだ interval だけを受ける（spaced の保存対応は後続作業）。
-        const intervalDays = next.rule.kind === "interval" ? next.rule.intervalDays : 1
-        await saveDailyTask(taskId, intervalDays, next.done)
+        await saveDailyTask(projectId, taskId, next.rule, next.done)
       } catch (error) {
         const reverted = dailyTasksRef.current[taskId]
         if (reverted) {
@@ -1502,25 +1539,26 @@ function Workspace({
     // dailyTasks は依存に入れない。読むのは常に控え（dailyTasksRef）の方で、
     // ここに入れると点を 1 つ押すたびにハンドラが作り直され、盤面の全行が
     // 描き直される。
-    [logAppend],
+    [logAppend, projectId],
   )
 
   /**
-   * 日課にする / 間隔を変える / やめる（間隔 0）。
+   * 日課にする / 繰り返し方を変える / やめる（rule が null）。
    *
-   * 実行した日は間隔を変えても引き継ぐ。間隔の打ち間違いを直しただけで
+   * 実行した日は繰り返し方を変えても引き継ぐ。間隔の打ち間違いを直しただけで
    * これまでの記録が消えるのでは、直す気にならない。
    */
   const changeDaily = useCallback(
-    async (taskId: string, intervalDays: number) => {
+    async (taskId: string, rule: RecurrenceRule | null) => {
+      if (!projectId) return
       const done = dailyTasks[taskId]?.done ?? []
       try {
-        await saveDailyTask(taskId, intervalDays, done)
+        await saveDailyTask(projectId, taskId, rule, done)
         setDailyTasks((prev) => {
           const next = { ...prev }
-          // 0 は「日課をやめる」。設定側も項目ごと消えるので、手元も消す。
-          if (intervalDays === 0) delete next[taskId]
-          else next[taskId] = { rule: { kind: "interval", intervalDays }, done }
+          // null は「日課をやめる」。設定側も項目ごと消えるので、手元も消す。
+          if (rule === null) delete next[taskId]
+          else next[taskId] = { rule, done }
           return next
         })
       } catch (error) {
@@ -1531,7 +1569,7 @@ function Workspace({
         logAppend({ level: "error", message: "日課の設定を保存できませんでした", hint: detail })
       }
     },
-    [dailyTasks, logAppend],
+    [dailyTasks, logAppend, projectId],
   )
 
   /**

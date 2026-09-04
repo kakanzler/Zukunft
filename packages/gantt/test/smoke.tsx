@@ -531,7 +531,7 @@ const count = (haystack: string, pattern: RegExp): number =>
     id: "d", issueNumber: 21, status: "Todo",
     startDate: "2026-09-01", endDate: "2026-09-07",
   })
-  // 無期限（Target Date が空）。横軸の右端まで並ぶ。
+  // 終わりを決めていない（Target Date が空）。開始日から 1 年、横軸の右端が手前ならそこまで。
   const endless = task({ id: "e", issueNumber: 22, status: "Todo", startDate: "2026-09-01" })
   const dailyRule = { kind: "interval" as const, intervalDays: 3 }
   const daily = { d: { rule: dailyRule, done: ["2026-09-04" as const] } }
@@ -556,8 +556,8 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a dot sits at the centre of its day",
      html.includes(`cx="${scale.toX("2026-09-01") + scale.pxPerDay / 2}"`), true)
 
-  // Target Date が空でも点は並ぶ（無期限）。ここで isScheduled に落ちると
-  // 無期限の日課が盤面から消える。
+  // Target Date が空でも点は並ぶ。ここで isScheduled に落ちると、
+  // 終わりを決めていない日課が盤面から消える。
   const endlessRows = buildRows([endless], STATUS_ORDER, new Set())
   const endlessHtml = renderToStaticMarkup(
     <Timeline rows={endlessRows} scale={scale} rowHeight={32}
@@ -584,7 +584,7 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a daily task with no start date draws nothing",
      count(undatedHtml, /class="zk-daily-dot/g), 0)
 
-  // 左ペイン。無期限の日課は Target Date が空だが、繰り返し中なので
+  // 左ペイン。終わりを決めていない日課は Target Date が空だが、繰り返し中なので
   // 「日付未設定」の斜体にはしない。盤面と同じ dailyTasks で判定する。
   const pane = renderToStaticMarkup(
     <TaskPane rows={endlessRows} rowHeight={32} milestoneHeight={32}

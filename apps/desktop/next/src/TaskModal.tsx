@@ -11,6 +11,7 @@ import type {
   Milestone,
   ParentIssue,
   Recurrence,
+  RecurrenceRule,
   ScheduleTask,
   TaskContent,
 } from "@zukunft/domain"
@@ -20,6 +21,7 @@ import { LabelEditor } from "@/LabelEditor"
 import { AssigneeEditor } from "@/AssigneeEditor"
 import { ParentCategoryPicker } from "@/ParentCategoryPicker"
 import { Markdown } from "@/Markdown"
+import { SPACED_SCHEDULE_TEXT, dailyLimit, isBeyondDailyLimit } from "@/daily"
 import {
   inclusiveDays,
   isISODate,
@@ -85,10 +87,10 @@ type Props = {
   /** この Issue の日課の設定。日課でなければ null */
   daily?: Recurrence | null
   /**
-   * 日課の間隔を変える。0 は日課をやめる（実行した記録ごと消える）。
+   * 日課の繰り返し方を変える。null は日課をやめる（実行した記録ごと消える）。
    * 渡さなければその節を出さない。
    */
-  onChangeDaily?: (taskId: string, intervalDays: number) => void
+  onChangeDaily?: (taskId: string, rule: RecurrenceRule | null) => void
   onClose: () => void
   /** 一覧で e から開いたときは編集モードで始める */
   initialEditing?: boolean
@@ -185,7 +187,7 @@ export function TaskModal({
    * 日課の間隔。Progress と同じく文字列で持つ。数値にすると打ち消した瞬間に
    * 0（＝日課をやめる）になり、「消して打ち直す」だけで日課が消えてしまう。
    */
-  // UI が扱う日課はまだ interval モードだけ（spaced の画面対応は後続作業）。
+  // 「広がる並び」は間隔を持たないので null。入力欄もそのときは出さない。
   const dailyInterval = daily?.rule.kind === "interval" ? daily.rule.intervalDays : null
   const [intervalText, setIntervalText] = useState(
     dailyInterval === null ? "1" : String(dailyInterval),
@@ -285,7 +287,10 @@ export function TaskModal({
   const bothFilled = start !== "" && end !== ""
   const wellFormed = isISODate(start) && isISODate(end)
   const ordered = wellFormed && start <= end
-  const datesValid = ordered
+  // 日課は開始日から 1 年で止まる（packages/domain の occurrences）。そこより先の
+  // Target Date は指定しても点が並ばないので、黙って詰めずに保存させない。
+  const dailyEndTooFar = daily !== null && isBeyondDailyLimit(start, end)
+  const datesValid = ordered && !dailyEndTooFar
   const datesDirty = start !== (task.startDate ?? "") || end !== (task.endDate ?? "")
 
   const applyDates = () => {
@@ -448,7 +453,7 @@ export function TaskModal({
       return
     }
     if (value === dailyInterval) return
-    onChangeDaily(task.id, value)
+    onChangeDaily(task.id, { kind: "interval", intervalDays: value })
   }
 
   // 現在の Milestone が候補に無い（閉じている等）場合も選択肢に残す。
@@ -621,38 +626,80 @@ export function TaskModal({
                 checked={daily !== null}
                 disabled={busy}
                 onChange={(e) => {
-                  // やめるときは間隔 0 を送る。設定側は項目ごと消えるので、
+                  // やめるときは null を送る。設定側は項目ごと消えるので、
                   // 実行した記録もそこで一緒に消える。
-                  onChangeDaily(task.id, e.target.checked ? typedInterval() : 0)
+                  onChangeDaily(
+                    task.id,
+                    e.target.checked
+                      ? { kind: "interval", intervalDays: typedInterval() }
+                      : null,
+                  )
                 }}
               />
               決まった間隔で繰り返す
             </label>
             {daily !== null && (
-              <div className="zk-daily-row">
-                <input
-                  className="zk-input zk-daily-interval"
-                  type="number"
-                  aria-label="間隔（日）"
-                  min={1}
-                  step={1}
-                  value={intervalText}
-                  disabled={busy}
-                  onChange={(e) => setIntervalText(e.target.value)}
-                  onBlur={commitDaily}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      commitDaily()
-                    }
-                  }}
-                />
-                日ごと
-              </div>
+              <>
+                {/* 繰り返し方。起票の画面と同じ 2 つ。押した時点で送るのは、
+                    この節の他の操作（チェック・間隔）と揃えるため。 */}
+                <div className="zk-daily-row">
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-task-daily-mode"
+                      checked={daily.rule.kind === "interval"}
+                      disabled={busy}
+                      onChange={() =>
+                        onChangeDaily(task.id, {
+                          kind: "interval",
+                          intervalDays: typedInterval(),
+                        })
+                      }
+                    />
+                    N 日ごと
+                  </label>
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-task-daily-mode"
+                      checked={daily.rule.kind === "spaced"}
+                      disabled={busy}
+                      onChange={() => onChangeDaily(task.id, { kind: "spaced" })}
+                    />
+                    1, 3, 5, 7, 11, 15 日で広がる
+                  </label>
+                </div>
+                {daily.rule.kind === "interval" ? (
+                  <div className="zk-daily-row">
+                    <input
+                      className="zk-input zk-daily-interval"
+                      type="number"
+                      aria-label="間隔（日）"
+                      min={1}
+                      step={1}
+                      value={intervalText}
+                      disabled={busy}
+                      onChange={(e) => setIntervalText(e.target.value)}
+                      onBlur={commitDaily}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          commitDaily()
+                        }
+                      }}
+                    />
+                    日ごと
+                  </div>
+                ) : (
+                  /* 間隔は決まっているので入力は出さない。代わりに、実際にいつ
+                     実行するのかを書く — 間隔の数字だけでは何日後に来るのかが読めない。 */
+                  <div className="zk-daily-note">実行するのは {SPACED_SCHEDULE_TEXT} です。</div>
+                )}
+              </>
             )}
             <div className="zk-daily-note">
               GitHub 上は普通の Issue のままです。start date が最初の実行日、
-              target date が最後の実行日になります（空なら無期限）。
+              target date が最後の実行日になります（空なら開始日から 1 年）。
             </div>
           </div>
         )}
@@ -822,7 +869,9 @@ export function TaskModal({
                 ? "日付の形式が正しくありません。"
                 : !ordered
                   ? "開始日は終了日以前にしてください。"
-                  : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
+                  : dailyEndTooFar
+                    ? `日課は開始日から 1 年で止まります。target date は ${dailyLimit(start)} 以前にしてください。`
+                    : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
         </div>
 
         <div className="zk-task-foot">

@@ -6,10 +6,17 @@ import type {
   Label,
   Milestone,
   NewTaskInput,
+  RecurrenceRule,
   RepositorySummary,
 } from "@zukunft/domain"
 import { LabelEditor } from "@/LabelEditor"
 import { ParentCategoryPicker } from "@/ParentCategoryPicker"
+import {
+  SPACED_SCHEDULE_TEXT,
+  dailyLimit,
+  isBeyondDailyLimit,
+  spacedSummary,
+} from "@/daily"
 import { inclusiveDays, isISODate } from "@zukunft/domain"
 
 type StatusOption = { id: string; name: string }
@@ -41,11 +48,11 @@ type Props = {
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
   onDeleteLabel: (repositoryId: string, label: Label) => Promise<boolean>
   /**
-   * 起票する。dailyIntervalDays は日課にする場合の間隔（日）で、
-   * 日課にしないなら null。日課の設定は GitHub ではなくアプリ側に持つので、
+   * 起票する。dailyRule は日課にする場合の繰り返し方で、日課にしないなら null。
+   * 日課の設定は GitHub ではなくアプリ側に持つので、
    * Issue を作った後に返る id で書きに行くのは呼び出し側の仕事になる。
    */
-  onCreate: (input: NewTaskInput, dailyIntervalDays: number | null) => void
+  onCreate: (input: NewTaskInput, dailyRule: RecurrenceRule | null) => void
   onClose: () => void
 }
 
@@ -91,14 +98,16 @@ export function NewTaskModal({
   const [labels, setLabels] = useState<Label[]>([])
   const [milestoneId, setMilestoneId] = useState("")
   // 日課にするか。日付は Start / Target Date を流用するので、ここで持つのは
-  // 「繰り返すかどうか」と「間隔」だけ。
+  // 「繰り返すかどうか」と「繰り返し方」だけ。
   const [daily, setDaily] = useState(false)
+  // 繰り返し方。既定は今までと同じ「N 日ごと」。
+  const [dailyMode, setDailyMode] = useState<RecurrenceRule["kind"]>("interval")
   /**
    * 間隔は文字列で持つ。数値にすると打ち消した瞬間に 0 や NaN になり、
    * 「消して打ち直す」という当たり前の操作ができなくなる。送るときに数値へ直す。
    */
   const [intervalText, setIntervalText] = useState("1")
-  // 終わりの指定。無期限なら Target Date を空のままにする（＝最後の実行日なし）。
+  // 終わりの指定。Target Date を空のままにすると、開始日から 1 年で止まる。
   const [endless, setEndless] = useState(true)
 
   // ラベルと Milestone の id はリポジトリごとに別物。作成先を変えても残すと
@@ -119,15 +128,20 @@ export function NewTaskModal({
   const bothFilled = start !== "" && end !== ""
   const noneFilled = start === "" && end === ""
   const wellFormed = isISODate(start) && isISODate(end)
-  // 無期限の日課だけは Start Date だけで成り立つ。最後の実行日が無いという
+  // 期日を決めない日課だけは Start Date だけで成り立つ。最後の実行日が無いという
   // 指定そのものが Target Date の空欄なので、片側だけを認める唯一の場合。
   const startOnly = daily && endless && isISODate(start) && end === ""
   const datesOk = startOnly || noneFilled || (bothFilled && wellFormed && start <= end)
   const interval = Number(intervalText)
   const intervalOk = Number.isInteger(interval) && interval >= 1
+  // 「広がる並び」は間隔が決まっているので、間隔の入力そのものを見ない。
+  const ruleOk = dailyMode === "spaced" || intervalOk
+  // 1 年より先の Target Date は指定しても点が並ばない（企画書の日課は開始日から
+  // 1 年で止まる）。黙って詰めると指定した期日と盤面が食い違うので、作らせない。
+  const endTooFar = daily && !endless && isBeyondDailyLimit(start, end)
   // 日課は Start Date が最初の実行日。起点が無いと点を置く場所が決まらないので、
   // 「日課だが開始日が無い」状態では作らせない。
-  const dailyOk = !daily || (isISODate(start) && intervalOk)
+  const dailyOk = !daily || (isISODate(start) && ruleOk && !endTooFar)
   const canSubmit = repositoryId !== "" && title.trim() !== "" && datesOk && dailyOk && !busy
 
   const submit = () => {
@@ -141,10 +155,12 @@ export function NewTaskModal({
       input.startDate = start as ISODate
       input.endDate = end as ISODate
     } else if (startOnly) {
-      // 無期限の日課。Target Date は入れない — 空であること自体が「終わりなし」。
+      // 期日を決めない日課。Target Date は入れない — 空であること自体がその指定。
       input.startDate = start as ISODate
     }
-    onCreate(input, daily ? interval : null)
+    const rule: RecurrenceRule =
+      dailyMode === "spaced" ? { kind: "spaced" } : { kind: "interval", intervalDays: interval }
+    onCreate(input, daily ? rule : null)
   }
 
   return (
@@ -273,7 +289,7 @@ export function NewTaskModal({
             <label className="zk-field">
               <span className="zk-field-label">Target Date</span>
               <input className="zk-input" type="date" value={end}
-                     /* 無期限の日課では最後の実行日が無い。空であること自体が
+                     /* 期日を決めない日課では最後の実行日が無い。空であること自体が
                         その指定なので、打てないようにして空に保つ。 */
                      disabled={!canEditDates || (daily && endless)}
                      onChange={(e) => setEnd(e.target.value)} />
@@ -291,7 +307,7 @@ export function NewTaskModal({
                 disabled={!canEditDates}
                 onChange={(e) => {
                   setDaily(e.target.checked)
-                  // 日課に切り替えた時点では終わりを決めていない。既定の無期限に
+                  // 日課に切り替えた時点では終わりを決めていない。既定（期日なし）に
                   // 合わせて Target Date を空に戻す。
                   if (e.target.checked && endless) setEnd("")
                 }}
@@ -300,19 +316,48 @@ export function NewTaskModal({
             </label>
             {daily && (
               <>
+                {/* 繰り返し方。間隔を自分で決めるか、決まった広がる並びを使うか。 */}
                 <div className="zk-daily-row">
-                  <input
-                    className="zk-input zk-daily-interval"
-                    type="number"
-                    aria-label="間隔（日）"
-                    min={1}
-                    step={1}
-                    value={intervalText}
-                    disabled={!canEditDates}
-                    onChange={(e) => setIntervalText(e.target.value)}
-                  />
-                  日ごと
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-new-task-daily-mode"
+                      checked={dailyMode === "interval"}
+                      disabled={!canEditDates}
+                      onChange={() => setDailyMode("interval")}
+                    />
+                    N 日ごと
+                  </label>
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-new-task-daily-mode"
+                      checked={dailyMode === "spaced"}
+                      disabled={!canEditDates}
+                      onChange={() => setDailyMode("spaced")}
+                    />
+                    1, 3, 5, 7, 11, 15 日で広がる
+                  </label>
                 </div>
+                {dailyMode === "interval" ? (
+                  <div className="zk-daily-row">
+                    <input
+                      className="zk-input zk-daily-interval"
+                      type="number"
+                      aria-label="間隔（日）"
+                      min={1}
+                      step={1}
+                      value={intervalText}
+                      disabled={!canEditDates}
+                      onChange={(e) => setIntervalText(e.target.value)}
+                    />
+                    日ごと
+                  </div>
+                ) : (
+                  /* 間隔は決まっているので入力は出さない。代わりに、実際にいつ
+                     実行するのかを書く — 間隔の数字だけでは何日後に来るのかが読めない。 */
+                  <div className="zk-daily-note">実行するのは {SPACED_SCHEDULE_TEXT} です。</div>
+                )}
                 <div className="zk-daily-row">
                   <label className="zk-daily-choice">
                     <input
@@ -325,7 +370,7 @@ export function NewTaskModal({
                         setEnd("")
                       }}
                     />
-                    無期限
+                    開始日から 1 年
                   </label>
                   <label className="zk-daily-choice">
                     <input
@@ -342,7 +387,7 @@ export function NewTaskModal({
             )}
             <div className="zk-daily-note">
               GitHub 上は普通の Issue のままです。Start Date が最初の実行日、
-              Target Date が最後の実行日になります（空なら無期限）。
+              Target Date が最後の実行日になります（空なら開始日から 1 年）。
             </div>
           </div>
 
@@ -351,17 +396,23 @@ export function NewTaskModal({
               ? "Project に Start Date / Target Date が無いため、日程は後から設定します。"
               : daily && !isISODate(start)
                 ? "日課は Start Date が最初の実行日です。開始日を入れてください。"
-                : daily && !intervalOk
+                : daily && !ruleOk
                   ? "間隔は 1 以上の整数で指定してください。"
                   : daily && endless
-                    ? `${start} から ${interval} 日ごとに繰り返します（終わりなし）`
+                    ? dailyMode === "spaced"
+                      ? spacedSummary(start)
+                      : `${start} から ${interval} 日ごとに繰り返します（開始日から 1 年）`
                     : daily && (!bothFilled || !wellFormed)
                       ? "期日までにする場合は Target Date を指定してください。"
                       : daily && start > end
                         ? "開始日は終了日以前にしてください。"
-                        : daily
-                          ? `${start} から ${end} まで ${interval} 日ごとに繰り返します`
-                          : noneFilled
+                        : endTooFar
+                          ? `日課は開始日から 1 年で止まります。Target Date は ${dailyLimit(start)} 以前にしてください。`
+                          : daily
+                            ? dailyMode === "spaced"
+                              ? `${spacedSummary(start)}（${end} まで）`
+                              : `${start} から ${end} まで ${interval} 日ごとに繰り返します`
+                            : noneFilled
                             ? "日程は任意です。未入力なら日付なしの Issue として作成します。"
                             : !bothFilled
                               ? "日程を入れる場合は両方を指定してください。"

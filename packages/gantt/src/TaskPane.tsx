@@ -82,7 +82,7 @@ export function TaskPane({
           const task = row.task
           const assignee = task.assignees[0]
           const classes = ["zk-row"]
-          // 無期限の日課は Target Date が空なので、そのままでは「日付未設定」に
+          // 終わりを決めていない日課は Target Date が空なので、そのままでは「日付未設定」に
           // 見えてしまう。盤面には点が並んでいて実際には繰り返し中なので、
           // 斜体にはしない。判定は盤面と同じ dailyTasks で行う。
           if (!isScheduled(task) && !dailyTasks[task.id]) classes.push("zk-row--unscheduled")

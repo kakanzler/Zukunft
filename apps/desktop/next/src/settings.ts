@@ -1,6 +1,6 @@
 "use client"
 
-import type { ISODate, Recurrence } from "@zukunft/domain"
+import type { ISODate, Recurrence, RecurrenceRule } from "@zukunft/domain"
 import { type GanttTheme, isGanttTheme } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
 
@@ -42,8 +42,12 @@ type AppSettings = {
   window?: Partial<WindowSettings>
   autoReschedule?: boolean
   theme?: string
-  /** task id -> 日課（間隔と実行した日）。日付そのものは Issue 側に持つ */
-  dailyTasks?: Record<string, Partial<Recurrence>>
+  /**
+   * project id -> task id -> 日課（繰り返し方と実行した日）。日付そのものは Issue 側に持つ。
+   * 親カテゴリと同じく Project を挟むのは、掘り取り（pruneDailyTasks）が
+   * 別の Project の設定を巻き添えにしないため。
+   */
+  dailyTasks?: Record<string, Record<string, Partial<Recurrence>>>
 }
 
 /**
@@ -56,7 +60,8 @@ const MILESTONE_CATEGORY_STORAGE_KEY = "zukunft.milestoneCategories"
 const WINDOW_STORAGE_KEY = "zukunft.window"
 const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
 const THEME_STORAGE_KEY = "zukunft.theme"
-const DAILY_TASK_STORAGE_KEY = "zukunft.dailyTasks"
+/** 日課はモックでも Project ごとに分ける。親カテゴリと同じく project id を後ろに付ける。 */
+const DAILY_TASK_STORAGE_PREFIX = "zukunft.dailyTasks."
 
 async function invokeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   // Tauri の外では @tauri-apps/api の読み込み自体が失敗するため、動的に読む。
@@ -135,36 +140,47 @@ export async function saveMilestoneCategory(milestoneId: string, label: string):
 }
 
 /**
- * 日課（繰り返し）の設定。鍵はタスクの id。
+ * 保存されている 1 件の日課を読む。読めなければ null（呼び出し側がその項目を捨てる）。
  *
- * 持っているのは「間隔 N」と「実行した日」だけ。最初の実行日は Issue の
- * Start Date、最後の実行日は Target Date（空なら無期限）を流用する。
+ * 古い形（`intervalDays` を直に持つ）も混ざりうるので、`rule` の形だけを認める。
+ * 間隔が 1 未満のものも捨てる — 実行日の計算が進まないまま点を並べ続けることになる。
+ */
+function readRecurrence(value: unknown): Recurrence | null {
+  if (typeof value !== "object" || value === null) return null
+  const { rule, done } = value as { rule?: unknown; done?: unknown }
+  if (typeof rule !== "object" || rule === null) return null
+  const { kind, intervalDays } = rule as { kind?: unknown; intervalDays?: unknown }
+  const dates = Array.isArray(done) ? done.filter((d): d is ISODate => typeof d === "string") : []
+  if (kind === "spaced") return { rule: { kind: "spaced" }, done: dates }
+  if (kind !== "interval") return null
+  if (typeof intervalDays !== "number" || !Number.isFinite(intervalDays) || intervalDays < 1) {
+    return null
+  }
+  return { rule: { kind: "interval", intervalDays: Math.floor(intervalDays) }, done: dates }
+}
+
+/**
+ * 日課（繰り返し）の設定。鍵はタスクの id で、Project ごとに分けて持つ。
+ *
+ * 持っているのは「繰り返し方」と「実行した日」だけ。最初の実行日は Issue の
+ * Start Date、最後の実行日は Target Date（空なら開始日から 1 年）を流用する。
  *
  * マイルストーンの割り当てと同じく、読めないことを画面の失敗にはしない。
  * 日課が普通の Issue として描かれるだけで、盤面は問題なく開ける。
  * 形の合わない項目は落とす — 手で書き換えられた設定ファイルの 1 項目のために、
  * 全部の日課を捨てたくない。
  */
-export async function loadDailyTasks(): Promise<Record<string, Recurrence>> {
+export async function loadDailyTasks(projectId: string): Promise<Record<string, Recurrence>> {
+  if (!projectId) return {}
   try {
     const raw: unknown = isTauri()
-      ? (await invokeCommand<AppSettings>("get_settings", {})).dailyTasks
-      : JSON.parse(window.sessionStorage.getItem(DAILY_TASK_STORAGE_KEY) ?? "{}")
+      ? (await invokeCommand<AppSettings>("get_settings", {})).dailyTasks?.[projectId]
+      : JSON.parse(window.sessionStorage.getItem(DAILY_TASK_STORAGE_PREFIX + projectId) ?? "{}")
     if (typeof raw !== "object" || raw === null) return {}
     const result: Record<string, Recurrence> = {}
     for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (typeof value !== "object" || value === null) continue
-      const { intervalDays, done } = value as { intervalDays?: unknown; done?: unknown }
-      // 間隔が読めなければその項目ごと捨てる。0 や負数を通すと、実行日の計算が
-      // 進まないまま点を並べ続けることになる。
-      if (typeof intervalDays !== "number" || !Number.isFinite(intervalDays) || intervalDays < 1) {
-        continue
-      }
-      result[id] = {
-        // 保存形式はまだ interval だけ（spaced の設定対応は後続作業）。
-        rule: { kind: "interval", intervalDays: Math.floor(intervalDays) },
-        done: Array.isArray(done) ? done.filter((d): d is ISODate => typeof d === "string") : [],
-      }
+      const recurrence = readRecurrence(value)
+      if (recurrence) result[id] = recurrence
     }
     return result
   } catch {
@@ -172,23 +188,49 @@ export async function loadDailyTasks(): Promise<Record<string, Recurrence>> {
   }
 }
 
-/** 間隔 0 は「日課をやめる」。Rust 側もそのときは項目ごと消す。 */
+/** rule が null なら「日課をやめる」。Rust 側もそのときは項目ごと消す。 */
 export async function saveDailyTask(
+  projectId: string,
   taskId: string,
-  intervalDays: number,
+  rule: RecurrenceRule | null,
   done: ISODate[],
 ): Promise<void> {
-  if (!taskId) return
+  if (!projectId || !taskId) return
   if (isTauri()) {
-    await invokeCommand<AppSettings>("set_daily_task", { taskId, intervalDays, done })
+    await invokeCommand<AppSettings>("set_daily_task", { projectId, taskId, rule, done })
     return
   }
   // モックには Rust の読み書きが無いので、同じ「消す / 入れる」をここで行う。
   // 触ったものが画面に出ないと、実機を立ち上げるまで確かめられない。
-  const current = await loadDailyTasks()
-  if (intervalDays === 0) delete current[taskId]
-  else current[taskId] = { rule: { kind: "interval", intervalDays }, done }
-  window.sessionStorage.setItem(DAILY_TASK_STORAGE_KEY, JSON.stringify(current))
+  const current = await loadDailyTasks(projectId)
+  if (rule === null) delete current[taskId]
+  else current[taskId] = { rule, done }
+  window.sessionStorage.setItem(
+    DAILY_TASK_STORAGE_PREFIX + projectId,
+    JSON.stringify(current),
+  )
+}
+
+/**
+ * その Project の日課から、いま存在しないタスクの分を落とす。
+ *
+ * 鍵にしている task id は GitHub 側の都合で消える（Issue を消した、Project から
+ * 外した）が、設定には残り続ける。taskIds が空なら何もしない — 読み込みに失敗した
+ * だけの空と「本当に 0 件」を区別できず、掘るとその Project の日課が丸ごと消える。
+ */
+export async function pruneDailyTasks(projectId: string, taskIds: string[]): Promise<void> {
+  if (!projectId || taskIds.length === 0) return
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("prune_daily_tasks", { projectId, taskIds })
+    return
+  }
+  const current = await loadDailyTasks(projectId)
+  const alive = new Set(taskIds)
+  const kept: Record<string, Recurrence> = {}
+  for (const [id, recurrence] of Object.entries(current)) {
+    if (alive.has(id)) kept[id] = recurrence
+  }
+  window.sessionStorage.setItem(DAILY_TASK_STORAGE_PREFIX + projectId, JSON.stringify(kept))
 }
 
 /**
