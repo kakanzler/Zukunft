@@ -20,10 +20,13 @@ import type { ScheduleTask } from "./schedule"
  * （フェーズを跨いだ依存はよくあるが、それは前のフェーズの終盤という意味であって、
  * 自分のフェーズの終盤でなくなるわけではない）。
  *
- * 距離 0 が決まったら、そこからの遡り（BFS の展開）は同じマイルストーン縛りを
- * 外し、すべての依存を辿る——マイルストーンを持たないタスクや、別のマイルストーンの
- * タスクが前段の準備として挟まることは普通にあるため（既存のテストが確かめている
- * とおり、マイルストーンを持たないタスクにも距離が伝播する）。
+ * 距離 0 が決まったら、そこからの展開は同じマイルストーン縛りを外し、かつ
+ * 依存している／されているの向きも問わない——依存元→依存先（自分が blocked-by
+ * で挙げた、先に片付く相手）だけでなく、依存先→依存元（自分を blocked-by で
+ * 挙げている、自分の後に来る相手）にも同じように伝わる。マイルストーンを
+ * 持たないタスクが「距離 0 のタスクに依存させたのに色が変わらない」ということが
+ * 無いようにするため（依存させる側・される側のどちらの向きでも、Milestone に
+ * 一番近いタスクとの繋がりが分かれば、それだけ近い色になってよい）。
  *
  * 循環した辺（detectCycles の cyclicEdges）は隣接からも起点判定からも外す。
  * 成立しない日程を根拠にしても意味が無いし、外さないと同じ節点を延々と回ることになる。
@@ -38,15 +41,18 @@ export function milestoneDepths(
 ): Map<string, number> {
   const byId = new Map(tasks.map((task) => [task.id, task]))
 
-  // 展開用の隣接（距離 0 が決まった後、そこから遡るのに使う）。全部の依存を辿る。
+  // 展開用の隣接（距離 0 が決まった後、そこから広げるのに使う）。向きを問わず
+  // 両方向に積む——依存元→依存先だけでなく、依存先→依存元も辿れるようにする。
   const next = new Map<string, string[]>()
+  const link = (a: string, b: string) => next.set(a, [...(next.get(a) ?? []), b])
   // 起点判定用。「同じマイルストーンの他のタスクから待たれている回数」。
   // 1 つでもあれば、そのマイルストーンの中では最後ではない。
   const sameMilestoneWaitedOn = new Map<string, number>()
 
   for (const dep of dependencies) {
     if (cyclicEdges.has(edgeKey(dep.fromTaskId, dep.toTaskId))) continue
-    next.set(dep.fromTaskId, [...(next.get(dep.fromTaskId) ?? []), dep.toTaskId])
+    link(dep.fromTaskId, dep.toTaskId)
+    link(dep.toTaskId, dep.fromTaskId)
 
     const from = byId.get(dep.fromTaskId)
     const to = byId.get(dep.toTaskId)

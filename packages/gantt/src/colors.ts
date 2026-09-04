@@ -62,10 +62,10 @@ function darken(hex: string, factor: number): string {
   return `rgb(${Math.round(r * factor)}, ${Math.round(g * factor)}, ${Math.round(b * factor)})`
 }
 
-export type RainbowColors = { from: string; to: string; glow: string }
+export type DependenceIssueBarColors = { from: string; to: string; glow: string }
 
 /** 距離からバー 1 本ぶんの色一式を作る。塗り・輪郭・発光をすべて同じ色で揃える。 */
-export function milestoneDepthColors(depth: number): RainbowColors {
+export function milestoneDepthColors(depth: number): DependenceIssueBarColors {
   const hex = depthColorAt(depth)
   return {
     from: darken(hex, 0.6),

@@ -511,6 +511,22 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
      depths([dep(1, [3], true), dep(2, [4], true), dep(3, [], false), dep(4, [], false)]),
      [["i1", 0], ["i2", 0], ["i3", 1], ["i4", 1]])
 
+  // i2 は Milestone を持たず、i1（距離 0）に依存されている側（i1 → i2 が
+  // 「i1 が i2 を blocked-by で挙げている」向き）ではなく、i2 の方が i1 を
+  // blocked-by で挙げている（i2 → i1、i2 が i1 に依存する）。展開が向きを
+  // 問わないので、依存している側からでも距離が伝わる。
+  eq("a task depending on the closest-to-milestone task gets a depth too",
+     depths([dep(1, [], true), dep(2, [1], false)]), [["i1", 0], ["i2", 1]])
+
+  // i1 と i3 の両方が i2 に繋がる枝分かれで、向きが逆でも最短距離が選ばれる
+  // （i1 → i2 は i1 が i2 に依存する向き、i2 → i3 は i2 が i1 に依存されつつ
+  // 別に i3 にも依存される、のような混在を避けて単純化: i2 が i1 に依存し
+  // （i2 → i1）、i3 が i2 に依存する（i3 → i2）連鎖でも、i1 起点から向きを
+  // 問わず 1, 2 と伸びる）。
+  eq("depth propagates through a chain regardless of which end declares blocked-by",
+     depths([dep(1, [], true), dep(2, [1], false), dep(3, [2], false)]),
+     [["i1", 0], ["i2", 1], ["i3", 2]])
+
   // GitHub の Milestone は release/phase の大まかな括りで、ほぼ全 Issue に付き得る
   // （実際のモックデータで再現した不具合）。同じ Milestone を持つ 2 つのタスクが
   // 直に依存し合っているときは、待たれている側（i2）だけが距離 0 になる——
