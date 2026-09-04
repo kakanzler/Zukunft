@@ -481,11 +481,15 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   // mk は既定で Milestone を付けるので、距離 0 にしたいタスク以外は外す。
   // 辺は「依存元 → 依存先」＝「待っている側 → 先に片付ける側」なので、
   // Milestone を持つタスクが blocked-by で挙げた相手が 1 ホップ手前になる。
-  const dep = (n: number, refs: number[], milestone: boolean) => ({
+  // milestone は false（無し）/ true（既定の "ms-1"）/ 文字列（別の Milestone id）。
+  const dep = (n: number, refs: number[], milestone: boolean | string) => ({
     ...mk(n, "Planning", "2026-09-01", "2026-09-05", null),
     body: refs.length === 0 ? "" : `blocked-by: ${refs.map((r) => `#${100 + r}`).join(", ")}`,
     issueNumber: 100 + n,
-    milestone: milestone ? { id: "ms-1", title: "v1", dueOn: "2026-09-30" } : null,
+    milestone:
+      milestone === false
+        ? null
+        : { id: milestone === true ? "ms-1" : milestone, title: "v1", dueOn: "2026-09-30" },
   })
   const depths = (tasks: ScheduleTask[]) => {
     const dependencies = resolveDependencies(tasks)
@@ -502,10 +506,24 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
      depths([dep(1, [2], true), dep(2, [3], false), dep(3, [], false)]),
      [["i1", 0], ["i2", 1], ["i3", 2]])
 
-  // Milestone が付いていれば、どのタスクも独立した起点。
-  eq("every milestone-bearing task is its own source",
+  // Milestone が付いていても、依存関係で繋がっていなければどちらも独立した起点。
+  eq("two unconnected milestone-bearing tasks are each their own source",
      depths([dep(1, [3], true), dep(2, [4], true), dep(3, [], false), dep(4, [], false)]),
      [["i1", 0], ["i2", 0], ["i3", 1], ["i4", 1]])
+
+  // GitHub の Milestone は release/phase の大まかな括りで、ほぼ全 Issue に付き得る
+  // （実際のモックデータで再現した不具合）。同じ Milestone を持つ 2 つのタスクが
+  // 直に依存し合っているときは、待たれている側（i2）だけが距離 0 になる——
+  // 「Milestone が付いている」だけでは距離 0 にしない。
+  eq("when two same-milestone tasks depend on each other, only the one nothing waits on is 0",
+     depths([dep(1, [2], true), dep(2, [], true)]), [["i1", 0], ["i2", 1]])
+
+  // i2 は i1（別の Milestone "ms-2"）から待たれているが、i1 と i2 は Milestone が
+  // 違うので、その依存は i2 の「自分の Milestone の中での近さ」を損なわない。
+  // フェーズを跨いだ依存はよくあるが、前のフェーズの終盤という意味でしかない。
+  eq("being depended on by a task with a different milestone does not disqualify depth 0",
+     depths([dep(1, [2], "ms-2"), dep(2, [], true)]),
+     [["i1", 0], ["i2", 0]])
 
   // i4 へは i1 から直に 1 ホップ、i2 → i3 を回れば 3 ホップ。短い方を採る。
   eq("a branching graph takes the shortest distance",
@@ -516,8 +534,8 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
   eq("a task with no reachable milestone is absent",
      depths([dep(1, [], true), dep(2, [], false)]), [["i1", 0]])
 
-  // i2 ⇄ i3 は循環。辺を隣接から外すので回り続けず、循環の中だけにいる i3 には
-  // 距離が付かない（i1 → i2 は循環していないので i2 は 1 のまま）。
+  // i2 ⇄ i3 は循環。辺を隣接からも起点判定からも外すので回り続けず、循環の中だけに
+  // いる i3 には距離が付かない（i1 → i2 は循環していないので i2 は 1 のまま）。
   eq("a cyclic edge is not walked",
      depths([dep(1, [2], true), dep(2, [3], false), dep(3, [2], false)]),
      [["i1", 0], ["i2", 1]])
