@@ -1,6 +1,6 @@
 "use client"
 
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import type { GanttTheme } from "@zukunft/gantt"
 import {
   DEFAULT_WINDOW_SETTINGS,
@@ -16,12 +16,23 @@ const THEMES: { theme: GanttTheme; label: string; note: string }[] = [
   { theme: "blue-system", label: "BlueSystem", note: "青を基調に、今日とマイルストーンを赤で差す" },
 ]
 
+/**
+ * 背景画像の上限。
+ *
+ * 画像は base64 にして IPC で渡すので、実体より 3 割ほど大きい文字列になる。
+ * 8MB を超える写真をそのまま敷いても見た目は変わらないのに、起動のたびに
+ * その分を読むことになる。読み込む前に file.size で弾く。
+ */
+const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
+
 type Props = {
   settings: WindowSettings
   /** 依存関係に合わせて日程を後ろへずらすか（企画書 §15.2） */
   autoReschedule: boolean
   /** 盤面の意匠 */
   theme: GanttTheme
+  /** 盤面の地に敷く画像（data: URL）。敷いていなければ null */
+  backgroundImage: string | null
   busy: boolean
   /** Tauri の外（モック）では反映する窓が無い。その旨を画面に出すために受け取る。 */
   applies: boolean
@@ -36,7 +47,12 @@ type Props = {
    * 保存先は窓の設定と別だが、押すボタンは 1 つにする。
    * 「保存して反映」で片方しか保存されない画面は説明が要る。
    */
-  onSave: (settings: WindowSettings, autoReschedule: boolean, theme: GanttTheme) => void
+  onSave: (
+    settings: WindowSettings,
+    autoReschedule: boolean,
+    theme: GanttTheme,
+    backgroundImage: string | null,
+  ) => void
   onClose: () => void
 }
 
@@ -113,11 +129,17 @@ function matches(setting: Setting, query: string): boolean {
  * どのカテゴリにあるかを知っている必要が無いのが、この構成の効きどころ。
  */
 export function SettingsModal({
-  settings, autoReschedule, theme, busy, applies, authSource, onSignOut, onSave, onClose,
+  settings, autoReschedule, theme, backgroundImage, busy, applies, authSource,
+  onSignOut, onSave, onClose,
 }: Props) {
   const [draft, setDraft] = useState<WindowSettings>(settings)
   const [autoDraft, setAutoDraft] = useState(autoReschedule)
   const [themeDraft, setThemeDraft] = useState<GanttTheme>(theme)
+  const [backgroundDraft, setBackgroundDraft] = useState<string | null>(backgroundImage)
+  /** 選べなかった理由。選んだその場に出さないと、押しても何も起きないように見える。 */
+  const [backgroundError, setBackgroundError] = useState<string | null>(null)
+  // ファイル選択は隠してあり、押されるのは隣のボタン。参照はそれを繋ぐためだけ。
+  const fileInput = useRef<HTMLInputElement>(null)
   // サインアウトは取り消せない（トークンを資格情報ストアから消す）ので、
   // 削除と同じく確認を 1 段挟む。
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
@@ -136,6 +158,40 @@ export function SettingsModal({
   useEffect(() => {
     setThemeDraft(theme)
   }, [theme])
+
+  useEffect(() => {
+    setBackgroundDraft(backgroundImage)
+  }, [backgroundImage])
+
+  /**
+   * 選ばれた画像を下書きに取り込む。
+   *
+   * 保存はここでしない。他の外観設定と同じく「保存して反映」でまとめて適用する。
+   * 大きすぎるものは読み込む前に弾く — base64 にしてから捨てるのは、数 MB を
+   * 無駄に文字列へ広げてから同じ結論に至るだけ。
+   */
+  const pickBackground = (file: File | undefined) => {
+    if (!file) return
+    if (file.size > MAX_BACKGROUND_BYTES) {
+      const size = (file.size / 1024 / 1024).toFixed(1)
+      setBackgroundError(`この画像は ${size}MB です。背景に使えるのは 8MB までです。`)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      // readAsDataURL の結果は data: URL の文字列。そうでなければ読めていない。
+      if (typeof reader.result !== "string") {
+        setBackgroundError("画像を読み取れませんでした。別の画像を選んでください。")
+        return
+      }
+      setBackgroundError(null)
+      setBackgroundDraft(reader.result)
+    }
+    reader.onerror = () => {
+      setBackgroundError("画像を読み取れませんでした。別の画像を選んでください。")
+    }
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -258,6 +314,64 @@ export function SettingsModal({
             </label>
           ))}
         </div>
+      ),
+    },
+    {
+      id: "background-image",
+      category: "appearance",
+      title: "背景画像",
+      summary:
+        "選んだ画像を盤面の地に敷きます。画像はこの PC の中だけに保存され、GitHub には何も送りません。",
+      keywords: ["壁紙", "背景", "画像", "写真", "background", "wallpaper", "image"],
+      render: () => (
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            className="zk-set-file-input"
+            disabled={busy}
+            aria-label="背景に使う画像を選ぶ"
+            onChange={(e) => {
+              pickBackground(e.target.files?.[0])
+              // 同じ画像を選び直しても change が起きるように、値を空へ戻す。
+              e.target.value = ""
+            }}
+          />
+          <div className="zk-set-presets">
+            <button
+              type="button"
+              className="zk-button"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+            >
+              画像を選ぶ…
+            </button>
+            {backgroundDraft && (
+              <button
+                type="button"
+                className="zk-button"
+                disabled={busy}
+                onClick={() => {
+                  setBackgroundDraft(null)
+                  setBackgroundError(null)
+                }}
+              >
+                背景を外す
+              </button>
+            )}
+          </div>
+          {backgroundDraft ? (
+            <img className="zk-set-preview" src={backgroundDraft} alt="選んだ背景画像" />
+          ) : (
+            <span className="zk-set-note">まだ選んでいません。</span>
+          )}
+          {backgroundError && <span className="zk-set-danger">{backgroundError}</span>}
+          <span className="zk-set-note">
+            画面の中央を基準に、切れないよう引き伸ばして敷きます。BlueSystem では
+            サイドバーや一覧が半透明なので、その下からこの画像が透けます。
+          </span>
+        </>
       ),
     },
     {
@@ -439,6 +553,8 @@ export function SettingsModal({
               setDraft(DEFAULT_WINDOW_SETTINGS)
               setAutoDraft(true)
               setThemeDraft("default")
+              setBackgroundDraft(null)
+              setBackgroundError(null)
             }}
           >
             既定に戻す
@@ -447,7 +563,7 @@ export function SettingsModal({
           <button
             className="zk-button zk-button--primary"
             disabled={busy || tooSmall}
-            onClick={() => onSave(draft, autoDraft, themeDraft)}
+            onClick={() => onSave(draft, autoDraft, themeDraft, backgroundDraft)}
           >
             {busy ? "保存中…" : "保存して反映"}
           </button>

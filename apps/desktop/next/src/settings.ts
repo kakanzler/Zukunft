@@ -48,6 +48,17 @@ type AppSettings = {
    * 別の Project の設定を巻き添えにしないため。
    */
   dailyTasks?: Record<string, Record<string, Partial<Recurrence>>>
+  /**
+   * 背景画像の種類（image/png など）。画像そのものは settings.json に入っていない
+   * （Rust 側が別ファイルに置く）ので、ここにも中身は載らない。
+   */
+  backgroundImageMime?: string
+}
+
+/** Rust 側の `BackgroundImage`。data: URL への組み立てはこちら側で行う。 */
+type BackgroundImagePayload = {
+  base64: string
+  mime: string
 }
 
 /**
@@ -62,6 +73,11 @@ const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
 const THEME_STORAGE_KEY = "zukunft.theme"
 /** 日課はモックでも Project ごとに分ける。親カテゴリと同じく project id を後ろに付ける。 */
 const DAILY_TASK_STORAGE_PREFIX = "zukunft.dailyTasks."
+/**
+ * 背景画像。モックでは data: URL をそのまま置く。
+ * Rust 側のように別ファイルへ逃がす先が無く、逃がす必要も無い（タブを閉じれば消える）。
+ */
+const BACKGROUND_IMAGE_STORAGE_KEY = "zukunft.backgroundImage"
 
 async function invokeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   // Tauri の外では @tauri-apps/api の読み込み自体が失敗するため、動的に読む。
@@ -283,6 +299,65 @@ export async function saveTheme(theme: GanttTheme): Promise<void> {
     return
   }
   window.sessionStorage.setItem(THEME_STORAGE_KEY, theme)
+}
+
+/**
+ * 背景画像（Settings の外観）。
+ *
+ * BlueSystem の面は半透明なので、地に何も無いと透けているのが見えない。
+ * ここで選んだ画像を .zk-root に敷いて、その上で透過が意味を持つようにする。
+ *
+ * 呼ぶのは起動時の 1 回だけ。Tauri 側では実体が数 MB になりうるので、
+ * 設定を読むたびに載せてよい大きさではない（get_settings とは別のコマンド）。
+ * 読めなければ背景なしに倒す — 背景が出ないだけで、盤面は問題なく描ける。
+ */
+export async function loadBackgroundImage(): Promise<{ dataUrl: string } | null> {
+  try {
+    if (isTauri()) {
+      const image = await invokeCommand<BackgroundImagePayload | null>("get_background_image", {})
+      if (!image?.base64 || !image.mime) return null
+      return { dataUrl: `data:${image.mime};base64,${image.base64}` }
+    }
+    const dataUrl = window.sessionStorage.getItem(BACKGROUND_IMAGE_STORAGE_KEY)
+    return dataUrl ? { dataUrl } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * data: URL を種類と中身に分ける。分けられなければ null。
+ *
+ * FileReader が返すのは常にこの形だが、手で書き換えられた sessionStorage の値も
+ * ここを通る。分解できないものをそのまま Rust へ渡すと、向こうで base64 の
+ * デコードに失敗したという分かりにくい形で出る。
+ */
+function splitDataUrl(dataUrl: string): { mime: string; base64: string } | null {
+  const match = /^data:([^;,]+);base64,(.+)$/.exec(dataUrl)
+  if (!match) return null
+  return { mime: match[1]!, base64: match[2]! }
+}
+
+/** 保存の失敗は握り潰さない。「保存した」と見えて次の起動で消えている方が困る。 */
+export async function saveBackgroundImage(dataUrl: string): Promise<void> {
+  const parts = splitDataUrl(dataUrl)
+  if (!parts) throw new Error("画像の形式を読み取れませんでした")
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("set_background_image", parts)
+    return
+  }
+  // モックの保存先は sessionStorage。画像 1 枚でタブの割り当て（数 MB）を
+  // 使い切ることがあるが、そのときは例外がそのまま呼び出し側のログに出る。
+  window.sessionStorage.setItem(BACKGROUND_IMAGE_STORAGE_KEY, dataUrl)
+}
+
+/** 背景画像をやめる。Tauri 側は実体のファイルごと消す。 */
+export async function clearBackgroundImage(): Promise<void> {
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("clear_background_image", {})
+    return
+  }
+  window.sessionStorage.removeItem(BACKGROUND_IMAGE_STORAGE_KEY)
 }
 
 /** 壊れた値でウィンドウ設定の画面が開けなくなるのを避ける。 */

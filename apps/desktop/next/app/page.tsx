@@ -54,8 +54,10 @@ import { useLog } from "@/log"
 import type { WindowSettings } from "@/settings"
 import {
   DEFAULT_WINDOW_SETTINGS,
+  clearBackgroundImage,
   exitFullscreen,
   loadAutoReschedule,
+  loadBackgroundImage,
   loadDailyTasks,
   loadMilestoneCategories,
   loadParentLabels,
@@ -63,6 +65,7 @@ import {
   loadWindowSettings,
   pruneDailyTasks,
   saveAutoReschedule,
+  saveBackgroundImage,
   saveDailyTask,
   saveMilestoneCategory,
   saveTheme,
@@ -360,6 +363,13 @@ function Workspace({
   const [autoReschedule, setAutoReschedule] = useState(true)
   // 盤面の意匠。Project に依らないアプリ全体の設定。
   const [ganttTheme, setGanttTheme] = useState<GanttTheme>("default")
+  /**
+   * 盤面の地に敷く画像（data: URL）。無ければ null。
+   *
+   * 意匠と違って利用者ごとの値なので、theme.css には書けない。ここで持って
+   * インラインで敷く。実体は数 MB になりうるため、読むのは起動時の 1 回だけ。
+   */
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null)
   const [savingWindow, setSavingWindow] = useState(false)
   // ログだけを見るモード（Alt+L）。Gantt を描かないので、長い hint も折り返さず読める。
   const [logFull, setLogFull] = useState(false)
@@ -597,6 +607,10 @@ function Workspace({
     })
     void loadTheme().then((loaded) => {
       if (alive) setGanttTheme(loaded)
+    })
+    // 背景画像もここで 1 回だけ。設定を読むたびに引くと、そのたびに数 MB を運ぶ。
+    void loadBackgroundImage().then((image) => {
+      if (alive) setBackgroundImage(image?.dataUrl ?? null)
     })
     // マイルストーンの割り当ては Project に依らない（鍵はマイルストーンの id）。
     // 親カテゴリと違い、Project を切り替えても読み直さない。
@@ -1026,7 +1040,12 @@ function Workspace({
    * 成功したものはその場で画面に反映し、失敗したものだけを名指しで出す。
    */
   const saveWindow = useCallback(
-    async (next: WindowSettings, nextAutoReschedule: boolean, nextTheme: GanttTheme) => {
+    async (
+      next: WindowSettings,
+      nextAutoReschedule: boolean,
+      nextTheme: GanttTheme,
+      nextBackground: string | null,
+    ) => {
       setSavingWindow(true)
       const failed: string[] = []
       const details: string[] = []
@@ -1079,6 +1098,22 @@ function Workspace({
         }
       }
 
+      // 画像は数 MB ある。変わっていないのに書き直すと、設定を開いて閉じるだけで
+      // そのたびにディスクへ書くことになる。
+      if (nextBackground !== backgroundImage) {
+        const ok = await attempt("背景画像", async () => {
+          if (nextBackground === null) await clearBackgroundImage()
+          else await saveBackgroundImage(nextBackground)
+          setBackgroundImage(nextBackground)
+        })
+        if (ok) {
+          logAppend({
+            level: "info",
+            message: nextBackground === null ? "背景画像を外しました" : "背景画像を変えました",
+          })
+        }
+      }
+
       if (savedWindow) {
         logAppend({
           level: "info",
@@ -1104,7 +1139,7 @@ function Workspace({
       }
       setSavingWindow(false)
     },
-    [logAppend, autoReschedule, ganttTheme],
+    [logAppend, autoReschedule, ganttTheme, backgroundImage],
   )
 
   /**
@@ -1831,7 +1866,25 @@ function Workspace({
   )
 
   return (
-    <div className="zk-shell" data-gantt-theme={ganttTheme}>
+    <div
+      className="zk-shell"
+      data-gantt-theme={ganttTheme}
+      // 背景画像はここでインラインに敷く。利用者ごとに違う値なので theme.css には
+      // 書けない。.zk-root（この要素の親）を隙間なく覆う唯一の子なので、地としては
+      // 同じところに出る。切らずに全面を埋め、中央を基準にする。
+      style={
+        backgroundImage
+          ? {
+              // data: URL は引用符で括る。括らないと、url() の中で切れる文字が
+              // 混じったときに宣言ごと落ちる（base64 には出ないが、括る方が安い）。
+              backgroundImage: `url("${backgroundImage}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+            }
+          : undefined
+      }
+    >
       <Sidebar
         active={groupBy}
         onSelect={onGroupBy}
@@ -1953,6 +2006,7 @@ function Workspace({
           settings={windowSettings}
           autoReschedule={autoReschedule}
           theme={ganttTheme}
+          backgroundImage={backgroundImage}
           busy={savingWindow}
           applies={isTauri()}
           authSource={authSource}

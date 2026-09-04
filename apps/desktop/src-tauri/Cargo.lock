@@ -5433,6 +5433,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 name = "zukunft"
 version = "0.1.13"
 dependencies = [
+ "base64 0.22.1",
  "keyring",
  "reqwest 0.12.28",
  "serde",

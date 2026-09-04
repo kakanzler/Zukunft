@@ -212,14 +212,17 @@
 }
 
 /* 上に載る面を半透明にする（BlueSystem のみ）。地は .zk-root の --bg-base
-   （不透明）なので、透けても盤面の暗さは保たれる。
+   （不透明）なので、透けても盤面の暗さは保たれる。0.5 では背後に何も無いと
+   透けて見えず、0.2 まで下げて初めて下地の違いが分かる。
+   透けて見せたいものは Settings の背景画像で選ぶ（page.tsx が、.zk-root を
+   隙間なく覆う .zk-shell にインラインで敷く）。
    rgba を手で書くのは color-mix が WebView2 の版によって効かないため。
-   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に 0.5 を掛けたもの。 */
-[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.5); }
-[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.5); }
+   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に 0.2 を掛けたもの。 */
+[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.2); }
+[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.2); }
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
-[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.5); }
+[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.2); }
 
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
    text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
@@ -241,13 +244,13 @@
    全体が明るいままで、盤面の闇へ向かう流れが出ない。42% で落としきり、
    そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  /* 階調の両端に 0.5 を掛ける（半透明は面ごとに揃える）。
-     #0e28ed -> rgba(14,40,237,.5) / #03093b -> rgba(3,9,59,.5) */
+  /* 階調の両端に 0.2 を掛ける（半透明は面ごとに揃える）。
+     #0e28ed -> rgba(14,40,237,.2) / #03093b -> rgba(3,9,59,.2) */
   background: linear-gradient(
     90deg,
-    rgba(14, 40, 237, 0.5) 0%,
-    rgba(3, 9, 59, 0.5) 42%,
-    rgba(3, 9, 59, 0.5) 100%
+    rgba(14, 40, 237, 0.2) 0%,
+    rgba(3, 9, 59, 0.2) 42%,
+    rgba(3, 9, 59, 0.2) 100%
   );
 }
 
@@ -860,6 +863,25 @@
   display: grid; gap: calc(var(--space) * 2);
   justify-items: start;
   font-size: 11px; color: var(--danger);
+}
+
+/* 背景画像のプレビュー。盤面に敷いたときと同じ cover で見せる — 縦横比の合わない
+   画像がどこを切り取られるのかを、保存する前にここで分かるようにするため。 */
+.zk-set-preview {
+  width: 240px; height: 135px;
+  object-fit: cover;
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  /* 透過 PNG でも「何も無い」と見分けられるよう、地を暗い面色にする。 */
+  background: var(--bg-base);
+}
+/* ファイル選択そのものは隠し、見た目は他の操作と同じボタンで揃える。
+   display: none だと Firefox が値を送らないことがあるので、位置で外へ出す。 */
+.zk-set-file-input {
+  position: absolute;
+  width: 1px; height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 保存はこの画面の主たる操作なので、オレンジで 1 つだけ立たせる。 */

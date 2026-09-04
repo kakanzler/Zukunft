@@ -811,6 +811,9 @@ pub fn run() {
             settings::set_window_settings,
             settings::set_auto_reschedule,
             settings::set_theme,
+            settings::set_background_image,
+            settings::clear_background_image,
+            settings::get_background_image,
             settings::exit_fullscreen,
         ])
         // 保存されている窓の見せ方は、画面が出る前に当てる。

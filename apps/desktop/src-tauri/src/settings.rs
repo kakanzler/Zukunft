@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+// 画像のバイト列は JSON の IPC に乗らないので、画面との間では base64 の文字列で渡す。
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use tauri::Manager;
 
@@ -201,6 +204,14 @@ pub struct AppSettings {
     /// なるのを避けるため。
     #[serde(default, deserialize_with = "deserialize_daily_tasks")]
     pub daily_tasks: DailyTasks,
+    /// 背景画像の種類（image/png など）。画像そのものはここに持たない。
+    ///
+    /// write() は設定を毎回まるごと書き直すので、数 MB の画像を混ぜると
+    /// 無関係な設定を 1 つ変えるたびに画像も書き直すことになる。実体は
+    /// background_image.bin に置き、ここには data: URL を組み直すのに要る
+    /// 種類だけを残す。None なら背景画像なし。
+    #[serde(default)]
+    pub background_image_mime: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -222,12 +233,16 @@ impl Default for AppSettings {
             auto_reschedule: default_true(),
             theme: default_theme(),
             daily_tasks: DailyTasks::new(),
+            background_image_mime: None,
         }
     }
 }
 
-/// 設定ファイルの置き場所。無ければ作る。
-fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
+/// 設定の置き場所。無ければ作る。
+///
+/// settings.json と背景画像は別のファイルだが、置き場所は同じ。
+/// 保存先を決める判断が 2 か所に分かれると、片方だけ別の場所を指しうる。
+fn config_dir(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|error| {
         AppError::new(
             ErrorKind::Unknown,
@@ -242,7 +257,20 @@ fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
             )
         })?;
     }
-    Ok(dir.join("settings.json"))
+    Ok(dir)
+}
+
+/// 設定ファイルの置き場所。無ければ作る。
+fn settings_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
+    Ok(config_dir(app)?.join("settings.json"))
+}
+
+/// 背景画像の実体の置き場所。
+///
+/// 拡張子を画像の種類（.png / .jpg）に合わせないのは、種類が変わったときに
+/// 前の拡張子のファイルが残るため。中身の種類は settings.json 側が持つ。
+fn background_image_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
+    Ok(config_dir(app)?.join("background_image.bin"))
 }
 
 /// 設定を読む。読めない場合は既定値を返す。
@@ -276,11 +304,24 @@ fn write(app: &tauri::AppHandle, settings: &AppSettings) -> AppResult<()> {
 /// 残る。read() は壊れたファイルを既定値に倒すので、全 Project の親カテゴリと
 /// テーマと窓の設定が理由も出ずに消える。書けたものだけが見えるようにする。
 fn write_atomically(path: &std::path::Path, text: &str) -> AppResult<()> {
-    let temp = path.with_extension("json.tmp");
-    let save = |error: std::io::Error| {
-        AppError::new(ErrorKind::Unknown, format!("設定を保存できませんでした: {error}"))
+    write_bytes_atomically(path, text.as_bytes(), "設定")
+}
+
+/// 画像のようにテキストでないものも同じ流儀で置き換える。
+///
+/// what は失敗したときに名指しする対象（「設定」「背景画像」）。どちらが書けなかったのか
+/// 分からないと、利用者は設定を開き直すべきか画像を選び直すべきかを決められない。
+fn write_bytes_atomically(path: &std::path::Path, bytes: &[u8], what: &str) -> AppResult<()> {
+    // 一時ファイルは元の拡張子に .tmp を足す。拡張子ごと差し替えると、
+    // 別の名前のファイル（settings.tmp）が本体と紛らわしい場所に残りうる。
+    let temp = match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) => path.with_extension(format!("{ext}.tmp")),
+        None => path.with_extension("tmp"),
     };
-    std::fs::write(&temp, text).map_err(save)?;
+    let save = |error: std::io::Error| {
+        AppError::new(ErrorKind::Unknown, format!("{what}を保存できませんでした: {error}"))
+    };
+    std::fs::write(&temp, bytes).map_err(save)?;
     // Windows の rename は上書きしないので、std::fs::rename を使う
     // （こちらは既存を置き換える）。失敗したら一時ファイルを残さない。
     std::fs::rename(&temp, path).map_err(|error| {
@@ -463,6 +504,117 @@ pub async fn set_theme(app: tauri::AppHandle, theme: String) -> Result<AppSettin
     settings.theme = theme;
     write(&app, &settings)?;
     Ok(settings)
+}
+
+/// 画面へ渡す背景画像。
+///
+/// data: URL に組み立てるのは画面側。ここで組むと、Rust が「画像は data: URL で
+/// 渡すもの」という画面都合の形を持つことになる。こちらは中身と種類だけを返す。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundImage {
+    pub base64: String,
+    pub mime: String,
+}
+
+/// 背景画像を書き、設定側に種類を控える。
+///
+/// コマンド本体から切り出しているのは、put_daily_task と同じく AppHandle 無しで
+/// 確かめられるようにするため。
+fn put_background_image(
+    path: &std::path::Path,
+    settings: &mut AppSettings,
+    encoded: &str,
+    mime: &str,
+) -> AppResult<()> {
+    let mime = mime.trim();
+    if mime.is_empty() {
+        return Err(AppError::new(
+            ErrorKind::Unsupported,
+            "画像の種類が分かりませんでした。別の画像を選んでください",
+        ));
+    }
+    let bytes = BASE64.decode(encoded).map_err(|error| {
+        AppError::new(ErrorKind::Unsupported, format!("背景画像を読み取れませんでした: {error}"))
+    })?;
+    // 読み取れても中身が空なら書かない。「保存した」と見えて背景が変わらないより、
+    // その場で失敗を知る方がよい（write が失敗を握り潰さないのと同じ理由）。
+    if bytes.is_empty() {
+        return Err(AppError::new(ErrorKind::Unsupported, "背景画像の中身が空でした"));
+    }
+    write_bytes_atomically(path, &bytes, "背景画像")?;
+    settings.background_image_mime = Some(mime.to_owned());
+    Ok(())
+}
+
+/// 保存されている背景画像を読む。無ければ None。
+///
+/// 種類だけ残っていて実体が無いことはありうる（手で消された、保存の途中で落ちた）。
+/// 食い違いは失敗にせず「背景画像なし」に倒す — 背景が出ないだけで、アプリは使える。
+fn take_background_image(
+    path: &std::path::Path,
+    settings: &AppSettings,
+) -> Option<BackgroundImage> {
+    let mime = settings.background_image_mime.as_ref()?;
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(BackgroundImage { base64: BASE64.encode(bytes), mime: mime.clone() })
+}
+
+/// 背景画像を消す。無ければ何もしない。
+fn drop_background_image(path: &std::path::Path, settings: &mut AppSettings) -> AppResult<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        // 既に無いなら、消し終わっている状態と区別する意味が無い。
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(AppError::new(
+                ErrorKind::Unknown,
+                format!("背景画像を消せませんでした: {error}"),
+            ))
+        }
+    }
+    settings.background_image_mime = None;
+    Ok(())
+}
+
+/// 背景画像を選び直す。画像は settings.json ではなく別ファイルに置く。
+#[tauri::command]
+pub async fn set_background_image(
+    app: tauri::AppHandle,
+    base64: String,
+    mime: String,
+) -> Result<AppSettings, AppError> {
+    let path = background_image_path(&app)?;
+    let mut settings = read(&app);
+    put_background_image(&path, &mut settings, &base64, &mime)?;
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// 背景画像をやめる。実体のファイルごと消す — 使わない数 MB を残しておく理由が無い。
+#[tauri::command]
+pub async fn clear_background_image(app: tauri::AppHandle) -> Result<AppSettings, AppError> {
+    let path = background_image_path(&app)?;
+    let mut settings = read(&app);
+    drop_background_image(&path, &mut settings)?;
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
+/// 背景画像を読む。get_settings には混ぜない。
+///
+/// 設定は Project を開くたびなど何度も読まれるので、混ぜると そのたびに数 MB を
+/// IPC に載せることになる。起動時に 1 回だけ呼ぶ別のコマンドにしてある。
+#[tauri::command]
+pub async fn get_background_image(
+    app: tauri::AppHandle,
+) -> Result<Option<BackgroundImage>, AppError> {
+    let path = background_image_path(&app)?;
+    let settings = read(&app);
+    Ok(take_background_image(&path, &settings))
 }
 
 /// 保存されている見せ方をメインウィンドウに反映する。
@@ -695,6 +847,84 @@ mod tests {
             "backend".to_owned(),
         ]);
         assert_eq!(labels, vec!["design".to_owned(), "backend".to_owned()]);
+    }
+
+    /// テスト用の空の置き場所。AppHandle 無しで背景画像の読み書きを確かめるため、
+    /// 実際の app_config_dir の代わりにここを使う。
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("zukunft-{name}"));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_background_image_survives_a_round_trip() {
+        let dir = scratch_dir("background-round-trip");
+        let path = dir.join("background_image.bin");
+        let mut settings = AppSettings::default();
+        // 既定では背景画像を持たない。覚えのない画像が敷かれていてはいけない。
+        assert!(settings.background_image_mime.is_none());
+
+        let encoded = BASE64.encode([0x89u8, 0x50, 0x4e, 0x47]);
+        put_background_image(&path, &mut settings, &encoded, " image/png ").unwrap();
+        // 前後の空白は落とす。data: URL の種類として、そのままでは使えない。
+        assert_eq!(settings.background_image_mime.as_deref(), Some("image/png"));
+
+        let image = take_background_image(&path, &settings).unwrap();
+        assert_eq!(image.base64, encoded);
+        assert_eq!(image.mime, "image/png");
+        // 画像の実体は settings.json には入れない。
+        assert!(!serde_json::to_string(&settings).unwrap().contains(&encoded));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn clearing_the_background_image_removes_the_file() {
+        let dir = scratch_dir("background-clear");
+        let path = dir.join("background_image.bin");
+        let mut settings = AppSettings::default();
+        put_background_image(&path, &mut settings, &BASE64.encode([1u8, 2, 3]), "image/png")
+            .unwrap();
+
+        drop_background_image(&path, &mut settings).unwrap();
+        assert!(!path.exists());
+        assert!(settings.background_image_mime.is_none());
+        assert!(take_background_image(&path, &settings).is_none());
+
+        // 既に消えていても失敗にしない。消し終わっている状態と区別する意味が無い。
+        drop_background_image(&path, &mut settings).unwrap();
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_broken_base64_does_not_write_an_empty_file() {
+        let dir = scratch_dir("background-broken");
+        let path = dir.join("background_image.bin");
+        let mut settings = AppSettings::default();
+
+        // 黙って空のファイルを書くと、背景が真っ黒になった理由が誰にも分からない。
+        assert!(put_background_image(&path, &mut settings, "!! not base64 !!", "image/png").is_err());
+        assert!(put_background_image(&path, &mut settings, "", "image/png").is_err());
+        assert!(!path.exists());
+        assert!(settings.background_image_mime.is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_file_reads_as_no_background_image() {
+        let dir = scratch_dir("background-missing");
+        let path = dir.join("background_image.bin");
+        // 種類だけ残って実体が無い食い違いはありうる（手で消された、保存が途中で落ちた）。
+        // ここで落ちると、背景画像のせいでアプリが開けなくなる。
+        let mut settings = AppSettings::default();
+        settings.background_image_mime = Some("image/png".to_owned());
+        assert!(take_background_image(&path, &settings).is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
