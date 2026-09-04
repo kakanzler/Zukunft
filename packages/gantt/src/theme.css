@@ -16,7 +16,8 @@
 
   /* 発光。文字は「にじんで読めない」手前で止め、見出しとバーだけ強く光らせる。 */
   --glow-text: 0 0 10px rgba(232, 238, 255, 0.28);
-  --glow-text-strong: 0 0 6px rgba(232, 238, 255, 0.5), 0 0 18px rgba(45, 107, 255, 0.45);
+  --glow-text-strong:
+    0 0 6px rgba(232, 238, 255, 0.5), 0 0 18px rgba(45, 107, 255, 0.45);
 
   --row-height: 32px;
   --pane-width: 280px;
@@ -26,7 +27,8 @@
   color: var(--text-primary);
   background: var(--bg-base);
   /* --font-sawarabi は next/font が <html> に載せる。読めない場合に備えて和文の控えを残す。 */
-  font-family: var(--font-sawarabi), "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-family:
+    var(--font-sawarabi), "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 13px;
   text-shadow: var(--glow-text);
   display: flex;
@@ -38,14 +40,20 @@
 /* 入力欄の中身は光らせない。カーソルと文字が溶けて、どこを編集しているのか見失う。 */
 .zk-root input,
 .zk-root textarea,
-.zk-root select { text-shadow: none; }
+.zk-root select {
+  text-shadow: none;
+}
 
 /* ---- ステータス色（企画書 §6.4.1） ---- */
 .zk-root {
-  --status-0-from: #2563eb; --status-0-to: #3b82f6;  /* Planning */
-  --status-1-from: #06b6d4; --status-1-to: #22d3ee;  /* In Progress */
-  --status-2-from: #7c3aed; --status-2-to: #a855f7;  /* Review */
-  --status-3-from: #059669; --status-3-to: #10b981;  /* Complete */
+  --status-0-from: #2563eb;
+  --status-0-to: #3b82f6; /* Planning */
+  --status-1-from: #06b6d4;
+  --status-1-to: #22d3ee; /* In Progress */
+  --status-2-from: #7c3aed;
+  --status-2-to: #a855f7; /* Review */
+  --status-3-from: #059669;
+  --status-3-to: #10b981; /* Complete */
 
   /* バーの発光色。塗りの終端色と同じ色で滲ませ、Status ごとに違う色で光らせる。 */
   --status-0-glow: rgba(59, 130, 246, 0.75);
@@ -67,10 +75,14 @@
   /* Status を青〜シアンの段階に寄せる。盤面が青で統一され、赤が唯一の差し色になる。
      0→1 は明度差、1→2 は色相差、2→3 は大きく離す。
      透明度はグラデーションの stopOpacity で付けるので、ここは色だけを持つ。 */
-  --status-0-from: #2b4bb0; --status-0-to: #2b4bb0;  /* Planning   深い青 */
-  --status-1-from: #4d94ff; --status-1-to: #4d94ff;  /* InProgress 青 */
-  --status-2-from: #8b7bf5; --status-2-to: #8b7bf5;  /* Review     青紫 */
-  --status-3-from: #22d3ee; --status-3-to: #22d3ee;  /* Complete   シアン */
+  --status-0-from: #2b4bb0;
+  --status-0-to: #2b4bb0; /* Planning   深い青 */
+  --status-1-from: #4d94ff;
+  --status-1-to: #4d94ff; /* InProgress 青 */
+  --status-2-from: #8b7bf5;
+  --status-2-to: #8b7bf5; /* Review     青紫 */
+  --status-3-from: #22d3ee;
+  --status-3-to: #22d3ee; /* Complete   シアン */
 
   /* 塗りが左で透けるぶん滲みも弱くなるので、既定（0.75）より上げる。 */
   --status-0-glow: rgba(43, 75, 176, 0.85);
@@ -115,7 +127,8 @@
   --zk-scroll-to: #3567ff;
 
   /* 盤面の文字の滲み。共有トークンの --glow-text は動かさない（ログペインが読む）。 */
-  --zk-glow-text: 0 0 8px rgba(120, 165, 255, 0.5), 0 0 20px rgba(45, 107, 255, 0.35);
+  --zk-glow-text:
+    0 0 8px rgba(120, 165, 255, 0.5), 0 0 20px rgba(45, 107, 255, 0.35);
 }
 
 /* 盤面の環境光。::before ではなく要素自身の背景にするのが要点。
@@ -134,12 +147,27 @@
 
    ここに filter / backdrop-filter / transform / will-change を足してはいけない。
    .zk-tooltip は position: fixed のまま .zk-timeline の子なので、祖先が
-   固定配置の包含ブロックになるとドラッグ中のツールチップが切られて位置もずれる。 */
+   固定配置の包含ブロックになるとドラッグ中のツールチップが切られて位置もずれる。
+
+   background-color を足したのは、ここだけ環境光の radial-gradient しか無く
+   下地が無かったため——明るい背景画像を選ぶと、盤面のうちバー・グリッドが
+   並ぶこの主要な面だけ元の画像の明るさがそのまま透けてしまっていた
+   （左ペイン・ヘッダは既に不透明度を持つので影響が小さかった）。
+   .zk-pane と同じ #01071B / 0.82 を敷き、環境光はその上から重ねる。 */
 [data-gantt-theme="blue-system"] .zk-timeline {
+  background-color: rgba(1, 7, 27, 0.82);
   background-image:
-    radial-gradient(115% 95% at 4% 26%, var(--zk-wash-blue) 0%, transparent 62%),
+    radial-gradient(
+      115% 95% at 4% 26%,
+      var(--zk-wash-blue) 0%,
+      transparent 62%
+    ),
     radial-gradient(95% 85% at 97% 94%, var(--zk-wash-red) 0%, transparent 58%),
-    repeating-linear-gradient(180deg, var(--zk-hairline) 0 1px, transparent 1px 16px);
+    repeating-linear-gradient(
+      180deg,
+      var(--zk-hairline) 0 1px,
+      transparent 1px 16px
+    );
   background-repeat: no-repeat, no-repeat, repeat;
 }
 
@@ -147,19 +175,28 @@
    2px（x に描く）だけ。1.25 や 1.5 の縦線は常にぼやけ、階層ではなく粗に見える。
    1px を超える重さは、1px の線に半透明の帯を添えて出す。小数の太さは曲線と斜線
    （依存の矢印・マイルストーンの縁）にだけ使う。 */
-[data-gantt-theme="blue-system"] .zk-grid-line { stroke: var(--zk-grid-tick); }
+[data-gantt-theme="blue-system"] .zk-grid-line {
+  stroke: var(--zk-grid-tick);
+}
 [data-gantt-theme="blue-system"] .zk-grid-line--month {
   stroke: rgba(140, 160, 200, 0.22);
 }
-.zk-grid-month-line { stroke: var(--zk-grid-month); stroke-width: 1; }
-.zk-grid-month-wash { fill: var(--zk-grid-month-wash); }
+.zk-grid-month-line {
+  stroke: var(--zk-grid-month);
+  stroke-width: 1;
+}
+.zk-grid-month-wash {
+  fill: var(--zk-grid-month-wash);
+}
 
 [data-gantt-theme="blue-system"] .zk-today-line {
   stroke: var(--zk-accent-red);
   stroke-width: 2;
   stroke-dasharray: 6 4;
 }
-.zk-today-halo { fill: var(--zk-today-halo); }
+.zk-today-halo {
+  fill: var(--zk-today-halo);
+}
 
 /* 今日線の芯。下の線と同じ破線を、細く白寄りで重ねる。1 本だけだと縁まで
    同じ濃さで、光っているというより「太い線」に見える。 */
@@ -170,7 +207,9 @@
   opacity: 0.85;
 }
 
-[data-gantt-theme="blue-system"] .zk-dep-line--cyclic { stroke-width: 2; }
+[data-gantt-theme="blue-system"] .zk-dep-line--cyclic {
+  stroke-width: 2;
+}
 
 [data-gantt-theme="blue-system"] {
   --zk-milestone-color: var(--zk-accent-red);
@@ -187,8 +226,7 @@
      （Timeline.tsx が要素に載せる）。輪郭だけその色にして光は橙のままにすると、
      色を変えた覚えのない光が残って、割り当てが効いていないように見える。
      割り当てが無ければ変数も無いので、今までどおり橙で光る。 */
-  filter:
-    drop-shadow(0 0 2px var(--zk-ms-color, var(--zk-accent-red)))
+  filter: drop-shadow(0 0 2px var(--zk-ms-color, var(--zk-accent-red)))
     drop-shadow(0 0 7px var(--zk-ms-glow, rgba(255, 90, 48, 0.55)));
 }
 
@@ -204,7 +242,9 @@
 /* 菱形と題名の当たり判定。12px 角の菱形だけでは狙って押せないので、
    題名まで覆う矩形を透明で敷く。塗りが none だとクリックを拾わないため、
    display: none ではなく transparent で置く。 */
-.zk-root .zk-milestone-hit { fill: transparent; }
+.zk-root .zk-milestone-hit {
+  fill: transparent;
+}
 
 /* 題名も菱形と同じ色で、同じように光らせる。菱形だけ光って題が沈むと、
    何の期日なのかが読めないまま光だけが目に付く。 */
@@ -221,22 +261,30 @@
    rgba を手で書くのは color-mix が WebView2 の版によって効かないため。
 
    段階を 2 つに分ける。GANTT の本体（左ペイン・月週ヘッダ・マイルストーン帯）は
-   0.6——盤面はいちばん長く見る場所なので、地の質感を保ちながらも文字は
-   崩さない濃さにする。それより上（Project 選択・day/week/month の帯と、
+   0.82——明るい背景画像を選ぶと盤面がその色に浸食されて文字が読みにくく
+   なる方が、透け足りないより困る。盤面はいちばん長く見る場所なので、
+   暗さを優先する。それより上（Project 選択・day/week/month の帯と、
    タイトルで絞り込む行）とサイドバー・ログペインは 0.7——常に視野に入るが
    長時間見つめる場所ではないので、より透けさせてよい。
    GANTT 本体とログペインは固有色を #01071B（rgb(1, 7, 27)）に統一。 */
-[data-gantt-theme="blue-system"] .zk-pane { background: rgba(1, 7, 27, 0.6); }
+[data-gantt-theme="blue-system"] .zk-pane {
+  background: rgba(1, 7, 27, 0.82);
+}
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
-[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(1, 7, 27, 0.6); }
-[data-gantt-theme="blue-system"] .zk-log { background: rgba(1, 7, 27, 0.7); }
+[data-gantt-theme="blue-system"] .zk-pane-milestone {
+  background: rgba(1, 7, 27, 0.82);
+}
+[data-gantt-theme="blue-system"] .zk-log {
+  background: rgba(1, 7, 27, 0.7);
+}
 /* ヘッダ（Project 選択・day/week/month・New Issue の帯）とフィルタ行
    （「番号かタイトルで絞り込む」）。GANTT の本体より上に固定されている帯なので、
-   本体側（#01071B, 0.6）とは別の固有色 #070F75（rgb(7, 15, 117)）に、
-   同じ 0.7 を掛ける。 */
+   本体側（#01071B, 0.82）とは別の固有色に 0.7 を掛ける。 */
 [data-gantt-theme="blue-system"] .zk-header,
-[data-gantt-theme="blue-system"] .zk-filter { background: rgba(7, 15, 117, 0.7); }
+[data-gantt-theme="blue-system"] .zk-filter {
+  background: rgba(0, 4, 54, 0.7);
+}
 
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
    text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
@@ -257,7 +305,11 @@
    2 色だけの単純な階調。左端の #141c7f は不透明のまま光らせ、
    右端の #000534 は自身の alpha（4a = 0.29）で早々に透けさせる。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  background: linear-gradient(90deg, rgba(20, 28, 127, 1), rgba(0, 5, 52, 0.29));
+  background: linear-gradient(
+    90deg,
+    rgba(20, 28, 127, 1),
+    rgba(0, 5, 52, 0.29)
+  );
 }
 
 /* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
@@ -267,7 +319,9 @@
    遅くなるだけで、.zk-bar-label は 1efa13d で白い滲みと暗い縁の二重掛けを
    解いたばかりでもある。 */
 [data-gantt-theme="blue-system"] .zk-sidebar-brand,
-[data-gantt-theme="blue-system"] .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label,
+[data-gantt-theme="blue-system"]
+  .zk-sidebar-item[aria-pressed="true"]
+  .zk-sidebar-label,
 [data-gantt-theme="blue-system"] .zk-row--group {
   text-shadow: var(--zk-glow-text);
 }
@@ -280,12 +334,20 @@
 }
 
 /* バーの装飾。x は常に整数で幅も 2 なので、柱は crispEdges で画素に吸い付かせる。 */
-.zk-bar-outline { stroke-width: 1; }
-.zk-bar-riser { shape-rendering: crispEdges; }
-.zk-bar-progress-edge { fill: var(--zk-progress-edge); }
+.zk-bar-outline {
+  stroke-width: 1;
+}
+.zk-bar-riser {
+  shape-rendering: crispEdges;
+}
+.zk-bar-progress-edge {
+  fill: var(--zk-progress-edge);
+}
 /* 芯は塗りだけの飾りなので、当たり判定を取らない。バーの上に重なるため、
    ここを通すとドラッグの掴みどころが芯の帯だけになってしまう。 */
-.zk-root .zk-bar-core { pointer-events: none; }
+.zk-root .zk-bar-core {
+  pointer-events: none;
+}
 
 /* ---- ヘッダ ---- */
 .zk-header {
@@ -298,9 +360,15 @@
   border-bottom: 1px solid var(--border-subtle);
   flex: 0 0 auto;
 }
-.zk-header-title { font-weight: 600; letter-spacing: 0.04em; text-shadow: var(--glow-text-strong); }
+.zk-header-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: var(--glow-text-strong);
+}
 /* これを付けた要素から右端側になる。ヘッダのどこで切るかは toolbar 側が決める。 */
-.zk-header-push { margin-left: auto; }
+.zk-header-push {
+  margin-left: auto;
+}
 
 /* ---- 横軸の右端 ---- */
 /* ---- 連結ボタン（day | week | month） ---- */
@@ -324,10 +392,16 @@
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
-.zk-segmented-item:first-child { border-left: 0; }
-.zk-segmented-item:hover { color: var(--text-primary); }
+.zk-segmented-item:first-child {
+  border-left: 0;
+}
+.zk-segmented-item:hover {
+  color: var(--text-primary);
+}
 .zk-segmented-item[aria-pressed="true"] {
   background: rgba(45, 107, 255, 0.22);
   color: var(--text-primary);
@@ -342,41 +416,74 @@
 }
 .zk-axis-end-label {
   color: var(--text-secondary);
-  font-size: 11px; letter-spacing: 0.06em;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 /* ネイティブのカレンダーアイコンは暗い盤面では黒く潰れるので明るく戻す。 */
-.zk-axis-end-input { width: 140px; }
-.zk-axis-end-input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
-.zk-axis-end-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
-
-.zk-legend { display: flex; gap: calc(var(--space) * 3); align-items: center; }
-.zk-legend-item {
-  display: flex; align-items: center; gap: calc(var(--space) * 1.5);
-  color: var(--text-secondary); font-size: 11px;
-  letter-spacing: 0.06em; text-transform: uppercase;
+.zk-axis-end-input {
+  width: 140px;
 }
-.zk-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.zk-axis-end-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+  cursor: pointer;
+}
+.zk-axis-end-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.zk-legend {
+  display: flex;
+  gap: calc(var(--space) * 3);
+  align-items: center;
+}
+.zk-legend-item {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 1.5);
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.zk-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
 
 /* ---- カード / ボタン（企画書 §6.4.4） ---- */
 .zk-button {
-  display: inline-flex; align-items: center; gap: calc(var(--space) * 2);
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   padding: calc(var(--space) * 2) calc(var(--space) * 3);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   color: var(--text-primary);
-  font: inherit; font-size: 12px;
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 .zk-button:hover:not(:disabled),
 .zk-button[aria-pressed="true"] {
   border-color: var(--border-glow);
-  box-shadow: 0 0 0 1px rgba(45, 107, 255, 0.25), 0 0 12px rgba(45, 107, 255, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(45, 107, 255, 0.25),
+    0 0 12px rgba(45, 107, 255, 0.35);
 }
-.zk-button:disabled { opacity: 0.45; cursor: not-allowed; }
-.zk-button--danger { border-color: rgba(244, 63, 94, 0.5); }
+.zk-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.zk-button--danger {
+  border-color: rgba(244, 63, 94, 0.5);
+}
 .zk-button--danger:hover:not(:disabled) {
   border-color: var(--danger);
   box-shadow: 0 0 12px rgba(244, 63, 94, 0.35);
@@ -401,31 +508,49 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 .zk-filter-row {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   flex-wrap: wrap;
 }
-.zk-filter-text { width: 260px; }
+.zk-filter-text {
+  width: 260px;
+}
 .zk-filter-closed {
-  display: flex; align-items: center; gap: calc(var(--space) * 1.5);
-  font-size: 11px; color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 1.5);
+  font-size: 11px;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 /* 件数は右端へ寄せる。左の操作列と混ぜると、状態なのか操作なのか読めない。 */
 .zk-filter-count {
   margin-left: auto;
-  font-size: 11px; color: var(--text-secondary);
+  font-size: 11px;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .zk-filter-axes {
-  display: grid; gap: calc(var(--space) * 2);
+  display: grid;
+  gap: calc(var(--space) * 2);
   margin-top: calc(var(--space) * 2);
 }
-.zk-filter-axis { display: grid; gap: calc(var(--space)); }
+.zk-filter-axis {
+  display: grid;
+  gap: calc(var(--space));
+}
 /* 候補が多い軸でも段が伸び続けないように、この中でスクロールさせる。 */
-.zk-filter-axis .zk-label-picker { max-height: 84px; }
+.zk-filter-axis .zk-label-picker {
+  max-height: 84px;
+}
 
 /* ---- 本体（左ペイン + タイムライン） ---- */
-.zk-body { display: flex; flex: 1 1 auto; min-height: 0; }
+.zk-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
 .zk-pane {
   width: var(--pane-width);
@@ -437,15 +562,25 @@
   flex-direction: column;
 }
 .zk-pane-head {
-  height: 48px; flex: 0 0 48px;
-  display: flex; align-items: flex-end;
+  height: 48px;
+  flex: 0 0 48px;
+  display: flex;
+  align-items: flex-end;
   padding: 0 calc(var(--space) * 3) calc(var(--space) * 2);
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
-.zk-pane-head span:first-child { flex: 1; }
-.zk-pane-scroll { flex: 1 1 auto; overflow: hidden; position: relative; }
+.zk-pane-head span:first-child {
+  flex: 1;
+}
+.zk-pane-scroll {
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+}
 
 .zk-timeline {
   flex: 1 1 auto;
@@ -457,21 +592,28 @@
 /* ---- 行 ---- */
 .zk-row {
   height: var(--row-height);
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
   padding: 0 calc(var(--space) * 3);
   gap: calc(var(--space) * 2);
   border-bottom: 1px solid rgba(30, 42, 77, 0.5);
   white-space: nowrap;
 }
 .zk-row-title {
-  flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-primary);
 }
-.zk-row-number { color: var(--text-secondary); font-size: 11px; }
+.zk-row-number {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
 .zk-row--group {
   color: var(--accent-cyan);
-  font-size: 10px; font-weight: 600;
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.12em;
   background: rgba(18, 29, 61, 0.6);
   cursor: pointer;
@@ -481,45 +623,92 @@
   background: rgba(45, 107, 255, 0.18);
   box-shadow: inset 2px 0 0 var(--accent-cyan);
 }
-.zk-row-selected-band { fill: rgba(45, 107, 255, 0.14); }
+.zk-row-selected-band {
+  fill: rgba(45, 107, 255, 0.14);
+}
 
-.zk-row--unscheduled .zk-row-title { color: var(--text-secondary); font-style: italic; }
+.zk-row--unscheduled .zk-row-title {
+  color: var(--text-secondary);
+  font-style: italic;
+}
 
 .zk-avatar {
-  width: 18px; height: 18px; border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   object-fit: cover;
   flex: 0 0 auto;
 }
-.zk-avatar--empty { opacity: 0.4; }
+.zk-avatar--empty {
+  opacity: 0.4;
+}
 
 /* 同期状態のインジケータ（企画書 §16.1 / §18） */
-.zk-sync { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.zk-sync--synced { background: transparent; }
-.zk-sync--pending { background: var(--text-secondary); }
-.zk-sync--syncing { background: var(--accent-cyan); animation: zk-pulse 1s ease-in-out infinite; }
-.zk-sync--failed { background: var(--danger); }
-.zk-sync--conflict { background: var(--warning); }
-@keyframes zk-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+.zk-sync {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.zk-sync--synced {
+  background: transparent;
+}
+.zk-sync--pending {
+  background: var(--text-secondary);
+}
+.zk-sync--syncing {
+  background: var(--accent-cyan);
+  animation: zk-pulse 1s ease-in-out infinite;
+}
+.zk-sync--failed {
+  background: var(--danger);
+}
+.zk-sync--conflict {
+  background: var(--warning);
+}
+@keyframes zk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
 
 /* ---- タイムライン ヘッダ ---- */
 .zk-thead {
-  position: sticky; top: 0; z-index: 2;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
   height: 48px;
 }
-.zk-thead-month, .zk-thead-sub {
-  position: absolute; height: 24px;
-  display: flex; align-items: center; justify-content: center;
+.zk-thead-month,
+.zk-thead-sub {
+  position: absolute;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-secondary);
-  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   border-left: 1px solid var(--border-subtle);
   overflow: hidden;
 }
-.zk-thead-month { top: 0; color: var(--text-primary); font-weight: 600; }
-.zk-thead-sub { top: 24px; }
+.zk-thead-month {
+  top: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.zk-thead-sub {
+  top: 24px;
+}
 
 /* ---- マイルストーン行 ----
 
@@ -532,7 +721,9 @@
    左ペインの .zk-pane-milestone と 1px でも違うと、以降の行がまるごと
    横にずれて見える。 */
 .zk-milestone-row {
-  position: sticky; top: 48px; z-index: 2;
+  position: sticky;
+  top: 48px;
+  z-index: 2;
   box-sizing: border-box;
   height: var(--row-height);
   background: var(--bg-elevated);
@@ -542,27 +733,40 @@
 /* 左ペイン側の対。見た目はグループ見出しに寄せるが、畳めないので手も出さない
    （cursor も aria-expanded も付けない）。高さは盤面の帯と同じく style で入る。 */
 .zk-pane-milestone {
-  position: sticky; top: 0; z-index: 2;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   box-sizing: border-box;
   height: var(--row-height);
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
   padding: 0 calc(var(--space) * 3);
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
   color: var(--accent-cyan);
-  font-size: 10px; font-weight: 600;
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.12em;
   white-space: nowrap;
 }
 
 /* ---- バー ---- */
-.zk-bar { cursor: grab; }
-.zk-bar--dragging { cursor: grabbing; }
+.zk-bar {
+  cursor: grab;
+}
+.zk-bar--dragging {
+  cursor: grabbing;
+}
 /* ドラッグ中に残る元の位置は光らせない。動かしている先と見分けが付かなくなる。 */
-.zk-bar-ghost { opacity: 0.28; pointer-events: none; filter: none; }
+.zk-bar-ghost {
+  opacity: 0.28;
+  pointer-events: none;
+  filter: none;
+}
 /* 近い滲みと広い滲みを重ねる。1 段だけだと縁が硬く、光っているというより線が太く見える。 */
 .zk-bar-glow {
-  filter: drop-shadow(0 0 3px var(--bar-glow)) drop-shadow(0 0 9px var(--bar-glow));
+  filter: drop-shadow(0 0 3px var(--bar-glow))
+    drop-shadow(0 0 9px var(--bar-glow));
 }
 /* ---- 日課の点 ----
 
@@ -572,15 +776,20 @@
 
    未実行は薄く、光らせない。これから来る日が実行済みと同じ強さで並ぶと、
    どこまでやったのかが列を見ても読めなくなる。 */
-.zk-root .zk-daily-dot--todo { fill-opacity: 0.3; }
+.zk-root .zk-daily-dot--todo {
+  fill-opacity: 0.3;
+}
 /* 実行済みはバーと同じ 2 段の滲み（近い滲みと広い滲み）で光らせる。点は大きくても
    8px 角なので、菱形と同じ考え方でバーより半径を詰める。 */
 .zk-root .zk-daily-dot--done {
-  filter: drop-shadow(0 0 2px var(--bar-glow)) drop-shadow(0 0 6px var(--bar-glow));
+  filter: drop-shadow(0 0 2px var(--bar-glow))
+    drop-shadow(0 0 6px var(--bar-glow));
 }
 /* BlueSystem は盤面に環境光の層が敷いてあり、地が Default より明るい。同じ濃さだと
    未実行の点がその明るさに沈んで、日課の列が実行済みだけの飛び石に見える。 */
-[data-gantt-theme="blue-system"] .zk-daily-dot--todo { fill-opacity: 0.4; }
+[data-gantt-theme="blue-system"] .zk-daily-dot--todo {
+  fill-opacity: 0.4;
+}
 
 .zk-bar-label {
   fill: var(--text-primary);
@@ -593,15 +802,34 @@
   text-shadow: none;
   filter: drop-shadow(0 0 4px rgba(6, 11, 26, 0.9));
 }
-.zk-grid-line { stroke: var(--border-subtle); stroke-width: 1; }
-.zk-grid-line--month { stroke: rgba(140, 160, 200, 0.35); }
-.zk-today-line { stroke: var(--accent-cyan); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.zk-grid-line {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+.zk-grid-line--month {
+  stroke: rgba(140, 160, 200, 0.35);
+}
+.zk-today-line {
+  stroke: var(--accent-cyan);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
 /* 依存関係の矢印。バーより細く薄く引く。関係を追えれば十分で、
    バーと同じ強さで出ると盤面が線だらけになる。 */
-.zk-dep-line { fill: none; stroke-width: 1.5; stroke-linecap: round; opacity: 0.85; }
-.zk-dep-head { opacity: 0.85; }
+.zk-dep-line {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+.zk-dep-head {
+  opacity: 0.85;
+}
 /* 循環した依存。成立しない日程なので、色と破線の両方で他と区別する。 */
-.zk-dep-line--cyclic { stroke-dasharray: 5 4; opacity: 1; }
+.zk-dep-line--cyclic {
+  stroke-dasharray: 5 4;
+  opacity: 1;
+}
 
 /* タスクから、そのマイルストーンの期日へ向かう線。色は菱形と同じものを
    Timeline.tsx が stroke に置く（揃えないと、どの菱形へ向かう線か分からない）。
@@ -615,15 +843,21 @@
 
 /* 菱形と題名で同じ色を読む。別々に持つと、カテゴリ色を当てたときに
    片方だけが変わって「どの期日の話か」が結び付かなくなる。 */
-.zk-root { --zk-milestone-color: #a855f7; }
-.zk-milestone { fill: var(--zk-milestone-color); }
+.zk-root {
+  --zk-milestone-color: #a855f7;
+}
+.zk-milestone {
+  fill: var(--zk-milestone-color);
+}
 .zk-milestone-label {
   fill: var(--zk-milestone-color);
-  font-size: 10px; dominant-baseline: middle;
+  font-size: 10px;
+  dominant-baseline: middle;
 }
 
 .zk-tooltip {
-  position: fixed; z-index: 10;
+  position: fixed;
+  z-index: 10;
   pointer-events: none;
   background: var(--bg-elevated);
   border: 1px solid var(--border-glow);
@@ -637,29 +871,40 @@
 /* ---- KPI タイル（企画書 §6.4.2） ---- */
 .zk-kpi {
   flex: 0 0 auto;
-  display: flex; gap: calc(var(--space) * 3);
+  display: flex;
+  gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 3) calc(var(--space) * 4);
   background: var(--bg-elevated);
   border-top: 1px solid var(--border-subtle);
 }
 .zk-kpi-tile {
   flex: 1;
-  display: flex; align-items: baseline; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--space) * 2);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: calc(var(--space) * 2) calc(var(--space) * 3);
 }
-.zk-kpi-value { font-size: 18px; font-weight: 600; }
+.zk-kpi-value {
+  font-size: 18px;
+  font-weight: 600;
+}
 .zk-kpi-label {
   color: var(--text-secondary);
-  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 /* ---- 空状態 / セットアップ ---- */
 .zk-empty {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: calc(var(--space) * 3);
   color: var(--text-secondary);
   padding: calc(var(--space) * 8);
@@ -668,9 +913,12 @@
 
 /* ---- モーダル（タスク詳細） ---- */
 .zk-modal-backdrop {
-  position: fixed; inset: 0; z-index: 20;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
   background: rgba(6, 11, 26, 0.72);
-  display: grid; place-items: center;
+  display: grid;
+  place-items: center;
   padding: calc(var(--space) * 6);
 }
 .zk-modal {
@@ -683,25 +931,50 @@
   box-shadow: 0 0 32px rgba(45, 107, 255, 0.28);
 }
 .zk-modal-head {
-  display: flex; align-items: flex-start; gap: calc(var(--space) * 3);
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 4);
   border-bottom: 1px solid var(--border-subtle);
 }
-.zk-modal-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
-.zk-modal-body { padding: calc(var(--space) * 4); display: grid; gap: calc(var(--space) * 4); }
+.zk-modal-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.zk-modal-body {
+  padding: calc(var(--space) * 4);
+  display: grid;
+  gap: calc(var(--space) * 4);
+}
 .zk-modal-foot {
   padding: calc(var(--space) * 3) calc(var(--space) * 4);
   border-top: 1px solid var(--border-subtle);
-  display: flex; gap: calc(var(--space) * 2); justify-content: flex-end;
+  display: flex;
+  gap: calc(var(--space) * 2);
+  justify-content: flex-end;
 }
 
-.zk-field { display: grid; gap: calc(var(--space) * 1.5); }
+.zk-field {
+  display: grid;
+  gap: calc(var(--space) * 1.5);
+}
 .zk-field-label {
   color: var(--text-secondary);
-  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
-.zk-field-value { font-size: 13px; }
-.zk-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--space) * 3); }
+.zk-field-value {
+  font-size: 13px;
+}
+.zk-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--space) * 3);
+}
 
 .zk-input {
   background: var(--bg-base);
@@ -712,11 +985,18 @@
   padding: calc(var(--space) * 2);
   color-scheme: dark;
 }
-.zk-input:focus { outline: none; border-color: var(--border-glow); }
-.zk-input:disabled { opacity: 0.5; }
+.zk-input:focus {
+  outline: none;
+  border-color: var(--border-glow);
+}
+.zk-input:disabled {
+  opacity: 0.5;
+}
 
 .zk-chip {
-  display: inline-flex; align-items: center; gap: calc(var(--space) * 1.5);
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space) * 1.5);
   padding: calc(var(--space)) calc(var(--space) * 2);
   border: 1px solid var(--border-subtle);
   border-radius: 999px;
@@ -757,12 +1037,19 @@
 }
 
 .zk-set-search {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   padding: 0 calc(var(--space) * 4) calc(var(--space) * 3);
   border-bottom: 1px solid var(--set-line);
 }
-.zk-set-search .zk-input { flex: 1 1 auto; }
-.zk-set-search .zk-input:focus { border-color: var(--set-accent); outline: none; }
+.zk-set-search .zk-input {
+  flex: 1 1 auto;
+}
+.zk-set-search .zk-input:focus {
+  border-color: var(--set-accent);
+  outline: none;
+}
 
 .zk-set {
   flex: 1 1 auto;
@@ -772,14 +1059,18 @@
 }
 
 .zk-set-nav {
-  display: flex; flex-direction: column; gap: calc(var(--space));
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space));
   padding: calc(var(--space) * 3);
   border-right: 1px solid var(--set-line);
   background: var(--bg-base);
   overflow-y: auto;
 }
 .zk-set-nav-item {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   text-align: left;
   padding: calc(var(--space) * 2) calc(var(--space) * 2.5);
   background: none;
@@ -788,17 +1079,24 @@
   border-left: 2px solid transparent;
   border-radius: 0 6px 6px 0;
   color: var(--text-secondary);
-  font: inherit; font-size: 13px;
+  font: inherit;
+  font-size: 13px;
   cursor: pointer;
 }
-.zk-set-nav-item:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-surface); }
+.zk-set-nav-item:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
 .zk-set-nav-item[aria-pressed="true"] {
   color: var(--set-accent);
   border-left-color: var(--set-accent);
   background: var(--set-accent-dim);
   font-weight: 600;
 }
-.zk-set-nav-item:disabled { opacity: 0.35; cursor: default; }
+.zk-set-nav-item:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 /* 検索中の当たり件数。どのカテゴリを見ればいいかを左で示す。 */
 .zk-set-nav-count {
   margin-left: auto;
@@ -806,7 +1104,8 @@
   border-radius: 999px;
   background: var(--set-accent);
   color: #1a0d04;
-  font-size: 10px; font-weight: 600;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .zk-set-body {
@@ -818,46 +1117,89 @@
 }
 .zk-set-title {
   margin: 0;
-  font-size: 20px; font-weight: 600;
+  font-size: 20px;
+  font-weight: 600;
   color: var(--text-primary);
 }
-.zk-set-item { display: grid; gap: calc(var(--space) * 2); justify-items: start; }
+.zk-set-item {
+  display: grid;
+  gap: calc(var(--space) * 2);
+  justify-items: start;
+}
 /* 見出しの頭にオレンジの短い縦棒。項目の切れ目を線 1 本で示す。 */
 .zk-set-item-title {
   margin: 0;
   padding-left: calc(var(--space) * 2);
   border-left: 2px solid var(--set-accent);
-  font-size: 13px; font-weight: 600;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 .zk-set-item-summary {
   margin: 0;
-  font-size: 11px; line-height: 1.7;
+  font-size: 11px;
+  line-height: 1.7;
   color: var(--text-secondary);
 }
-.zk-set-note { font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
+.zk-set-note {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
 
-.zk-set-choices { display: grid; gap: calc(var(--space)); }
+.zk-set-choices {
+  display: grid;
+  gap: calc(var(--space));
+}
 .zk-set-choice {
-  display: flex; align-items: baseline; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--space) * 2);
   font-size: 13px;
   cursor: pointer;
 }
-.zk-set-choice input { accent-color: var(--set-accent); cursor: pointer; }
-.zk-set-choice-label { font-weight: 600; }
-.zk-set-choice-note { font-size: 11px; color: var(--text-secondary); }
-
-.zk-set-check {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
-  font-size: 13px; font-weight: 600;
+.zk-set-choice input {
+  accent-color: var(--set-accent);
   cursor: pointer;
 }
-.zk-set-check input { accent-color: var(--set-accent); cursor: pointer; }
+.zk-set-choice-label {
+  font-weight: 600;
+}
+.zk-set-choice-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 
-.zk-set-size { display: flex; align-items: center; gap: calc(var(--space) * 2); font-size: 13px; }
-.zk-set-size .zk-input { width: 96px; }
-.zk-set-times { color: var(--text-secondary); }
-.zk-set-presets { display: flex; flex-wrap: wrap; gap: calc(var(--space)); }
+.zk-set-check {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.zk-set-check input {
+  accent-color: var(--set-accent);
+  cursor: pointer;
+}
+
+.zk-set-size {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+  font-size: 13px;
+}
+.zk-set-size .zk-input {
+  width: 96px;
+}
+.zk-set-times {
+  color: var(--text-secondary);
+}
+.zk-set-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space));
+}
 /* 選ばれている大きさはオレンジで示す。青の focus 枠と役割が混ざらないようにする。 */
 .zk-set-presets .zk-button[aria-pressed="true"] {
   border-color: var(--set-accent);
@@ -866,15 +1208,18 @@
 }
 
 .zk-set-danger {
-  display: grid; gap: calc(var(--space) * 2);
+  display: grid;
+  gap: calc(var(--space) * 2);
   justify-items: start;
-  font-size: 11px; color: var(--danger);
+  font-size: 11px;
+  color: var(--danger);
 }
 
 /* 背景画像のプレビュー。盤面に敷いたときと同じ cover で見せる — 縦横比の合わない
    画像がどこを切り取られるのかを、保存する前にここで分かるようにするため。 */
 .zk-set-preview {
-  width: 240px; height: 135px;
+  width: 240px;
+  height: 135px;
   object-fit: cover;
   border: 1px solid var(--border-subtle);
   border-radius: 2px;
@@ -885,7 +1230,8 @@
    display: none だと Firefox が値を送らないことがあるので、位置で外へ出す。 */
 .zk-set-file-input {
   position: absolute;
-  width: 1px; height: 1px;
+  width: 1px;
+  height: 1px;
   opacity: 0;
   pointer-events: none;
 }
@@ -896,76 +1242,154 @@
   color: var(--set-accent);
 }
 .zk-button--primary:hover:not(:disabled) {
-  box-shadow: 0 0 0 1px rgba(255, 148, 64, 0.3), 0 0 12px rgba(255, 148, 64, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(255, 148, 64, 0.3),
+    0 0 12px rgba(255, 148, 64, 0.35);
 }
 
 /* 起票時の但し書き。ボタンの左に寄せ、押す前に目に入る位置に置く。 */
-.zk-new-task-note { flex: 1; font-size: 11px; color: var(--text-secondary); }
+.zk-new-task-note {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 
 /* ---- 日課の設定（起票と詳細に同じ形で置く節） ----
 
    設定画面の .zk-set-* を借りない。あちらの差し色 --set-accent は
    .zk-modal--settings にしか無く、ここで使うと accent-color だけが外れる。 */
-.zk-daily-edit { justify-items: start; }
+.zk-daily-edit {
+  justify-items: start;
+}
 .zk-daily-check {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   font-size: 13px;
   cursor: pointer;
 }
 .zk-daily-row {
-  display: flex; align-items: center; flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: calc(var(--space) * 2);
-  font-size: 12px; color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .zk-daily-choice {
-  display: flex; align-items: center; gap: calc(var(--space) * 1.5);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 1.5);
   cursor: pointer;
 }
 .zk-root .zk-daily-check input,
-.zk-root .zk-daily-choice input { accent-color: var(--accent); cursor: pointer; }
+.zk-root .zk-daily-choice input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 /* 間隔は 2 桁も入れば足りる。日付欄と同じ幅にすると、何を打つ欄なのか読めない。 */
-.zk-root .zk-daily-interval { width: 5em; }
-.zk-daily-note { font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
+.zk-root .zk-daily-interval {
+  width: 5em;
+}
+.zk-daily-note {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
 
 /* ---- 保留中の変更（企画書 §16.2） ---- */
-.zk-modal--pending { width: min(760px, 100%); }
-.zk-pending-empty { font-size: 12px; color: var(--text-secondary); }
-.zk-pending-list { display: grid; gap: calc(var(--space) * 3); }
+.zk-modal--pending {
+  width: min(760px, 100%);
+}
+.zk-pending-empty {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.zk-pending-list {
+  display: grid;
+  gap: calc(var(--space) * 3);
+}
 .zk-pending-group {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: calc(var(--space) * 3);
-  display: grid; gap: calc(var(--space) * 2);
+  display: grid;
+  gap: calc(var(--space) * 2);
 }
-.zk-pending-head { display: flex; align-items: center; gap: calc(var(--space) * 2); }
-.zk-pending-head .zk-button { margin-left: auto; }
+.zk-pending-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+}
+.zk-pending-head .zk-button {
+  margin-left: auto;
+}
 /* 段階は色で言う。手を打つ必要のあるものだけを目立たせ、順番待ちは静かにする。 */
 .zk-pending-state {
   padding: 0 calc(var(--space) * 2);
   border-radius: 999px;
   border: 1px solid currentColor;
-  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
-.zk-pending-state--pending { color: var(--text-secondary); }
-.zk-pending-state--syncing { color: var(--accent); }
-.zk-pending-state--failed, .zk-pending-state--conflict { color: var(--danger); }
-.zk-pending-count { font-size: 11px; color: var(--text-secondary); }
-.zk-pending-note { font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
-.zk-pending-rows { display: grid; gap: calc(var(--space)); }
+.zk-pending-state--pending {
+  color: var(--text-secondary);
+}
+.zk-pending-state--syncing {
+  color: var(--accent);
+}
+.zk-pending-state--failed,
+.zk-pending-state--conflict {
+  color: var(--danger);
+}
+.zk-pending-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.zk-pending-note {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.zk-pending-rows {
+  display: grid;
+  gap: calc(var(--space));
+}
 .zk-pending-row {
-  display: flex; flex-wrap: wrap; align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: calc(var(--space) * 2);
   font-size: 12px;
 }
-.zk-pending-task { flex: 1 1 240px; min-width: 0; }
+.zk-pending-task {
+  flex: 1 1 240px;
+  min-width: 0;
+}
 .zk-pending-dates {
-  display: flex; align-items: baseline; gap: calc(var(--space) * 1.5);
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--space) * 1.5);
   font-variant-numeric: tabular-nums;
 }
-.zk-pending-before { color: var(--text-secondary); text-decoration: line-through; }
-.zk-pending-arrow { color: var(--text-secondary); }
-.zk-pending-error { flex: 1 1 100%; font-size: 11px; color: var(--danger); }
-.zk-pending-foot-note { flex: 1; font-size: 11px; color: var(--text-secondary); }
+.zk-pending-before {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+.zk-pending-arrow {
+  color: var(--text-secondary);
+}
+.zk-pending-error {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--danger);
+}
+.zk-pending-foot-note {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 
 /* ---- マニュアル（Alt+M） ---- */
 .zk-modal--manual {
@@ -1005,13 +1429,21 @@
   font: inherit;
   cursor: pointer;
 }
-.zk-manual-toc-item:hover { border-color: rgba(45, 107, 255, 0.6); }
+.zk-manual-toc-item:hover {
+  border-color: rgba(45, 107, 255, 0.6);
+}
 .zk-manual-toc-item[aria-pressed="true"] {
   background: var(--bg-elevated);
   border-color: var(--border-glow);
 }
-.zk-manual-toc-title { font-size: 13px; font-weight: 600; }
-.zk-manual-toc-summary { font-size: 10px; color: var(--text-secondary); }
+.zk-manual-toc-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.zk-manual-toc-summary {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
 
 .zk-manual-body {
   padding: calc(var(--space) * 4);
@@ -1020,20 +1452,48 @@
   align-content: start;
   gap: calc(var(--space) * 5);
 }
-.zk-manual-block { display: grid; gap: calc(var(--space) * 2); }
+.zk-manual-block {
+  display: grid;
+  gap: calc(var(--space) * 2);
+}
 .zk-manual-heading {
   margin: 0;
-  font-size: 11px; font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-secondary);
 }
-.zk-manual-text { margin: 0; font-size: 12px; line-height: 1.7; color: var(--text-primary); }
-.zk-manual-list { margin: 0; display: grid; gap: calc(var(--space) * 2); font-size: 12px; }
-.zk-manual-list dt { font-weight: 600; }
-.zk-manual-list dd { margin: 2px 0 0; line-height: 1.7; color: var(--text-secondary); }
+.zk-manual-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+.zk-manual-list {
+  margin: 0;
+  display: grid;
+  gap: calc(var(--space) * 2);
+  font-size: 12px;
+}
+.zk-manual-list dt {
+  font-weight: 600;
+}
+.zk-manual-list dd {
+  margin: 2px 0 0;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
 /* ホットキー表はキーと説明を横に並べる。縦読みで対応が追えるようにするため。 */
-.zk-manual-row { display: grid; grid-template-columns: 180px 1fr; align-items: baseline; gap: calc(var(--space) * 3); }
-.zk-manual-row dd { margin: 0; }
+.zk-manual-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  align-items: baseline;
+  gap: calc(var(--space) * 3);
+}
+.zk-manual-row dd {
+  margin: 0;
+}
 .zk-kbd {
   display: inline-block;
   padding: 2px calc(var(--space) * 1.5);
@@ -1064,10 +1524,19 @@
   align-items: end;
   gap: calc(var(--space) * 3);
 }
-.zk-task-status { flex: 0 0 auto; }
-.zk-task-title { min-width: 0; }
-.zk-task-labels { min-width: 0; }
-.zk-task-close { align-self: end; padding: calc(var(--space) * 2) calc(var(--space) * 3); }
+.zk-task-status {
+  flex: 0 0 auto;
+}
+.zk-task-title {
+  min-width: 0;
+}
+.zk-task-labels {
+  min-width: 0;
+}
+.zk-task-close {
+  align-self: end;
+  padding: calc(var(--space) * 2) calc(var(--space) * 3);
+}
 
 /* Status は「編集」に入らず変えられる。ドットが見えたまま select を重ねて、
    意匠（色の丸）と操作（選択肢）を両立させる。 */
@@ -1075,28 +1544,39 @@
    「入力欄の中の飾り」に見えてしまう。押せることはカーソルと発光で示す。 */
 .zk-status-picker {
   position: relative;
-  display: grid; place-items: center;
-  width: 56px; height: 40px;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 40px;
 }
-.zk-status-picker:focus-within .zk-status-dot { box-shadow: 0 0 16px currentColor; }
+.zk-status-picker:focus-within .zk-status-dot {
+  box-shadow: 0 0 16px currentColor;
+}
 .zk-status-dot {
-  width: 20px; height: 20px; border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   box-shadow: 0 0 10px currentColor;
 }
 .zk-status-select {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
   font: inherit;
   cursor: pointer;
 }
-.zk-status-select:disabled { cursor: not-allowed; }
+.zk-status-select:disabled {
+  cursor: not-allowed;
+}
 
 /* タイトルは枠で囲わず、下線で編集できる場所だと示す。文字が主役なので
    16px から 1.5 倍にする。枠を消したぶん、行の高さは下線の位置で決まる。 */
 .zk-title-input {
   width: 100%;
-  font-size: 24px; font-weight: 600;
+  font-size: 24px;
+  font-weight: 600;
   background: none;
   border: 0;
   border-radius: 0;
@@ -1106,25 +1586,38 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 6px;
 }
-.zk-title-input:focus { outline: none; text-decoration-color: var(--border-glow); }
+.zk-title-input:focus {
+  outline: none;
+  text-decoration-color: var(--border-glow);
+}
 /* 表示だけのときも入力欄と同じ高さにして、編集への切り替えで行がずれないようにする。 */
 .zk-input--static,
 .zk-title-input--static {
-  display: flex; align-items: center;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-height: 36px;
 }
-.zk-muted { color: var(--text-secondary); }
+.zk-muted {
+  color: var(--text-secondary);
+}
 
 /* ラベルは色の付いたチップ自体が形を持っているので、外側の枠は要らない。 */
 .zk-label-row {
-  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
   flex-wrap: wrap;
   min-height: 36px;
   padding: calc(var(--space)) 0;
 }
 /* ラベルはラベル色で塗る。文字色は JS 側が地の明度から決める。 */
-.zk-chip--label { padding: calc(var(--space)) calc(var(--space) * 3); font-weight: 600; }
+.zk-chip--label {
+  padding: calc(var(--space)) calc(var(--space) * 3);
+  font-weight: 600;
+}
 
 .zk-task-meta {
   display: grid;
@@ -1144,7 +1637,9 @@
   overflow: auto;
 }
 /* 親カテゴリはたかだか数件なので、ラベル候補のように高さを取らせない。 */
-.zk-label-picker--parents { max-height: none; }
+.zk-label-picker--parents {
+  max-height: none;
+}
 
 /* 本文だけが余りを取る。モーダル全体はスクロールさせない。 */
 .zk-task-body {
@@ -1154,7 +1649,10 @@
 }
 /* .zk-body-text の max-height をこの場面だけ外す。定義がこの下にあるので、
    セレクタを 1 段深くして打ち勝たせる。 */
-.zk-task-body .zk-body-text--fill { max-height: none; height: 100%; }
+.zk-task-body .zk-body-text--fill {
+  max-height: none;
+  height: 100%;
+}
 .zk-body-input {
   height: 100%;
   width: 100%;
@@ -1166,15 +1664,25 @@
 }
 
 .zk-task-notice {
-  display: flex; align-items: baseline; gap: calc(var(--space) * 3);
-  font-size: 11px; color: var(--text-secondary); min-height: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--space) * 3);
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-height: 16px;
 }
-.zk-task-meta-inline { flex: 0 0 auto; opacity: 0.85; }
+.zk-task-meta-inline {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
 
 /* Priority / Progress はこの行の中で編集できる。行そのものは注記なので、
    入力欄も枠を持たせず、下線だけで「触れる」と示す。周りの文字と同じ大きさに
    揃え、入力欄が現れたときに行の高さが跳ねないようにする。 */
-.zk-root .zk-task-meta-field { display: inline-flex; align-items: baseline; }
+.zk-root .zk-task-meta-field {
+  display: inline-flex;
+  align-items: baseline;
+}
 .zk-root .zk-meta-select,
 .zk-root .zk-meta-number {
   font: inherit;
@@ -1185,37 +1693,59 @@
   padding: 0 2px;
   cursor: pointer;
 }
-.zk-root .zk-meta-number { width: 3.5em; text-align: right; cursor: text; }
+.zk-root .zk-meta-number {
+  width: 3.5em;
+  text-align: right;
+  cursor: text;
+}
 .zk-root .zk-meta-select:focus,
 .zk-root .zk-meta-number:focus {
   outline: none;
   border-bottom-color: var(--accent);
 }
 .zk-root .zk-meta-select:disabled,
-.zk-root .zk-meta-number:disabled { cursor: not-allowed; opacity: 0.5; }
+.zk-root .zk-meta-number:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 /* 数値の増減ボタンは 11px の行では潰れて押せない。数字だけを見せる。 */
 .zk-root .zk-meta-number::-webkit-inner-spin-button,
 .zk-root .zk-meta-number::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-.zk-root .zk-meta-number { -moz-appearance: textfield; appearance: textfield; }
+.zk-root .zk-meta-number {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
 
 /* ボタンが増えても押せなくならないよう折り返す。狭い窓では 2 段になる。 */
 .zk-task-foot {
-  display: flex; align-items: flex-end; gap: calc(var(--space) * 2); flex-wrap: wrap;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--space) * 2);
+  flex-wrap: wrap;
 }
-.zk-task-parent { flex: 1 1 auto; max-width: 240px; margin-right: auto; }
+.zk-task-parent {
+  flex: 1 1 auto;
+  max-width: 240px;
+  margin-right: auto;
+}
 
 .zk-notice {
-  display: flex; align-items: center; gap: calc(var(--space) * 3);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 2) calc(var(--space) * 4);
   background: rgba(245, 158, 11, 0.08);
   border-bottom: 1px solid rgba(245, 158, 11, 0.35);
   font-size: 11px;
   flex: 0 0 auto;
 }
-.zk-notice-strong { color: var(--warning); font-weight: 600; }
+.zk-notice-strong {
+  color: var(--warning);
+  font-weight: 600;
+}
 
 /* ---- ログペイン ----
 
@@ -1232,7 +1762,9 @@
   min-height: 0;
 }
 /* ログだけを見るモード（Alt+L）。Gantt は描かれないので余りを全部取る。 */
-.zk-log--full { flex: 1 1 auto; }
+.zk-log--full {
+  flex: 1 1 auto;
+}
 
 /* 上端の 6px がつまみ。線そのものは細いので、当たり判定を広げて掴みやすくする。 */
 .zk-log-resizer {
@@ -1242,24 +1774,37 @@
   cursor: ns-resize;
   background: transparent;
 }
-.zk-log-resizer:hover, .zk-log-resizer:focus-visible {
+.zk-log-resizer:hover,
+.zk-log-resizer:focus-visible {
   background: rgba(45, 107, 255, 0.35);
   outline: none;
 }
 .zk-log-head {
-  display: flex; align-items: center; gap: calc(var(--space) * 3);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 3);
   padding: calc(var(--space) * 2) calc(var(--space) * 4);
   /* 畳む操作をやめたので、押せるように見せない。 */
   user-select: none;
   flex: 0 0 auto;
 }
 .zk-log-count {
-  font-size: 10px; padding: 1px calc(var(--space) * 1.5);
-  border-radius: 999px; border: 1px solid var(--border-subtle);
+  font-size: 10px;
+  padding: 1px calc(var(--space) * 1.5);
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
 }
-.zk-log-count--warn { color: var(--warning); border-color: rgba(245, 158, 11, 0.5); }
-.zk-log-count--error { color: var(--danger); border-color: rgba(244, 63, 94, 0.5); }
-.zk-log-spacer { flex: 1; }
+.zk-log-count--warn {
+  color: var(--warning);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+.zk-log-count--error {
+  color: var(--danger);
+  border-color: rgba(244, 63, 94, 0.5);
+}
+.zk-log-spacer {
+  flex: 1;
+}
 
 .zk-log-body {
   flex: 0 0 auto;
@@ -1269,26 +1814,64 @@
   font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
   font-size: 11px;
 }
-.zk-log-body--full { flex: 1 1 auto; }
+.zk-log-body--full {
+  flex: 1 1 auto;
+}
 .zk-log-entry {
-  display: flex; align-items: flex-start; gap: calc(var(--space) * 2);
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--space) * 2);
   padding: calc(var(--space) * 1.5) 0;
   border-top: 1px solid rgba(30, 42, 77, 0.5);
   line-height: 1.5;
 }
 /* 日時と本文は端末の緑。level の色分けはそのまま残し、行の種類はそちらで読ませる。 */
-.zk-log-time { color: var(--log-text); flex: 0 0 auto; }
+.zk-log-time {
+  color: var(--log-text);
+  flex: 0 0 auto;
+}
 /* 白い滲みは緑の上で濁るので、発光も文字色に合わせる。 */
-.zk-log-time, .zk-log-message { text-shadow: 0 0 9px rgba(36, 245, 17, 0.35); }
-.zk-log-level { flex: 0 0 auto; width: 42px; text-transform: uppercase; font-size: 10px; }
-.zk-log-level--info { color: var(--accent-cyan); }
-.zk-log-level--warn { color: var(--warning); }
-.zk-log-level--error { color: var(--danger); }
-.zk-log-message { color: var(--log-text); flex: 1; min-width: 0; word-break: break-word; }
-.zk-log-hint { color: var(--text-secondary); }
-.zk-log-actions { display: flex; gap: calc(var(--space) * 2); flex: 0 0 auto; }
-.zk-log-actions .zk-button { padding: 2px calc(var(--space) * 2); font-size: 10px; }
-.zk-log-empty { color: var(--text-secondary); padding: calc(var(--space) * 3) 0; }
+.zk-log-time,
+.zk-log-message {
+  text-shadow: 0 0 9px rgba(36, 245, 17, 0.35);
+}
+.zk-log-level {
+  flex: 0 0 auto;
+  width: 42px;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.zk-log-level--info {
+  color: var(--accent-cyan);
+}
+.zk-log-level--warn {
+  color: var(--warning);
+}
+.zk-log-level--error {
+  color: var(--danger);
+}
+.zk-log-message {
+  color: var(--log-text);
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.zk-log-hint {
+  color: var(--text-secondary);
+}
+.zk-log-actions {
+  display: flex;
+  gap: calc(var(--space) * 2);
+  flex: 0 0 auto;
+}
+.zk-log-actions .zk-button {
+  padding: 2px calc(var(--space) * 2);
+  font-size: 10px;
+}
+.zk-log-empty {
+  color: var(--text-secondary);
+  padding: calc(var(--space) * 3) 0;
+}
 
 /* Issue 本文。Markdown は整形せず、改行と等幅で原文のまま見せる。 */
 .zk-body-text {
@@ -1305,7 +1888,11 @@
   word-break: break-word;
   user-select: text;
 }
-.zk-body-text--empty { color: var(--text-secondary); font-style: italic; font-family: inherit; }
+.zk-body-text--empty {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-family: inherit;
+}
 
 /* Issue 本文を Markdown として描画したもの。枠は .zk-body-text と揃えるが、
    中身は等幅ではなく本文書体で組む。 */
@@ -1321,32 +1908,64 @@
   word-break: break-word;
   user-select: text;
 }
-.zk-body-md > :first-child { margin-top: 0; }
-.zk-body-md > :last-child { margin-bottom: 0; }
-.zk-body-md p { margin: 0 0 calc(var(--space) * 2); }
+.zk-body-md > :first-child {
+  margin-top: 0;
+}
+.zk-body-md > :last-child {
+  margin-bottom: 0;
+}
+.zk-body-md p {
+  margin: 0 0 calc(var(--space) * 2);
+}
 
-.zk-body-md h1, .zk-body-md h2, .zk-body-md h3,
-.zk-body-md h4, .zk-body-md h5, .zk-body-md h6 {
+.zk-body-md h1,
+.zk-body-md h2,
+.zk-body-md h3,
+.zk-body-md h4,
+.zk-body-md h5,
+.zk-body-md h6 {
   margin: calc(var(--space) * 4) 0 calc(var(--space) * 2);
   line-height: 1.35;
   font-weight: 600;
 }
-.zk-body-md h1 { font-size: 16px; }
-.zk-body-md h2 { font-size: 15px; }
-.zk-body-md h3 { font-size: 14px; }
-.zk-body-md h4, .zk-body-md h5, .zk-body-md h6 { font-size: 13px; }
+.zk-body-md h1 {
+  font-size: 16px;
+}
+.zk-body-md h2 {
+  font-size: 15px;
+}
+.zk-body-md h3 {
+  font-size: 14px;
+}
+.zk-body-md h4,
+.zk-body-md h5,
+.zk-body-md h6 {
+  font-size: 13px;
+}
 /* GitHub と同じく、上位の見出しには区切り線を敷いて塊を分ける。 */
-.zk-body-md h1, .zk-body-md h2 {
+.zk-body-md h1,
+.zk-body-md h2 {
   padding-bottom: calc(var(--space));
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.zk-body-md ul, .zk-body-md ol { margin: 0 0 calc(var(--space) * 2); padding-left: 20px; }
-.zk-body-md li { margin: calc(var(--space) * 0.5) 0; }
-.zk-body-md li::marker { color: var(--text-secondary); }
+.zk-body-md ul,
+.zk-body-md ol {
+  margin: 0 0 calc(var(--space) * 2);
+  padding-left: 20px;
+}
+.zk-body-md li {
+  margin: calc(var(--space) * 0.5) 0;
+}
+.zk-body-md li::marker {
+  color: var(--text-secondary);
+}
 
 /* GFM のタスクリスト。チェックボックスは読み取り専用で、行頭に置く。 */
-.zk-body-md li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+.zk-body-md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -20px;
+}
 .zk-body-md input[type="checkbox"] {
   margin-right: calc(var(--space) * 1.5);
   accent-color: var(--accent);
@@ -1368,7 +1987,10 @@
   border-radius: 6px;
   overflow-x: auto;
 }
-.zk-body-md pre code { padding: 0; background: none; }
+.zk-body-md pre code {
+  padding: 0;
+  background: none;
+}
 
 .zk-body-md blockquote {
   margin: 0 0 calc(var(--space) * 2);
@@ -1377,20 +1999,44 @@
   color: var(--text-secondary);
 }
 
-.zk-body-md hr { border: 0; border-top: 1px solid var(--border-subtle); margin: calc(var(--space) * 3) 0; }
+.zk-body-md hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: calc(var(--space) * 3) 0;
+}
 
-.zk-body-md table { border-collapse: collapse; margin: 0 0 calc(var(--space) * 2); display: block; overflow-x: auto; }
-.zk-body-md th, .zk-body-md td {
+.zk-body-md table {
+  border-collapse: collapse;
+  margin: 0 0 calc(var(--space) * 2);
+  display: block;
+  overflow-x: auto;
+}
+.zk-body-md th,
+.zk-body-md td {
   padding: calc(var(--space)) calc(var(--space) * 2);
   border: 1px solid var(--border-subtle);
   text-align: left;
 }
-.zk-body-md th { background: var(--bg-elevated); font-weight: 600; }
+.zk-body-md th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+}
 
-.zk-md-link { color: var(--accent-cyan); text-decoration: underline; cursor: pointer; }
+.zk-md-link {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+  cursor: pointer;
+}
 /* デスクトップでは GitHub 以外のリンクを開けない。押せないことを見せる。 */
-.zk-md-link--inert { color: var(--text-secondary); cursor: default; text-decoration-style: dotted; }
-.zk-md-image { color: var(--text-secondary); font-style: italic; }
+.zk-md-link--inert {
+  color: var(--text-secondary);
+  cursor: default;
+  text-decoration-style: dotted;
+}
+.zk-md-image {
+  color: var(--text-secondary);
+  font-style: italic;
+}
 /* 本文のタスクリスト。読むだけの場面では押せないので、押せるときだけ
    カーソルで示す。送信中は触らせない。 */
 .zk-md-task {
@@ -1398,12 +2044,23 @@
   accent-color: var(--accent-cyan);
   cursor: pointer;
 }
-.zk-md-task:disabled { cursor: default; }
+.zk-md-task:disabled {
+  cursor: default;
+}
 
 /* ---- サイドバー（意匠は Appearance_button.jpg に準拠） ---- */
-.zk-shell { display: flex; flex: 1 1 auto; min-height: 0; }
+.zk-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
-.zk-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.zk-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .zk-sidebar {
   flex: 0 0 auto;
@@ -1424,7 +2081,11 @@
   padding: calc(var(--space) * 2) calc(var(--space));
   color: var(--text-primary);
 }
-.zk-sidebar-views { display: flex; flex-direction: column; gap: calc(var(--space) * 0.5); }
+.zk-sidebar-views {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 0.5);
+}
 
 /* アイコンと名前だけの 1 行。枠も影も付けず、選択中は色で示す。 */
 .zk-sidebar-item {
@@ -1441,19 +2102,38 @@
   cursor: pointer;
   transition: color 120ms ease;
 }
-.zk-sidebar-item:hover { color: var(--text-primary); }
-.zk-sidebar-item[aria-pressed="true"] { color: var(--text-primary); }
-.zk-sidebar-icon { font-size: 20px; line-height: 1; color: inherit; }
+.zk-sidebar-item:hover {
+  color: var(--text-primary);
+}
+.zk-sidebar-item[aria-pressed="true"] {
+  color: var(--text-primary);
+}
+.zk-sidebar-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: inherit;
+}
 .zk-sidebar-item[aria-pressed="true"] .zk-sidebar-icon {
   color: var(--accent-cyan);
   text-shadow: 0 0 8px rgba(34, 211, 238, 0.7);
 }
-.zk-sidebar-label { font-size: 17px; }
-.zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label { font-weight: 600; text-shadow: var(--glow-text-strong); }
+.zk-sidebar-label {
+  font-size: 17px;
+}
+.zk-sidebar-item[aria-pressed="true"] .zk-sidebar-label {
+  font-weight: 600;
+  text-shadow: var(--glow-text-strong);
+}
 /* 設定はビューの下、プロジェクト名の上。ここで下端に寄せる。 */
-.zk-sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; }
+.zk-sidebar-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+}
 /* 設定が居るときは、そちらが下端を取る。 */
-.zk-sidebar-bottom + .zk-sidebar-foot { margin-top: 0; }
+.zk-sidebar-bottom + .zk-sidebar-foot {
+  margin-top: 0;
+}
 
 .zk-sidebar-foot {
   margin-top: auto;
@@ -1464,39 +2144,69 @@
 }
 
 /* ---- ラベル編集 ---- */
-.zk-chip--button { cursor: pointer; background: none; font: inherit; }
-.zk-chip--button:hover { border-color: var(--border-glow); }
+.zk-chip--button {
+  cursor: pointer;
+  background: none;
+  font: inherit;
+}
+.zk-chip--button:hover {
+  border-color: var(--border-glow);
+}
 .zk-chip-remove {
   color: var(--text-secondary);
-  font-size: 12px; line-height: 1;
+  font-size: 12px;
+  line-height: 1;
   padding: 0 2px;
 }
-.zk-chip-remove:hover { color: var(--danger); }
+.zk-chip-remove:hover {
+  color: var(--danger);
+}
 
 .zk-label-picker {
-  display: flex; flex-wrap: wrap; gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: calc(var(--space) * 2);
   background: var(--bg-base);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  max-height: 128px; overflow-y: auto;
+  max-height: 128px;
+  overflow-y: auto;
 }
 
 /* 削除モードの候補。付け外しと同じ見た目だと押し間違えるので危険色で塗り分ける。 */
-.zk-label-picker--danger { border-color: rgba(244, 63, 94, 0.4); }
-.zk-chip--danger { border-color: rgba(244, 63, 94, 0.5); color: var(--danger); }
-.zk-chip--danger:hover { border-color: var(--danger); }
+.zk-label-picker--danger {
+  border-color: rgba(244, 63, 94, 0.4);
+}
+.zk-chip--danger {
+  border-color: rgba(244, 63, 94, 0.5);
+  color: var(--danger);
+}
+.zk-chip--danger:hover {
+  border-color: var(--danger);
+}
 .zk-label-confirm {
-  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
-  font-size: 11px; color: var(--danger);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--danger);
 }
 
 .zk-label-new {
-  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .zk-label-new input[type="color"] {
-  width: 32px; height: 28px; padding: 0;
-  background: none; border: 1px solid var(--border-subtle); border-radius: 6px;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
   cursor: pointer;
 }
 
@@ -1507,7 +2217,10 @@
    Chromium 系（Tauri の WebView2 と Chrome）は ::-webkit-scrollbar だけを使う。
    標準の scrollbar-color / scrollbar-width を併記すると Chromium はそちらを
    優先して疑似要素を無視するため、疑似要素を持たない Firefox 側だけに書く。 */
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
 ::-webkit-scrollbar-track {
   background: rgba(6, 11, 26, 0.6);
   border-radius: 999px;
@@ -1515,17 +2228,29 @@
 ::-webkit-scrollbar-thumb {
   /* 透明な境界と background-clip で、つまみを溝より細く見せる。 */
   border: 2px solid transparent;
-  background: linear-gradient(180deg, var(--accent, #3b82f6), var(--accent-cyan, #22d3ee)) padding-box;
+  background: linear-gradient(
+      180deg,
+      var(--accent, #3b82f6),
+      var(--accent-cyan, #22d3ee)
+    )
+    padding-box;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #5b9bff, #67e8f9) padding-box;
 }
 ::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg, var(--accent-cyan, #22d3ee), var(--accent-cyan, #22d3ee)) padding-box;
+  background: linear-gradient(
+      180deg,
+      var(--accent-cyan, #22d3ee),
+      var(--accent-cyan, #22d3ee)
+    )
+    padding-box;
 }
 /* 縦横が交わる角。塗らないと既定の明るい四角がひとつだけ残る。 */
-::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 /* BlueSystem のつまみ。上の指定は Default 用としてそのまま残す。
    テーマの属性は .zk-shell に付いていてログペインもその内側にあるため、
@@ -1533,27 +2258,45 @@
    box-shadow は溝の内側に収まるよう内向き（inset）ではなく外向きの淡い光にし、
    つまみ自身の細さは border + padding-box のまま変えない。 */
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
+  background: linear-gradient(
+      180deg,
+      var(--zk-scroll-from),
+      var(--zk-scroll-to)
+    )
+    padding-box;
   box-shadow: 0 0 6px rgba(53, 103, 255, 0.55);
 }
 /* 芯。短い辺の中央を白寄りにして、光っている管のように見せる。
    短い辺は縦棒なら横、横棒なら縦なので、向きを分けて当てる。 */
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:vertical {
   background:
-    linear-gradient(90deg, transparent 18%, rgba(233, 240, 255, 0.6) 50%, transparent 82%),
-    linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
+    linear-gradient(
+      90deg,
+      transparent 18%,
+      rgba(233, 240, 255, 0.6) 50%,
+      transparent 82%
+    ),
+    linear-gradient(180deg, var(--zk-scroll-from), var(--zk-scroll-to))
+      padding-box;
 }
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:horizontal {
   background:
-    linear-gradient(180deg, transparent 18%, rgba(233, 240, 255, 0.6) 50%, transparent 82%),
-    linear-gradient(90deg, var(--zk-scroll-from), var(--zk-scroll-to)) padding-box;
+    linear-gradient(
+      180deg,
+      transparent 18%,
+      rgba(233, 240, 255, 0.6) 50%,
+      transparent 82%
+    ),
+    linear-gradient(90deg, var(--zk-scroll-from), var(--zk-scroll-to))
+      padding-box;
 }
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #3a58d0, #5b86ff) padding-box;
   box-shadow: 0 0 10px rgba(53, 103, 255, 0.75);
 }
 [data-gantt-theme="blue-system"] ::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg, var(--zk-scroll-to), var(--zk-scroll-to)) padding-box;
+  background: linear-gradient(180deg, var(--zk-scroll-to), var(--zk-scroll-to))
+    padding-box;
 }
 
 @supports not selector(::-webkit-scrollbar) {
