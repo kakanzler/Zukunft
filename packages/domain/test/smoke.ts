@@ -10,6 +10,7 @@ import {
   normalizeFieldName, resolveField, canEditDates,
   filterTasks, filterChoices, isFilterActive, EMPTY_FILTER, type TaskFilter,
   parseDependencyRefs, resolveDependencies, withDependencyRefs,
+  milestoneLinkSources,
   countTaskListItems, toggleTaskListItem, isTaskListItemChecked,
   detectCycles, formatCycle, edgeKey, cascade, applyChangeWithCascade,
   occurrences, occurrencesTruncated, isDone, toggleDone, MAX_OCCURRENCES, SPACED_GAPS,
@@ -125,6 +126,37 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
   // Issue 側だけのときは collectMilestones をそのまま通す。
   eq("with no repository list the task-side result is untouched",
      mergeMilestones(collectMilestones(tasks), []), [{ id: "ms-1", title: "v1", dueOn: "2026-09-30" }])
+}
+
+// --- milestoneLinkSources: マイルストーンへ線を引くタスクを絞る ---
+{
+  const linked: ScheduleTask[] = [
+    mk(1, "Planning", "2026-09-01", "2026-09-07", 100),
+    mk(2, "Review", "2026-09-08", "2026-09-21", 0),
+    mk(3, "Review", "2026-09-08", "2026-09-21", 0),
+  ]
+  // 親のあるタスクからは引かない。同じ期日へ向かう線が束になると、菱形の手前が
+  // 塗り潰されてどのバーの話か読めなくなる。
+  eq("only the task without a parent links to the milestone",
+     milestoneLinkSources(linked, { gh1: null, gh2: "gh1", gh3: "gh1" }),
+     [{ taskId: "i1", milestoneId: "ms-1" }])
+  // 親が無いものが複数あれば、そのすべてから引く。上位が 1 つとは限らない。
+  eq("every parentless task gets its own link",
+     milestoneLinkSources(linked, { gh1: null, gh2: null, gh3: "gh1" }).map((l) => l.taskId),
+     ["i1", "i2"])
+  // 親を引く経路は失敗しうる。載っていないタスクは「親が無い」ではなく
+  // 「分からない」— 読み替えると避けたかった線だらけの盤面が出る。
+  eq("a task missing from the parent map draws nothing",
+     milestoneLinkSources(linked, { gh1: null }).map((l) => l.taskId), ["i1"])
+  eq("with no parents known at all there are no links",
+     milestoneLinkSources(linked, {}), [])
+  // マイルストーンが無ければ行き先が無い。日付が無ければ出どころのバーが無い。
+  const noMilestone = { ...mk(4, "Planning", "2026-09-01", "2026-09-07", 0), milestone: null }
+  const undated = { ...mk(5, "Planning", "2026-09-01", "2026-09-07", 0), startDate: null, endDate: null }
+  eq("a task without a milestone draws nothing",
+     milestoneLinkSources([noMilestone], { gh4: null }), [])
+  eq("a task without dates draws nothing",
+     milestoneLinkSources([undated], { gh5: null }), [])
 }
 
 // --- Category 表示（ラベルの組み合わせでのグループ化） ---

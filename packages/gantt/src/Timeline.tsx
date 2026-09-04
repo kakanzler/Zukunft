@@ -6,6 +6,7 @@ import {
   type Dependency,
   edgeKey,
   type ISODate,
+  type MilestoneLink,
   type MilestoneMark,
   type Recurrence,
   type ScheduleTask,
@@ -116,6 +117,11 @@ type Props = {
   onMilestoneOpen?: (milestoneId: string) => void
   /** Issue 間の依存関係。両端が描かれている行のときだけ矢印にする */
   dependencies?: Dependency[]
+  /**
+   * マイルストーンへ引く線（どのタスクからどの菱形へ）。
+   * 渡さない読み取り専用ビューでは 1 本も引かない。
+   */
+  milestoneLinks?: MilestoneLink[]
   /** 循環している辺（cycle.ts の edgeKey）。危険色の破線で描く */
   cyclicEdges?: ReadonlySet<string>
   /** 盤面の意匠。形が違うところをここで分ける */
@@ -142,12 +148,14 @@ type Props = {
 
 /** 既定値をその場で書くと毎回別の配列になり、矢印の再計算が止まらなくなる。 */
 const EMPTY_DEPENDENCIES: Dependency[] = []
+const EMPTY_MILESTONE_LINKS: MilestoneLink[] = []
 const EMPTY_EDGES: ReadonlySet<string> = new Set()
 const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, milestoneHeight,
   dependencies = EMPTY_DEPENDENCIES,
+  milestoneLinks = EMPTY_MILESTONE_LINKS,
   cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
   dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
@@ -207,6 +215,11 @@ export function Timeline({
   const links = useMemo(
     () => buildLinks(dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid),
     [dependencies, placed, scale, rowHeight, visible, cyclicEdges, drag, uid],
+  )
+
+  const msLinks = useMemo(
+    () => buildMilestoneLinks(milestoneLinks, placed, milestones, scale, rowHeight, visible, drag),
+    [milestoneLinks, placed, milestones, scale, rowHeight, visible, drag],
   )
 
   return (
@@ -456,6 +469,13 @@ export function Timeline({
             </g>
           )
         })}
+
+        {/* マイルストーンへ向かう線。依存の矢印より先に描いて、重なったときは
+            矢印を上にする — こちらは関係ではなく「どの期日へ向かっているか」で、
+            隠れて困る度合いが低い。 */}
+        {msLinks.map((link) => (
+          <path key={link.key} className="zk-ms-link" d={link.path} stroke={link.color} />
+        ))}
 
         {/* バーより後に描く。関係が線で追えることを、バーの見やすさより優先する。 */}
         {links.map((link) => (
@@ -786,4 +806,66 @@ export function buildLinks(
     })
   })
   return links
+}
+
+
+/** マイルストーンへ向かう線 1 本ぶんの描画情報。 */
+export type MilestoneLinkPath = {
+  key: string
+  path: string
+  /** そのマイルストーンの色。菱形と揃えないと、どの菱形へ向かう線か分からない */
+  color: string
+}
+
+/**
+ * マイルストーンへ向かう線を座標に変換する。
+ *
+ * 菱形は本体の SVG ではなく、貼り付く別の帯（.zk-milestone-row）に描かれている。
+ * 別の要素をまたぐ 1 本のパスは引けないので、線は本体側の上端（y = 0）で切る。
+ * 先頭まで戻っていれば帯の菱形と繋がって見え、下へ辿れば線の上端が帯の裏に入る。
+ *
+ * 依存の矢印とは別に組み立てる。あちらは「どちらが先か」を向きで読ませる矢印で、
+ * こちらは「どの期日へ向かっているか」を示す線。先端も回り込みも付けない。
+ */
+export function buildMilestoneLinks(
+  links: MilestoneLink[],
+  placed: Map<string, Placement>,
+  milestones: PlacedMilestone[],
+  scale: TimeScale,
+  rowHeight: number,
+  visible: { start: number; end: number },
+  drag: DragState | null,
+): MilestoneLinkPath[] {
+  if (links.length === 0) return []
+  const marks = new Map(milestones.map((m) => [m.mark.id, m.mark]))
+
+  const paths: MilestoneLinkPath[] = []
+  for (const link of links) {
+    const placement = placed.get(link.taskId)
+    // 折り畳んだグループの中、日付が未設定、日課 — バーの無い行からは引けない。
+    if (!placement) continue
+    // 可視範囲の外の行は矢印と同じ扱いで落とす。行き先（y = 0）は常に上端なので、
+    // 行が見えていないなら盤面に掛かる部分も無い。
+    if (placement.index < visible.start || placement.index >= visible.end) continue
+    const mark = marks.get(link.milestoneId)
+    // 軸の外の期日は菱形自体が描かれていない。向かう先の無い線は引かない。
+    if (!mark) continue
+
+    // ドラッグ中は仮の日付で描く。確定するまで線が元の位置に残ると、
+    // 期日に寄せながら日程を動かすことができない。
+    const task =
+      drag?.taskId === placement.task.id ? { ...placement.task, ...drag.preview } : placement.task
+    const x1 = scale.toX(task.startDate) + barWidth(task, scale) / 2
+    const y1 = placement.index * rowHeight + BAR_INSET
+    // 菱形と同じ式。ずれると線が隣の期日を指してしまう。
+    const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2
+
+    paths.push({
+      key: `${link.taskId}>${link.milestoneId}`,
+      path: `M ${x1} ${y1} L ${x2} 0`,
+      // 色が無ければ菱形と同じ変数を読む（Default は紫、blue-system は橙）。
+      color: mark.color ?? "var(--zk-milestone-color)",
+    })
+  }
+  return paths
 }

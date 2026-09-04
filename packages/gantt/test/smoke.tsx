@@ -644,6 +644,77 @@ const count = (haystack: string, pattern: RegExp): number =>
 }
 
 /*
+ * --- Timeline: マイルストーンへ向かう線 ---
+ *
+ * 線を引くのは「親 Issue を持たないタスク」からだけ。同じ期日へ向かう線が束に
+ * なると、菱形の手前が塗り潰されてどのバーの話か読めなくなる。絞り込みが効いて
+ * いなくても例外は出ないので、本数を値として確かめる。
+ */
+{
+  const scale = createTimeScale("2026-09-01", "2026-09-30", "day")
+  const linked = [
+    task({ id: "a", issueId: "gh-a", issueNumber: 41, status: "Todo",
+           startDate: "2026-09-01", endDate: "2026-09-03",
+           milestone: { id: "m1", title: "v1", dueOn: "2026-09-20" } }),
+    task({ id: "b", issueId: "gh-b", issueNumber: 42, status: "Todo",
+           startDate: "2026-09-05", endDate: "2026-09-07",
+           milestone: { id: "m1", title: "v1", dueOn: "2026-09-20" } }),
+  ]
+  const rows = buildRows(linked, STATUS_ORDER, new Set())
+  const mark: MilestoneMark = { id: "m1", title: "v1", dueOn: "2026-09-20" }
+  const board = (links: { taskId: string; milestoneId: string }[] | undefined) =>
+    renderToStaticMarkup(
+      <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+                milestones={[{ mark, lane: 0 }]} milestoneHeight={32}
+                milestoneLinks={links} onTaskDatesChange={() => {}} />,
+    )
+
+  // 親を持たない a からだけ引く（b は a の子、という想定で渡さない）。
+  const one = board([{ taskId: "a", milestoneId: "m1" }])
+  eq("a milestone link is drawn for the task it is given",
+     count(one, /class="zk-ms-link"/g), 1)
+  // 線の上端は本体の上端（y = 0）。菱形は貼り付く別の帯にあり、またげない。
+  eq("the line stops at the top of the board", one.includes(` L ${scale.toX("2026-09-20") + scale.pxPerDay / 2} 0"`), true)
+  // 色は菱形と同じ。揃えないと、どの菱形へ向かう線か分からない。
+  eq("the line takes the milestone colour", one.includes('stroke="var(--zk-milestone-color)"'), true)
+  // 依存の矢印とは別物。先端（marker）は付けない。
+  eq("a milestone link is not an arrow",
+     [count(one, /class="zk-dep"/g), count(one, /class="zk-dep-head"/g)], [0, 0])
+
+  // 親を持つタスクの分は milestoneLinkSources が落とすので、ここへは来ない。
+  // 来た分だけを引くことを、両方渡した場合の本数で確かめる。
+  eq("every link it is given is drawn",
+     count(board([{ taskId: "a", milestoneId: "m1" }, { taskId: "b", milestoneId: "m1" }]),
+           /class="zk-ms-link"/g), 2)
+
+  // 渡さない読み取り専用ビュー（apps/web）では 1 本も引かない。
+  eq("a board with no links draws none", count(board(undefined), /class="zk-ms-link"/g), 0)
+
+  // 菱形が描かれていない期日へは引かない。向かう先の無い線になる。
+  eq("a link to a milestone that is not on the axis draws nothing",
+     count(board([{ taskId: "a", milestoneId: "gone" }]), /class="zk-ms-link"/g), 0)
+
+  // 可視範囲の外の行は矢印と同じ扱いで落とす。
+  const windowed = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: 1 }}
+              milestones={[{ mark, lane: 0 }]} milestoneHeight={32}
+              milestoneLinks={[{ taskId: "b", milestoneId: "m1" }]}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("a row outside the window draws no line", count(windowed, /class="zk-ms-link"/g), 0)
+
+  // 日課はバーではなく点で描く。バーの上端を掴む線は引けない。
+  const daily = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[{ mark, lane: 0 }]} milestoneHeight={32}
+              dailyTasks={{ a: { rule: { kind: "interval", intervalDays: 1 }, done: [] } }}
+              milestoneLinks={[{ taskId: "a", milestoneId: "m1" }]}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("a daily task draws no milestone link", count(daily, /class="zk-ms-link"/g), 0)
+}
+
+/*
  * --- keyboard: いま文字を打っているか ---
  *
  * 最後に置くのは、ここで偽の HTMLElement / document を globalThis に載せるため。

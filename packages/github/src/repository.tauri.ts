@@ -84,6 +84,10 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
     return call<ParentIssue | null>("get_parent_issue", { issueId })
   }
 
+  listIssueParents(issueIds: string[]): Promise<Record<string, string | null>> {
+    return call<Record<string, string | null>>("list_issue_parents", { issueIds })
+  }
+
   setParentIssue(issueId: string, parentIssueId: string | null): Promise<void> {
     return call<void>("set_parent_issue", { issueId, parentIssueId })
   }

@@ -216,6 +216,15 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
     return Promise.resolve(null)
   }
 
+  /**
+   * 読み取り専用ビューは盤面にマイルストーンへの線を引かない。
+   * 引かない以上、親を引く必要も無いので空で返す（milestoneLinkSources は
+   * 載っていないタスクを落とすため、これで 1 本も出ない）。
+   */
+  listIssueParents(): Promise<Record<string, string | null>> {
+    return Promise.resolve({})
+  }
+
   setParentIssue(): Promise<never> {
     return Promise.reject(
       new GitHubError("unsupported", "読み取り専用ビューでは変更できません"),

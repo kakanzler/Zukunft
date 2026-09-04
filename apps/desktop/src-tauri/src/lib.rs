@@ -233,6 +233,18 @@ async fn get_parent_issue(
     state.client()?.issue_parent(&issue_id).await
 }
 
+/// 複数の Issue の親（Issue の node id -> 親の node id）。
+///
+/// 盤面がマイルストーンへ線を引くのに使う。引けなかった Issue は鍵ごと落ちるので、
+/// 呼び出し側は「載っていない = 親が分からない」として線を引かない。
+#[tauri::command]
+async fn list_issue_parents(
+    state: State<'_>,
+    issue_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, Option<String>>, AppError> {
+    state.client()?.issue_parents(&issue_ids).await
+}
+
 /// 親を付け替える。parent_issue_id が None なら外す。
 ///
 /// 外すには今の親が要る（GitHub の removeSubIssue は親を指定する）ので、
@@ -777,6 +789,7 @@ pub fn run() {
             create_task,
             update_task_content,
             get_parent_issue,
+            list_issue_parents,
             set_parent_issue,
             list_labels,
             list_assignable_users,

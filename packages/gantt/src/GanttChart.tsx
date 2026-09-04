@@ -16,6 +16,7 @@ import {
   detectCycles,
   isScheduled,
   maxDate,
+  milestoneLinkSources,
   resolveDependencies,
   timelineRange,
   today,
@@ -42,6 +43,7 @@ export type ColoredMilestone = Milestone & { color?: string }
 /** 既定値をその場で書くと毎回別の配列になり、行の再計算が止まらなくなる。 */
 const EMPTY_PARENTS: string[] = []
 const EMPTY_MILESTONES: ColoredMilestone[] = []
+const EMPTY_PARENT_BY_ISSUE: Record<string, string | null> = {}
 const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
 export type GanttChartProps = {
@@ -81,6 +83,14 @@ export type GanttChartProps = {
    */
   milestones?: ColoredMilestone[]
   /**
+   * Issue の node id -> 親 Issue の node id（親が無ければ null）。
+   *
+   * 盤面からマイルストーンへ線を引くのに使う。線は親を持たないタスクからだけ
+   * 引くので、載っていないタスクは「親が分からない」として引かない。
+   * 渡さない読み取り専用ビューでは 1 本も引かない。
+   */
+  parentByIssueId?: Record<string, string | null>
+  /**
    * 盤面のマイルストーンを押したとき。カテゴリの割り当てを開く用途。
    * 渡さない読み取り専用ビューでは押せないままにする。
    */
@@ -107,6 +117,7 @@ export function GanttChart({
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
   milestones: repositoryMilestones = EMPTY_MILESTONES, emptyMessage, toolbar, subHeader,
   onMilestoneOpen, dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
+  parentByIssueId = EMPTY_PARENT_BY_ISSUE,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
@@ -182,6 +193,24 @@ export function GanttChart({
     () => detectCycles(tasks, dependencies).cyclicEdges,
     [tasks, dependencies],
   )
+  /**
+   * マイルストーンへ引く線。親を持たないタスクからだけ引く（milestoneLinkSources）。
+   *
+   * id を差し替えているのは、mergeMilestones が同じ題のマイルストーンを 1 つに
+   * 畳み、id は先に見た方だけを残すため。畳まれた側の id のまま渡すと、菱形が
+   * 見つからず、線だけが黙って消える。
+   */
+  const milestoneLinks = useMemo(() => {
+    const keptIdByTitle = new Map(milestones.map((m) => [m.title, m.id]))
+    const titleById = new Map(
+      tasks.flatMap((t) => (t.milestone ? [[t.milestone.id, t.milestone.title] as const] : [])),
+    )
+    return milestoneLinkSources(tasks, parentByIssueId).map((link) => {
+      const kept = keptIdByTitle.get(titleById.get(link.milestoneId) ?? "")
+      return kept && kept !== link.milestoneId ? { ...link, milestoneId: kept } : link
+    })
+  }, [tasks, parentByIssueId, milestones])
+
   const visible = useMemo(
     () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
     [scrollTop, viewportHeight, rows.length],
@@ -355,6 +384,7 @@ export function GanttChart({
           milestoneHeight={milestoneHeight}
           onMilestoneOpen={onMilestoneOpen}
           dependencies={dependencies}
+          milestoneLinks={milestoneLinks}
           cyclicEdges={cyclicEdges}
           theme={theme}
           onTaskDatesChange={onTaskDatesChange}

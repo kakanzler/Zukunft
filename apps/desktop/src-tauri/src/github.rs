@@ -63,6 +63,11 @@ const REOPEN_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/reopenIssue.graphql");
 const ISSUE_PARENT: &str =
     include_str!("../../../../packages/github/src/queries/issueParent.graphql");
+const ISSUE_PARENTS: &str =
+    include_str!("../../../../packages/github/src/queries/issueParents.graphql");
+
+/// nodes(ids:) が 1 回に受け取れる上限。GitHub が決めている値。
+const NODES_BATCH: usize = 100;
 const ADD_SUB_ISSUE: &str =
     include_str!("../../../../packages/github/src/queries/addSubIssue.graphql");
 const REMOVE_SUB_ISSUE: &str =
@@ -595,6 +600,41 @@ impl GitHubClient {
                 url: p.get("url").and_then(Value::as_str).unwrap_or("").to_owned(),
             })
         }))
+    }
+
+    /// 複数の Issue の親を、Issue の node id -> 親の node id（無ければ None）で返す。
+    ///
+    /// 盤面がマイルストーンへ線を引くのに使う。一覧（PROJECT_ITEMS）には混ぜない
+    /// — sub-issue のフィールドが使えない GitHub ではクエリごと失敗するので、
+    /// 混ぜると盤面が丸ごと出なくなる。別に引けば、失敗しても線が出ないだけで済む。
+    ///
+    /// nodes の ids は 1 回 100 件までなので、そこで割って回す。pages() は使わない
+    /// — 辿るのは接続のカーソルではなく、こちらが持っている id の並びのため。
+    ///
+    /// 引けなかった Issue は鍵ごと落とす。None（親が無い）として返すと、
+    /// 呼び出し側が「親が無い」と読んで、引くべきでないところから線が出る。
+    pub async fn issue_parents(
+        &self,
+        issue_ids: &[String],
+    ) -> AppResult<std::collections::HashMap<String, Option<String>>> {
+        let mut parents = std::collections::HashMap::new();
+        for chunk in issue_ids.chunks(NODES_BATCH) {
+            let data = self.graphql(ISSUE_PARENTS, json!({ "ids": chunk })).await?;
+            let nodes = data.get("nodes").and_then(Value::as_array);
+            for node in nodes.into_iter().flatten() {
+                // Issue 以外（ids に紛れた別の型）や消えた node は id を持たない。
+                let Some(id) = node.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let parent = node
+                    .get("parent")
+                    .and_then(|p| p.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                parents.insert(id.to_owned(), parent);
+            }
+        }
+        Ok(parents)
     }
 
     /// 親を付ける。既に別の親が付いていても付け替える（replaceParent）。

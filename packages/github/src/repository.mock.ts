@@ -122,6 +122,21 @@ const DEPENDS_ON = new Set([1, 4, 6, 7, 9, 10, 12, 13])
  */
 const CYCLE_BACK = new Map<number, number>([[10, 11], [11, 10]])
 
+/**
+ * モックで親子関係を持たせる Issue（子の添字 -> 親の添字）。
+ *
+ * 盤面がマイルストーンへ線を引くのは「親を持たないタスク」からだけなので、
+ * 全部が親無しだと、線を絞れているのか絞れていないのかを実機で見分けられない。
+ * 同じマイルストーンに複数のタスクが付く組（0-3 / 4-6 / 7-10 / 11-14）の中で、
+ * 先頭以外に親を持たせて、線が先頭 1 本に絞られることを確かめられるようにする。
+ */
+const SUB_ISSUE_OF = new Map<number, number>([
+  [1, 0], [2, 0], [3, 0],
+  [5, 4], [6, 4],
+  [8, 7], [9, 7], [10, 7],
+  [12, 11], [13, 11], [14, 11],
+])
+
 function buildTasks(origin: string): ScheduleTask[] {
   return SEED.map(([title, statusIndex, milestoneIndex, offset, duration, progress], i) => ({
     id: `mock-item-${i + 1}`,
@@ -391,8 +406,14 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     return [{ id: "mock-repo-1", nameWithOwner: "example/zukunft" }]
   }
 
-  /** 親子関係。モックでは覚えるだけで、GitHub 側の制約（循環など）は見ない。 */
-  #parents = new Map<string, string>()
+  /**
+   * 親子関係。モックでは覚えるだけで、GitHub 側の制約（循環など）は見ない。
+   * 初期値は SUB_ISSUE_OF — 親のある Issue が 1 件も無いと、盤面の線が
+   * 「親を持たないタスクからだけ」に絞れていることを実機で確かめられない。
+   */
+  #parents = new Map<string, string>(
+    [...SUB_ISSUE_OF].map(([child, parent]) => [`mock-issue-${child + 1}`, `mock-issue-${parent + 1}`]),
+  )
 
   async getParentIssue(issueId: string): Promise<ParentIssue | null> {
     await this.#delay()
@@ -401,6 +422,18 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     return parent
       ? { issueId: parent.issueId, number: parent.issueNumber, title: parent.title, url: parent.url }
       : null
+  }
+
+  async listIssueParents(issueIds: string[]): Promise<Record<string, string | null>> {
+    await this.#delay()
+    const parents: Record<string, string | null> = {}
+    // 知らない id は鍵ごと落とす。実物も引けなかった Issue を返さないので、
+    // モックだけが「親が無い」と答えると、線の絞り込みの確認にならない。
+    for (const issueId of issueIds) {
+      if (!this.#tasks.some((t) => t.issueId === issueId)) continue
+      parents[issueId] = this.#parents.get(issueId) ?? null
+    }
+    return parents
   }
 
   async setParentIssue(issueId: string, parentIssueId: string | null): Promise<void> {

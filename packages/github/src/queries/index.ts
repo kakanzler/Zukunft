@@ -30,6 +30,7 @@ import closeIssue from "./closeIssue.graphql"
 import reopenIssue from "./reopenIssue.graphql"
 import deleteIssue from "./deleteIssue.graphql"
 import issueParent from "./issueParent.graphql"
+import issueParents from "./issueParents.graphql"
 import addSubIssue from "./addSubIssue.graphql"
 import removeSubIssue from "./removeSubIssue.graphql"
 
@@ -87,5 +88,8 @@ export const DELETE_ISSUE = deleteIssue
 
 /** sub-issue（親子関係）。使えない GitHub もあるので一覧の選択には混ぜない。 */
 export const ISSUE_PARENT = issueParent
+
+/** 盤面の線を引くために親だけをまとめて引く。ids は 1 回 100 件まで。 */
+export const ISSUE_PARENTS = issueParents
 export const ADD_SUB_ISSUE = addSubIssue
 export const REMOVE_SUB_ISSUE = removeSubIssue

@@ -1,0 +1,16 @@
+# 複数の Issue の親（GitHub の sub-issue 関係）をまとめて引く。
+#
+# issueParent.graphql と同じく、projectItems の選択には混ぜない。sub-issue の
+# フィールドはこの GitHub で使えないことがあり、混ぜると一覧の取得そのものが
+# 失敗して盤面が真っ白になる。別のクエリにしておけば、失敗しても
+# 「親が読めなかった」で済み、盤面は今までどおり出る。
+#
+# nodes の ids は 1 回 100 件まで。呼ぶ側が 100 件ずつに割って渡す。
+query IssueParents($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Issue {
+      id
+      parent { id }
+    }
+  }
+}

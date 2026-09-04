@@ -557,6 +557,16 @@
 /* 循環した依存。成立しない日程なので、色と破線の両方で他と区別する。 */
 .zk-dep-line--cyclic { stroke-dasharray: 5 4; opacity: 1; }
 
+/* タスクから、そのマイルストーンの期日へ向かう線。色は菱形と同じものを
+   Timeline.tsx が stroke に置く（揃えないと、どの菱形へ向かう線か分からない）。
+   依存の矢印と同じ細さ・薄さにするのは、どちらもバーより目立ってはいけないため。 */
+.zk-root .zk-ms-link {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
 /* 菱形と題名で同じ色を読む。別々に持つと、カテゴリ色を当てたときに
    片方だけが変わって「どの期日の話か」が結び付かなくなる。 */
 .zk-root { --zk-milestone-color: #a855f7; }

@@ -47,6 +47,21 @@ export interface GitHubScheduleRepository {
   getParentIssue(issueId: string): Promise<ParentIssue | null>
 
   /**
+   * 複数の Issue の親を、Issue の node id -> 親の node id（無ければ null）で返す。
+   *
+   * 盤面がマイルストーンへ線を引くのに使う。線は「親を持たないタスク」からだけ
+   * 引くので、盤面に並ぶ全部の親が要る。
+   *
+   * getTasks の一覧クエリには混ぜない。sub-issue のフィールドが使えない GitHub では
+   * クエリごと失敗するので、混ぜると盤面が丸ごと出なくなる。別に引いておけば、
+   * 失敗しても「親が読めなかった」— 線が出ないだけで済む。
+   *
+   * 引けなかった Issue は鍵ごと落とす。null（親が無い）と読み替えると、
+   * 引くべきでないところから線が出る。
+   */
+  listIssueParents(issueIds: string[]): Promise<Record<string, string | null>>
+
+  /**
    * 親を付け替える。`parentIssueId` が null なら外す。
    * 既に別の親が付いていても付け替える（GitHub 側の replaceParent）。
    */
