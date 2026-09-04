@@ -105,8 +105,8 @@
   /* サイドバー。左がいちばん明るく、盤面へ近づくほど落とす
      （specifications/apeearance/appearance_overall_color_bluesystem.png の実測値）。
      画面の左端を光らせて、そこから盤面の闇へ向かう流れを作る。 */
-  --zk-sidebar-from: #0e28ed;
-  --zk-sidebar-to: #03093b;
+  --zk-sidebar-from: #4351ff;
+  --zk-sidebar-to: #000534;
 
   /* スクロールバーのつまみ。既定は青→シアンだが、BlueSystem では
      シアンを Complete の Status 色として使っているので、つまみと取り違える。
@@ -221,19 +221,20 @@
    rgba を手で書くのは color-mix が WebView2 の版によって効かないため。
 
    段階を 2 つに分ける。GANTT の本体（左ペイン・月週ヘッダ・マイルストーン帯）は
-   0.5——盤面はいちばん長く見る場所なので、地の質感を保ちながらも文字は
+   0.6——盤面はいちばん長く見る場所なので、地の質感を保ちながらも文字は
    崩さない濃さにする。それより上（Project 選択・day/week/month の帯と、
    タイトルで絞り込む行）とサイドバー・ログペインは 0.7——常に視野に入るが
    長時間見つめる場所ではないので、より透けさせてよい。
-   --bg-surface #0d1630 / --bg-elevated #121d3d / ログの #080c14 に掛けたもの。 */
-[data-gantt-theme="blue-system"] .zk-pane { background: rgba(13, 22, 48, 0.5); }
+   GANTT 本体とログペインは固有色を #01071B（rgb(1, 7, 27)）に統一。
+   ヘッダ・フィルタ行だけは --bg-elevated #121d3d のまま触れない。 */
+[data-gantt-theme="blue-system"] .zk-pane { background: rgba(1, 7, 27, 0.6); }
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
-[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(18, 29, 61, 0.5); }
-[data-gantt-theme="blue-system"] .zk-log { background: rgba(8, 12, 20, 0.7); }
+[data-gantt-theme="blue-system"] .zk-pane-milestone { background: rgba(1, 7, 27, 0.6); }
+[data-gantt-theme="blue-system"] .zk-log { background: rgba(1, 7, 27, 0.7); }
 /* ヘッダ（Project 選択・day/week/month・New Issue の帯）とフィルタ行
    （「番号かタイトルで絞り込む」）。GANTT の本体より上に固定されている帯なので、
-   本体側（0.5）とは別の濃さ（0.7）にする。 */
+   本体側（0.6）とは別の濃さ（0.7）にする。 */
 [data-gantt-theme="blue-system"] .zk-header,
 [data-gantt-theme="blue-system"] .zk-filter { background: rgba(18, 29, 61, 0.7); }
 
@@ -253,18 +254,11 @@
 
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
 
-   途中に止め位置を置いて、左端から早く暗くする。端から端まで一様に落とすと
-   全体が明るいままで、盤面の闇へ向かう流れが出ない。42% で落としきり、
-   そこから右は一定 — 盤面との境目が同じ暗さで揃う。 */
+   2 色だけの単純な階調に変更。左端の #4351ff は不透明のまま光らせ、
+   右端の #000534 は自身の alpha（4a = 0.29）で早々に透けさせる —
+   間に止め位置を置いて明るさを保つ必要がなくなった分、記述も単純になる。 */
 [data-gantt-theme="blue-system"] .zk-sidebar {
-  /* 階調の両端に 0.7 を掛ける（サイドバーはログペインと同じ濃さに揃える）。
-     #0e28ed -> rgba(14,40,237,.7) / #03093b -> rgba(3,9,59,.7) */
-  background: linear-gradient(
-    90deg,
-    rgba(14, 40, 237, 0.7) 0%,
-    rgba(3, 9, 59, 0.7) 42%,
-    rgba(3, 9, 59, 0.7) 100%
-  );
+  background: linear-gradient(90deg, rgba(67, 81, 255, 1), rgba(0, 5, 52, 0.29));
 }
 
 /* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
