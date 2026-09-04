@@ -40,7 +40,12 @@ type Props = {
   availableMilestones: Milestone[]
   onCreateLabel: (repositoryId: string, name: string, color: string) => Promise<Label | null>
   onDeleteLabel: (repositoryId: string, label: Label) => Promise<boolean>
-  onCreate: (input: NewTaskInput) => void
+  /**
+   * 起票する。dailyIntervalDays は日課にする場合の間隔（日）で、
+   * 日課にしないなら null。日課の設定は GitHub ではなくアプリ側に持つので、
+   * Issue を作った後に返る id で書きに行くのは呼び出し側の仕事になる。
+   */
+  onCreate: (input: NewTaskInput, dailyIntervalDays: number | null) => void
   onClose: () => void
 }
 
@@ -85,6 +90,16 @@ export function NewTaskModal({
   const [statusOptionId, setStatusOptionId] = useState("")
   const [labels, setLabels] = useState<Label[]>([])
   const [milestoneId, setMilestoneId] = useState("")
+  // 日課にするか。日付は Start / Target Date を流用するので、ここで持つのは
+  // 「繰り返すかどうか」と「間隔」だけ。
+  const [daily, setDaily] = useState(false)
+  /**
+   * 間隔は文字列で持つ。数値にすると打ち消した瞬間に 0 や NaN になり、
+   * 「消して打ち直す」という当たり前の操作ができなくなる。送るときに数値へ直す。
+   */
+  const [intervalText, setIntervalText] = useState("1")
+  // 終わりの指定。無期限なら Target Date を空のままにする（＝最後の実行日なし）。
+  const [endless, setEndless] = useState(true)
 
   // ラベルと Milestone の id はリポジトリごとに別物。作成先を変えても残すと
   // 別リポジトリの id を送ることになるので捨てる。
@@ -104,8 +119,16 @@ export function NewTaskModal({
   const bothFilled = start !== "" && end !== ""
   const noneFilled = start === "" && end === ""
   const wellFormed = isISODate(start) && isISODate(end)
-  const datesOk = noneFilled || (bothFilled && wellFormed && start <= end)
-  const canSubmit = repositoryId !== "" && title.trim() !== "" && datesOk && !busy
+  // 無期限の日課だけは Start Date だけで成り立つ。最後の実行日が無いという
+  // 指定そのものが Target Date の空欄なので、片側だけを認める唯一の場合。
+  const startOnly = daily && endless && isISODate(start) && end === ""
+  const datesOk = startOnly || noneFilled || (bothFilled && wellFormed && start <= end)
+  const interval = Number(intervalText)
+  const intervalOk = Number.isInteger(interval) && interval >= 1
+  // 日課は Start Date が最初の実行日。起点が無いと点を置く場所が決まらないので、
+  // 「日課だが開始日が無い」状態では作らせない。
+  const dailyOk = !daily || (isISODate(start) && intervalOk)
+  const canSubmit = repositoryId !== "" && title.trim() !== "" && datesOk && dailyOk && !busy
 
   const submit = () => {
     if (!canSubmit) return
@@ -117,8 +140,11 @@ export function NewTaskModal({
     if (bothFilled && wellFormed) {
       input.startDate = start as ISODate
       input.endDate = end as ISODate
+    } else if (startOnly) {
+      // 無期限の日課。Target Date は入れない — 空であること自体が「終わりなし」。
+      input.startDate = start as ISODate
     }
-    onCreate(input)
+    onCreate(input, daily ? interval : null)
   }
 
   return (
@@ -246,23 +272,104 @@ export function NewTaskModal({
             </label>
             <label className="zk-field">
               <span className="zk-field-label">Target Date</span>
-              <input className="zk-input" type="date" value={end} disabled={!canEditDates}
+              <input className="zk-input" type="date" value={end}
+                     /* 無期限の日課では最後の実行日が無い。空であること自体が
+                        その指定なので、打てないようにして空に保つ。 */
+                     disabled={!canEditDates || (daily && endless)}
                      onChange={(e) => setEnd(e.target.value)} />
             </label>
+          </div>
+
+          {/* 日課。日付欄の直後に置くのは、ここで決めるのが「日付の読み方」だから。
+              Start Date が最初の実行日、Target Date が最後の実行日になる。 */}
+          <div className="zk-field zk-daily-edit">
+            <span className="zk-field-label">日課</span>
+            <label className="zk-daily-check">
+              <input
+                type="checkbox"
+                checked={daily}
+                disabled={!canEditDates}
+                onChange={(e) => {
+                  setDaily(e.target.checked)
+                  // 日課に切り替えた時点では終わりを決めていない。既定の無期限に
+                  // 合わせて Target Date を空に戻す。
+                  if (e.target.checked && endless) setEnd("")
+                }}
+              />
+              決まった間隔で繰り返す
+            </label>
+            {daily && (
+              <>
+                <div className="zk-daily-row">
+                  <input
+                    className="zk-input zk-daily-interval"
+                    type="number"
+                    aria-label="間隔（日）"
+                    min={1}
+                    step={1}
+                    value={intervalText}
+                    disabled={!canEditDates}
+                    onChange={(e) => setIntervalText(e.target.value)}
+                  />
+                  日ごと
+                </div>
+                <div className="zk-daily-row">
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-new-task-daily-end"
+                      checked={endless}
+                      disabled={!canEditDates}
+                      onChange={() => {
+                        setEndless(true)
+                        setEnd("")
+                      }}
+                    />
+                    無期限
+                  </label>
+                  <label className="zk-daily-choice">
+                    <input
+                      type="radio"
+                      name="zk-new-task-daily-end"
+                      checked={!endless}
+                      disabled={!canEditDates}
+                      onChange={() => setEndless(false)}
+                    />
+                    期日まで（Target Date）
+                  </label>
+                </div>
+              </>
+            )}
+            <div className="zk-daily-note">
+              GitHub 上は普通の Issue のままです。Start Date が最初の実行日、
+              Target Date が最後の実行日になります（空なら無期限）。
+            </div>
           </div>
 
           <div style={{ fontSize: 11, color: "var(--text-secondary)", minHeight: 16 }}>
             {!canEditDates
               ? "Project に Start Date / Target Date が無いため、日程は後から設定します。"
-              : noneFilled
-                ? "日程は任意です。未入力なら日付なしの Issue として作成します。"
-                : !bothFilled
-                  ? "日程を入れる場合は両方を指定してください。"
-                  : !wellFormed
-                    ? "日付の形式が正しくありません。"
-                    : start > end
-                      ? "開始日は終了日以前にしてください。"
-                      : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
+              : daily && !isISODate(start)
+                ? "日課は Start Date が最初の実行日です。開始日を入れてください。"
+                : daily && !intervalOk
+                  ? "間隔は 1 以上の整数で指定してください。"
+                  : daily && endless
+                    ? `${start} から ${interval} 日ごとに繰り返します（終わりなし）`
+                    : daily && (!bothFilled || !wellFormed)
+                      ? "期日までにする場合は Target Date を指定してください。"
+                      : daily && start > end
+                        ? "開始日は終了日以前にしてください。"
+                        : daily
+                          ? `${start} から ${end} まで ${interval} 日ごとに繰り返します`
+                          : noneFilled
+                            ? "日程は任意です。未入力なら日付なしの Issue として作成します。"
+                            : !bothFilled
+                              ? "日程を入れる場合は両方を指定してください。"
+                              : !wellFormed
+                                ? "日付の形式が正しくありません。"
+                                : start > end
+                                  ? "開始日は終了日以前にしてください。"
+                                  : `${inclusiveDays(start as ISODate, end as ISODate)} 日間`}
           </div>
         </div>
 

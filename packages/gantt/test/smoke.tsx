@@ -6,6 +6,7 @@ import {
   computeStats,
   createTimeScale,
   edgeKey,
+  occurrences,
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
 import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
@@ -514,6 +515,86 @@ const count = (haystack: string, pattern: RegExp): number =>
   )
   eq("an empty board still draws the axis and no bars",
      [count(empty, /class="zk-bar"/g), count(empty, /class="zk-thead-month"/g) > 0], [0, true])
+}
+
+/*
+ * --- Timeline / TaskPane: 日課は点で描く ---
+ *
+ * 日課は GitHub 上では普通の Issue のままで、変えているのは描き方だけ。
+ * バーが残っていたり、点の数が実行日と食い違ったりしても例外にはならないので、
+ * 数と印を値として確かめる。
+ */
+{
+  const scale = createTimeScale("2026-09-01", "2026-09-30", "day")
+  // 3 日おき。9/01, 9/04, 9/07 の 3 回で終わる。
+  const bounded = task({
+    id: "d", issueNumber: 21, status: "Todo",
+    startDate: "2026-09-01", endDate: "2026-09-07",
+  })
+  // 無期限（Target Date が空）。横軸の右端まで並ぶ。
+  const endless = task({ id: "e", issueNumber: 22, status: "Todo", startDate: "2026-09-01" })
+  const daily = { d: { intervalDays: 3, done: ["2026-09-04" as const] } }
+  const rows = buildRows([bounded], STATUS_ORDER, new Set())
+  const html = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[]} milestoneHeight={32} dailyTasks={daily}
+              onToggleDailyDone={() => {}} onTaskDatesChange={() => {}} />,
+  )
+
+  // 日課にバーが出ると、繰り返しが 1 本の期間として読めてしまう。
+  eq("a daily task draws no bar", count(html, /class="zk-bar"/g), 0)
+  eq("a daily task draws one dot per occurrence",
+     count(html, /class="zk-daily-dot/g),
+     occurrences("2026-09-01", "2026-09-07", 3, scale.end).length)
+  // 実行済みだけが光る。未実行まで光ると、どこまでやったのかが読めない。
+  eq("only the done occurrences glow",
+     [count(html, /zk-daily-dot--done/g), count(html, /zk-daily-dot--todo/g)], [1, 2])
+  // 発光色は Status ごと。バーと同じ変数で載せる。
+  eq("a done dot carries the status glow colour", html.includes(`--bar-glow:${glowVar(0)}`), true)
+  // 点は日の中央。マイルストーンの菱形と同じ置き方で、同じ日のものが縦に揃う。
+  eq("a dot sits at the centre of its day",
+     html.includes(`cx="${scale.toX("2026-09-01") + scale.pxPerDay / 2}"`), true)
+
+  // Target Date が空でも点は並ぶ（無期限）。ここで isScheduled に落ちると
+  // 無期限の日課が盤面から消える。
+  const endlessRows = buildRows([endless], STATUS_ORDER, new Set())
+  const endlessHtml = renderToStaticMarkup(
+    <Timeline rows={endlessRows} scale={scale} rowHeight={32}
+              visible={{ start: 0, end: endlessRows.length }}
+              milestones={[]} milestoneHeight={32}
+              dailyTasks={{ e: { intervalDays: 7, done: [] } }} onTaskDatesChange={() => {}} />,
+  )
+  eq("an open-ended daily task runs to the right edge of the axis",
+     count(endlessHtml, /class="zk-daily-dot/g),
+     occurrences("2026-09-01", null, 7, scale.end).length)
+  // ハンドラを渡さない読み取り専用ビューでは押せないままにする。
+  eq("a board without a handler leaves the dots unclickable",
+     endlessHtml.includes("cursor:pointer"), false)
+
+  // 起点が無ければ点は置けない。日課の指定だけが残っていても落ちないこと。
+  const undated = buildRows([task({ id: "u", issueNumber: 23, status: "Todo" })], STATUS_ORDER, new Set())
+  const undatedHtml = renderToStaticMarkup(
+    <Timeline rows={undated} scale={scale} rowHeight={32} visible={{ start: 0, end: undated.length }}
+              milestones={[]} milestoneHeight={32}
+              dailyTasks={{ u: { intervalDays: 1, done: [] } }} onTaskDatesChange={() => {}} />,
+  )
+  eq("a daily task with no start date draws nothing",
+     count(undatedHtml, /class="zk-daily-dot/g), 0)
+
+  // 左ペイン。無期限の日課は Target Date が空だが、繰り返し中なので
+  // 「日付未設定」の斜体にはしない。盤面と同じ dailyTasks で判定する。
+  const pane = renderToStaticMarkup(
+    <TaskPane rows={endlessRows} rowHeight={32} milestoneHeight={32}
+              visible={{ start: 0, end: endlessRows.length }} onToggleGroup={() => {}}
+              dailyTasks={{ e: { intervalDays: 7, done: [] } }} />,
+  )
+  eq("a daily task is not shown as unscheduled", count(pane, /zk-row--unscheduled/g), 0)
+  const paneWithout = renderToStaticMarkup(
+    <TaskPane rows={endlessRows} rowHeight={32} milestoneHeight={32}
+              visible={{ start: 0, end: endlessRows.length }} onToggleGroup={() => {}} />,
+  )
+  eq("the same task without the daily setting is still unscheduled",
+     count(paneWithout, /zk-row--unscheduled/g), 1)
 }
 
 /*

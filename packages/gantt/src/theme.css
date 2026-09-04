@@ -500,6 +500,24 @@
 .zk-bar-glow {
   filter: drop-shadow(0 0 3px var(--bar-glow)) drop-shadow(0 0 9px var(--bar-glow));
 }
+/* ---- 日課の点 ----
+
+   日課は「いつからいつまで」ではなく「その日にやったかどうか」なので、バーではなく
+   実行日ごとの点で描く。塗りと発光色は Status のもので、どちらも Timeline.tsx が
+   要素に載せる（--bar-glow はバーと共通）。ここで決めるのは濃さと光り方だけ。
+
+   未実行は薄く、光らせない。これから来る日が実行済みと同じ強さで並ぶと、
+   どこまでやったのかが列を見ても読めなくなる。 */
+.zk-root .zk-daily-dot--todo { fill-opacity: 0.3; }
+/* 実行済みはバーと同じ 2 段の滲み（近い滲みと広い滲み）で光らせる。点は大きくても
+   8px 角なので、菱形と同じ考え方でバーより半径を詰める。 */
+.zk-root .zk-daily-dot--done {
+  filter: drop-shadow(0 0 2px var(--bar-glow)) drop-shadow(0 0 6px var(--bar-glow));
+}
+/* BlueSystem は盤面に環境光の層が敷いてあり、地が Default より明るい。同じ濃さだと
+   未実行の点がその明るさに沈んで、日課の列が実行済みだけの飛び石に見える。 */
+[data-gantt-theme="blue-system"] .zk-daily-dot--todo { fill-opacity: 0.4; }
+
 .zk-bar-label {
   fill: var(--text-primary);
   font-size: 11px;
@@ -784,6 +802,31 @@
 
 /* 起票時の但し書き。ボタンの左に寄せ、押す前に目に入る位置に置く。 */
 .zk-new-task-note { flex: 1; font-size: 11px; color: var(--text-secondary); }
+
+/* ---- 日課の設定（起票と詳細に同じ形で置く節） ----
+
+   設定画面の .zk-set-* を借りない。あちらの差し色 --set-accent は
+   .zk-modal--settings にしか無く、ここで使うと accent-color だけが外れる。 */
+.zk-daily-edit { justify-items: start; }
+.zk-daily-check {
+  display: flex; align-items: center; gap: calc(var(--space) * 2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.zk-daily-row {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: calc(var(--space) * 2);
+  font-size: 12px; color: var(--text-secondary);
+}
+.zk-daily-choice {
+  display: flex; align-items: center; gap: calc(var(--space) * 1.5);
+  cursor: pointer;
+}
+.zk-root .zk-daily-check input,
+.zk-root .zk-daily-choice input { accent-color: var(--accent); cursor: pointer; }
+/* 間隔は 2 桁も入れば足りる。日付欄と同じ幅にすると、何を打つ欄なのか読めない。 */
+.zk-root .zk-daily-interval { width: 5em; }
+.zk-daily-note { font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
 
 /* ---- 保留中の変更（企画書 §16.2） ---- */
 .zk-modal--pending { width: min(760px, 100%); }

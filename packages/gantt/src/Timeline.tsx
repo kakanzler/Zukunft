@@ -5,12 +5,17 @@ import {
   type DateChange,
   type Dependency,
   edgeKey,
+  type ISODate,
   type MilestoneMark,
+  type Recurrence,
+  type ScheduleTask,
   type ScheduledTask,
   type TimeScale,
   inclusiveDays,
+  isDone,
   isScheduled,
   monthTicks,
+  occurrences,
   subTicks,
   today,
 } from "@zukunft/domain"
@@ -74,6 +79,17 @@ const W_OUTLINE = 14
 const BAR_RISER = 2
 
 /**
+ * 日課の点の半径（px）。
+ *
+ * 1 日ぶんの幅に収める。month ズームは 1 日が 4px しかないので、固定値だと
+ * 隣の日の点と重なって 1 本の帯に見えてしまう。行の高さにも収まる大きさで頭を打つ。
+ */
+const DAILY_DOT_RADIUS = 4
+function dailyDotRadius(pxPerDay: number): number {
+  return Math.max(1.5, Math.min(DAILY_DOT_RADIUS, pxPerDay / 2 - 0.5))
+}
+
+/**
  * 日付が変わったかを見にいく間隔。1 分でも足りるが、線が 1 分遅れて動くことに
  * 実害は無いので、起きる回数の少ない方に寄せる。
  */
@@ -102,6 +118,16 @@ type Props = {
   cyclicEdges?: ReadonlySet<string>
   /** 盤面の意匠。形が違うところをここで分ける */
   theme?: GanttTheme
+  /**
+   * 日課の設定（task id -> 間隔と実行した日）。ここにあるタスクは期間ではなく
+   * 実行日の列なので、バーではなく点で描く。
+   */
+  dailyTasks?: Record<string, Recurrence>
+  /**
+   * 点を押したとき（その日の実行を入り切りする）。
+   * 渡さない読み取り専用ビューでは押せないままにする。
+   */
+  onToggleDailyDone?: (taskId: string, date: ISODate) => void
   onTaskDatesChange: (taskId: string, change: DateChange) => void
   readOnly?: boolean
   onTaskOpen?: (taskId: string) => void
@@ -115,12 +141,14 @@ type Props = {
 /** 既定値をその場で書くと毎回別の配列になり、矢印の再計算が止まらなくなる。 */
 const EMPTY_DEPENDENCIES: Dependency[] = []
 const EMPTY_EDGES: ReadonlySet<string> = new Set()
+const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, milestoneHeight,
   dependencies = EMPTY_DEPENDENCIES,
   cyclicEdges = EMPTY_EDGES, theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
+  dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
 }: Props) {
   const { drag, begin, move, end, cancel } = useBarDrag({
     scale,
@@ -363,6 +391,25 @@ export function Timeline({
           const y = index * rowHeight
           if (row.kind === "group") return null
           const task = row.task
+
+          // 日課はバーより先に見る。無期限の日課は Target Date が空で
+          // isScheduled が false になり、バーの分岐に入ると何も描かれずに消える。
+          const recurrence = dailyTasks[task.id]
+          if (recurrence) {
+            return (
+              <DailyDots
+                key={row.key}
+                task={task}
+                recurrence={recurrence}
+                y={y}
+                scale={scale}
+                rowHeight={rowHeight}
+                statusIndex={row.statusIndex}
+                onToggle={onToggleDailyDone}
+              />
+            )
+          }
+
           if (!isScheduled(task)) return null
 
           const dragging = drag?.taskId === task.id
@@ -586,6 +633,69 @@ function BlueBar({ task, y, scale, rowHeight, statusIndex, index, uid }: BarProp
           #{task.issueNumber}
         </text>
       )}
+    </g>
+  )
+}
+
+type DailyDotsProps = {
+  task: ScheduleTask
+  recurrence: Recurrence
+  y: number
+  scale: TimeScale
+  rowHeight: number
+  statusIndex: number
+  onToggle?: (taskId: string, date: ISODate) => void
+}
+
+/**
+ * 日課の実行日を点で並べる。
+ *
+ * 日課は「いつからいつまで」ではなく「その日にやったかどうか」の列なので、
+ * バーを引かずに点を置く。Start Date が最初の実行日、Target Date が最後の実行日
+ * （空なら無期限＝横軸の右端まで）。日付は Issue 側のものをそのまま読むので、
+ * 依存関係も絞り込みも日課でこれまでどおり効く。
+ *
+ * 点はドラッグの対象にしない。幅が数 px しかなく、バーの左右端を掴み分ける
+ * hitTest が意味を持たないため、読み取り専用の分岐と同じく onClick だけを受ける。
+ */
+function DailyDots({
+  task, recurrence, y, scale, rowHeight, statusIndex, onToggle,
+}: DailyDotsProps) {
+  // 起点が無ければ点を置けない。日課の指定だけが残っている Issue でも落とさない。
+  if (task.startDate === null) return null
+  const cy = y + rowHeight / 2
+  const r = dailyDotRadius(scale.pxPerDay)
+  const color = statusVar(statusIndex)
+  const glow = { "--bar-glow": glowVar(statusIndex) } as CSSProperties
+  // occurrences が見るのは右端（fallbackEnd）だけなので、左端より手前はここで落とす。
+  // 軸の外に点を置くと、負の x で盤面の左に貼り付いた列ができる。
+  const dates = occurrences(
+    task.startDate,
+    task.endDate,
+    recurrence.intervalDays,
+    scale.end,
+  ).filter((date) => date >= scale.origin)
+
+  return (
+    <g className="zk-daily" style={onToggle ? { cursor: "pointer" } : undefined}>
+      {dates.map((date) => {
+        const done = isDone(recurrence, date)
+        return (
+          <circle
+            key={date}
+            className={done ? "zk-daily-dot zk-daily-dot--done" : "zk-daily-dot zk-daily-dot--todo"}
+            /* 日の中央。マイルストーンの菱形と同じ置き方にして、同じ日のものを縦に揃える。 */
+            cx={scale.toX(date) + scale.pxPerDay / 2}
+            cy={cy}
+            r={r}
+            fill={color}
+            /* 発光色は Status ごと。バーと同じで、塗りと同じ系統の色で滲ませないと
+               Status の色分けが光に埋もれる。未実行には載せない（光らせないため）。 */
+            style={done ? glow : undefined}
+            onClick={onToggle ? () => onToggle(task.id, date) : undefined}
+          />
+        )
+      })}
     </g>
   )
 }

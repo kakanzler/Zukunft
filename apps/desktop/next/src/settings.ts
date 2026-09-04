@@ -1,5 +1,6 @@
 "use client"
 
+import type { ISODate, Recurrence } from "@zukunft/domain"
 import { type GanttTheme, isGanttTheme } from "@zukunft/gantt"
 import { isTauri } from "@/repository"
 
@@ -41,6 +42,8 @@ type AppSettings = {
   window?: Partial<WindowSettings>
   autoReschedule?: boolean
   theme?: string
+  /** task id -> 日課（間隔と実行した日）。日付そのものは Issue 側に持つ */
+  dailyTasks?: Record<string, Partial<Recurrence>>
 }
 
 /**
@@ -53,6 +56,7 @@ const MILESTONE_CATEGORY_STORAGE_KEY = "zukunft.milestoneCategories"
 const WINDOW_STORAGE_KEY = "zukunft.window"
 const AUTO_RESCHEDULE_STORAGE_KEY = "zukunft.autoReschedule"
 const THEME_STORAGE_KEY = "zukunft.theme"
+const DAILY_TASK_STORAGE_KEY = "zukunft.dailyTasks"
 
 async function invokeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
   // Tauri の外では @tauri-apps/api の読み込み自体が失敗するため、動的に読む。
@@ -128,6 +132,62 @@ export async function saveMilestoneCategory(milestoneId: string, label: string):
   if (label === "") delete current[milestoneId]
   else current[milestoneId] = label
   window.sessionStorage.setItem(MILESTONE_CATEGORY_STORAGE_KEY, JSON.stringify(current))
+}
+
+/**
+ * 日課（繰り返し）の設定。鍵はタスクの id。
+ *
+ * 持っているのは「間隔 N」と「実行した日」だけ。最初の実行日は Issue の
+ * Start Date、最後の実行日は Target Date（空なら無期限）を流用する。
+ *
+ * マイルストーンの割り当てと同じく、読めないことを画面の失敗にはしない。
+ * 日課が普通の Issue として描かれるだけで、盤面は問題なく開ける。
+ * 形の合わない項目は落とす — 手で書き換えられた設定ファイルの 1 項目のために、
+ * 全部の日課を捨てたくない。
+ */
+export async function loadDailyTasks(): Promise<Record<string, Recurrence>> {
+  try {
+    const raw: unknown = isTauri()
+      ? (await invokeCommand<AppSettings>("get_settings", {})).dailyTasks
+      : JSON.parse(window.sessionStorage.getItem(DAILY_TASK_STORAGE_KEY) ?? "{}")
+    if (typeof raw !== "object" || raw === null) return {}
+    const result: Record<string, Recurrence> = {}
+    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value !== "object" || value === null) continue
+      const { intervalDays, done } = value as { intervalDays?: unknown; done?: unknown }
+      // 間隔が読めなければその項目ごと捨てる。0 や負数を通すと、実行日の計算が
+      // 進まないまま点を並べ続けることになる。
+      if (typeof intervalDays !== "number" || !Number.isFinite(intervalDays) || intervalDays < 1) {
+        continue
+      }
+      result[id] = {
+        intervalDays: Math.floor(intervalDays),
+        done: Array.isArray(done) ? done.filter((d): d is ISODate => typeof d === "string") : [],
+      }
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+/** 間隔 0 は「日課をやめる」。Rust 側もそのときは項目ごと消す。 */
+export async function saveDailyTask(
+  taskId: string,
+  intervalDays: number,
+  done: ISODate[],
+): Promise<void> {
+  if (!taskId) return
+  if (isTauri()) {
+    await invokeCommand<AppSettings>("set_daily_task", { taskId, intervalDays, done })
+    return
+  }
+  // モックには Rust の読み書きが無いので、同じ「消す / 入れる」をここで行う。
+  // 触ったものが画面に出ないと、実機を立ち上げるまで確かめられない。
+  const current = await loadDailyTasks()
+  if (intervalDays === 0) delete current[taskId]
+  else current[taskId] = { intervalDays, done }
+  window.sessionStorage.setItem(DAILY_TASK_STORAGE_KEY, JSON.stringify(current))
 }
 
 /**

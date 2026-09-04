@@ -10,6 +10,7 @@ import type {
   Label,
   Milestone,
   ParentIssue,
+  Recurrence,
   ScheduleTask,
   TaskContent,
 } from "@zukunft/domain"
@@ -81,6 +82,13 @@ type Props = {
   onSaveContent: (taskId: string, issueId: string, content: TaskContent) => Promise<unknown>
   onSetState: (taskId: string, issueId: string, state: IssueState) => void
   onDelete: (taskId: string, issueId: string) => void | Promise<void>
+  /** この Issue の日課の設定。日課でなければ null */
+  daily?: Recurrence | null
+  /**
+   * 日課の間隔を変える。0 は日課をやめる（実行した記録ごと消える）。
+   * 渡さなければその節を出さない。
+   */
+  onChangeDaily?: (taskId: string, intervalDays: number) => void
   onClose: () => void
   /** 一覧で e から開いたときは編集モードで始める */
   initialEditing?: boolean
@@ -127,6 +135,7 @@ export function TaskModal({
   onDesignateParentLabels, onLoadParentIssue, onChangeParentIssue,
   onChangeDates, onChangeStatus, onChangePriority, onChangeProgress,
   onSaveContent, onSetState, onDelete, onClose,
+  daily = null, onChangeDaily,
   initialEditing = false,
 }: Props) {
   const [start, setStart] = useState(task.startDate ?? "")
@@ -171,6 +180,25 @@ export function TaskModal({
     // 走り直して入力を消してしまう。日付が変わったときだけ見る。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.startDate, task.endDate])
+
+  /**
+   * 日課の間隔。Progress と同じく文字列で持つ。数値にすると打ち消した瞬間に
+   * 0（＝日課をやめる）になり、「消して打ち直す」だけで日課が消えてしまう。
+   */
+  const dailyInterval = daily?.intervalDays ?? null
+  const [intervalText, setIntervalText] = useState(
+    dailyInterval === null ? "1" : String(dailyInterval),
+  )
+  /**
+   * 保存が返ったら、または別のタスクを開いたら、その日課の値に戻す。
+   *
+   * 依存は設定そのもの（daily）ではなく間隔の数値。盤面で点を 1 つ押すたびに
+   * daily は別のオブジェクトになるので、そのまま依存にすると打ちかけの間隔が
+   * 実行の記録のたびに消える。
+   */
+  useEffect(() => {
+    setIntervalText(dailyInterval === null ? "1" : String(dailyInterval))
+  }, [task.id, dailyInterval])
 
   const progressText = task.progress === null ? "" : String(task.progress)
   const progressDirty = progress !== progressText
@@ -397,6 +425,31 @@ export function TaskModal({
     onChangeProgress(task.id, value)
   }
 
+  /**
+   * 日課の間隔の確定。Progress と同じく、打っている途中では送らない。
+   *
+   * 送り先はアプリの設定だけで GitHub には何も起きないが、1 文字ごとに保存すると
+   * 「10」を打つ途中の 1 日ごとが一瞬盤面に出て、点が数百個描き直される。
+   */
+  /** 打ってある間隔。読めなければ既定の 1 日ごと。 */
+  const typedInterval = () => {
+    const value = Number(intervalText.trim())
+    return Number.isInteger(value) && value >= 1 ? value : 1
+  }
+
+  const commitDaily = () => {
+    if (!onChangeDaily || busy) return
+    const value = Number(intervalText.trim())
+    if (!Number.isInteger(value) || value < 1) {
+      // 0 や空欄は「やめる」ではなく打ち間違い。やめるのはチェックを外す操作なので、
+      // ここでは送らずに元の値へ戻す。
+      setIntervalText(dailyInterval === null ? "1" : String(dailyInterval))
+      return
+    }
+    if (value === dailyInterval) return
+    onChangeDaily(task.id, value)
+  }
+
   // 現在の Milestone が候補に無い（閉じている等）場合も選択肢に残す。
   const milestoneChoices = task.milestone &&
     !availableMilestones.some((m) => m.id === task.milestone!.id)
@@ -554,6 +607,54 @@ export function TaskModal({
             )}
           </label>
         </div>
+
+        {/* 日課。起票の画面と同じ形で、日付欄の直後に置く。ここで決めるのは
+            日付の読み方（Start Date が最初の実行日、Target Date が最後の実行日）で、
+            間違えた間隔を後から直せる唯一の場所でもある。 */}
+        {onChangeDaily && (
+          <div className="zk-field zk-daily-edit">
+            <span className="zk-field-label">日課</span>
+            <label className="zk-daily-check">
+              <input
+                type="checkbox"
+                checked={daily !== null}
+                disabled={busy}
+                onChange={(e) => {
+                  // やめるときは間隔 0 を送る。設定側は項目ごと消えるので、
+                  // 実行した記録もそこで一緒に消える。
+                  onChangeDaily(task.id, e.target.checked ? typedInterval() : 0)
+                }}
+              />
+              決まった間隔で繰り返す
+            </label>
+            {daily !== null && (
+              <div className="zk-daily-row">
+                <input
+                  className="zk-input zk-daily-interval"
+                  type="number"
+                  aria-label="間隔（日）"
+                  min={1}
+                  step={1}
+                  value={intervalText}
+                  disabled={busy}
+                  onChange={(e) => setIntervalText(e.target.value)}
+                  onBlur={commitDaily}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      commitDaily()
+                    }
+                  }}
+                />
+                日ごと
+              </div>
+            )}
+            <div className="zk-daily-note">
+              GitHub 上は普通の Issue のままです。start date が最初の実行日、
+              target date が最後の実行日になります（空なら無期限）。
+            </div>
+          </div>
+        )}
 
         {editing && (
           <div className="zk-task-labels-edit">

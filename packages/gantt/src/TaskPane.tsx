@@ -1,11 +1,17 @@
 "use client"
 
-import { isScheduled } from "@zukunft/domain"
+import { type Recurrence, isScheduled } from "@zukunft/domain"
 import type { Row } from "./rows"
 
 type Props = {
   rows: Row[]
   rowHeight: number
+  /**
+   * 日課の設定（task id -> 間隔と実行した日）。盤面に渡すものと同じものを受け取る。
+   * 「日課かどうか」を左ペインでも同じ鍵で判定するためで、別の形で渡すと
+   * 盤面が点を描いている行を左ペインが「日付未設定」と呼ぶ食い違いが起きる。
+   */
+  dailyTasks?: Record<string, Recurrence>
   /**
    * 盤面のマイルストーン帯の高さ（段数 × 行の高さ）。
    * 向こうが多段になったぶんだけ、こちらの見出しも高くする。
@@ -18,8 +24,12 @@ type Props = {
   selectedTaskId?: string | null
 }
 
+/** 既定値をその場で書くと毎回別のオブジェクトになり、行の再描画が止まらなくなる。 */
+const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
+
 export function TaskPane({
   rows, rowHeight, milestoneHeight, visible, onToggleGroup, onTaskOpen, selectedTaskId = null,
+  dailyTasks = EMPTY_DAILY_TASKS,
 }: Props) {
   return (
     <>
@@ -72,7 +82,10 @@ export function TaskPane({
           const task = row.task
           const assignee = task.assignees[0]
           const classes = ["zk-row"]
-          if (!isScheduled(task)) classes.push("zk-row--unscheduled")
+          // 無期限の日課は Target Date が空なので、そのままでは「日付未設定」に
+          // 見えてしまう。盤面には点が並んでいて実際には繰り返し中なので、
+          // 斜体にはしない。判定は盤面と同じ dailyTasks で行う。
+          if (!isScheduled(task) && !dailyTasks[task.id]) classes.push("zk-row--unscheduled")
           if (task.id === selectedTaskId) classes.push("zk-row--selected")
           return (
             <div

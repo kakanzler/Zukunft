@@ -8,6 +8,7 @@ import {
   type ZoomLevel,
   type ISODate,
   type Milestone,
+  type Recurrence,
   collectMilestones,
   mergeMilestones,
   createTimeScale,
@@ -41,6 +42,7 @@ export type ColoredMilestone = Milestone & { color?: string }
 /** 既定値をその場で書くと毎回別の配列になり、行の再計算が止まらなくなる。 */
 const EMPTY_PARENTS: string[] = []
 const EMPTY_MILESTONES: ColoredMilestone[] = []
+const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
 export type GanttChartProps = {
   tasks: ScheduleTask[]
@@ -83,6 +85,16 @@ export type GanttChartProps = {
    * 渡さない読み取り専用ビューでは押せないままにする。
    */
   onMilestoneOpen?: (milestoneId: string) => void
+  /**
+   * 日課の設定（task id -> 間隔と実行した日）。ここにあるタスクは
+   * バーではなく実行日の点で描く。日付そのものは Issue の Start / Target Date。
+   */
+  dailyTasks?: Record<string, Recurrence>
+  /**
+   * 日課の点を押したとき（その日の実行を入り切りする）。
+   * 渡さない読み取り専用ビューでは押せないままにする。
+   */
+  onToggleDailyDone?: (taskId: string, date: ISODate) => void
   /** タスクが 0 件のときに出す案内 */
   emptyMessage?: ReactNode
   toolbar?: ReactNode
@@ -94,7 +106,7 @@ export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
   milestones: repositoryMilestones = EMPTY_MILESTONES, emptyMessage, toolbar, subHeader,
-  onMilestoneOpen,
+  onMilestoneOpen, dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
   // 横軸の右端の指定。null は「既定に従う」— タスクが増えて既定が伸びたら一緒に伸びる。
@@ -329,6 +341,7 @@ export function GanttChart({
               onToggleGroup={toggleGroup}
               onTaskOpen={onTaskOpen ? openTask : undefined}
               selectedTaskId={selectedTaskId}
+              dailyTasks={dailyTasks}
             />
           </div>
         </div>
@@ -347,6 +360,8 @@ export function GanttChart({
           onTaskDatesChange={onTaskDatesChange}
           readOnly={readOnly}
           onTaskOpen={onTaskOpen ? openTask : undefined}
+          dailyTasks={dailyTasks}
+          onToggleDailyDone={onToggleDailyDone}
           onScroll={onTimelineScroll}
           selectedTaskId={selectedTaskId}
           scrollRef={timelineRef}

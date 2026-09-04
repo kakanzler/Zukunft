@@ -5,11 +5,13 @@ import type {
   Assignee,
   DateChange,
   GroupMode,
+  ISODate,
   IssueState,
   Label,
   Milestone,
   NewMilestoneInput,
   NewTaskInput,
+  Recurrence,
   TaskContent,
   ProjectSchema,
   ProjectSummary,
@@ -28,6 +30,7 @@ import {
   isFilterActive,
   missingRequiredFields,
   resolveField,
+  toggleDone,
 } from "@zukunft/domain"
 import { DEFAULT_VIEWS, GanttChart, Sidebar, isTyping } from "@zukunft/gantt"
 import type { GanttTheme } from "@zukunft/gantt"
@@ -52,11 +55,13 @@ import {
   DEFAULT_WINDOW_SETTINGS,
   exitFullscreen,
   loadAutoReschedule,
+  loadDailyTasks,
   loadMilestoneCategories,
   loadParentLabels,
   loadTheme,
   loadWindowSettings,
   saveAutoReschedule,
+  saveDailyTask,
   saveMilestoneCategory,
   saveTheme,
   saveParentLabels,
@@ -318,6 +323,20 @@ function Workspace({
   // GitHub ではなくアプリ側の設定で、盤面の菱形の色にしかならない。
   const [milestoneCategories, setMilestoneCategories] = useState<Record<string, string>>({})
   const [savingMilestoneCategory, setSavingMilestoneCategory] = useState(false)
+  // task id -> 日課（間隔と実行した日）。GitHub ではなくアプリ側の設定で、
+  // 変わるのは盤面の描き方だけ（バーではなく実行日の点になる）。
+  // 日付そのものは Issue の Start / Target Date をそのまま読む。
+  const [dailyTasks, setDailyTasks] = useState<Record<string, Recurrence>>({})
+  /**
+   * いまの日課の設定。state と同じ中身を同期して持つ。
+   *
+   * 点の入り切りは保存を待ってから state を動かすので、待っているあいだに
+   * 2 つめの点を押されると、そちらが「押す前の値」から作られて先の 1 回が消える。
+   * 実際、連続で 2 つ押すと片方しか残らなかった。押した時点で進む控えを別に持ち、
+   * 次の押下は必ずこちらから作る。
+   */
+  const dailyTasksRef = useRef(dailyTasks)
+  dailyTasksRef.current = dailyTasks
   // 親カテゴリとして扱うラベル名。GitHub ではなくアプリ側の設定（Project ごと）。
   const [parentLabels, setParentLabels] = useState<string[]>([])
   const [savingCategories, setSavingCategories] = useState(false)
@@ -557,6 +576,11 @@ function Workspace({
     // 親カテゴリと違い、Project を切り替えても読み直さない。
     void loadMilestoneCategories().then((loaded) => {
       if (alive) setMilestoneCategories(loaded)
+    })
+    // 日課も Project に依らない（鍵はタスクの id）。マイルストーンの割り当てと同じく、
+    // Project を切り替えても読み直さない。
+    void loadDailyTasks().then((loaded) => {
+      if (alive) setDailyTasks(loaded)
     })
     return () => {
       alive = false
@@ -1287,7 +1311,7 @@ function Workspace({
   )
 
   const createTask = useCallback(
-    async (input: NewTaskInput) => {
+    async (input: NewTaskInput, dailyIntervalDays: number | null) => {
       try {
         const created = await sendCreateTask(input)
         setCreatingOpen(false)
@@ -1296,6 +1320,24 @@ function Workspace({
             level: "info",
             message: `#${created.issueNumber} ${created.title} を作成しました`,
           })
+          // 日課の設定はアプリ側にしか無く、鍵は作ってみるまで分からない task id。
+          // ここが失敗しても Issue は既にあるので、起票そのものは成功として扱い、
+          // 「日課にならなかった」ことだけを warn で残す。
+          if (dailyIntervalDays !== null) {
+            try {
+              await saveDailyTask(created.id, dailyIntervalDays, [])
+              setDailyTasks((prev) => ({
+                ...prev,
+                [created.id]: { intervalDays: dailyIntervalDays, done: [] },
+              }))
+            } catch (error) {
+              logAppend({
+                level: "warn",
+                message: `#${created.issueNumber} を日課にできませんでした`,
+                hint: `Issue は作成されています。詳細を開いて日課を設定してください（${String(error)}）`,
+              })
+            }
+          }
         }
       } catch (error) {
         const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
@@ -1416,6 +1458,77 @@ function Workspace({
   const openMilestone = useMemo(
     () => allMilestones.find((m) => m.id === openMilestoneId) ?? null,
     [allMilestones, openMilestoneId],
+  )
+
+  /**
+   * 日課の点を押したとき。その日を「実行した／していない」で入れ替える。
+   *
+   * GitHub には何も送らない。先に画面を進め、保存に失敗したときだけ戻す。
+   * 保存を待ってから進めると、待っているあいだに押した点が消えるため。
+   */
+  const toggleDailyDone = useCallback(
+    async (taskId: string, date: ISODate) => {
+      const current = dailyTasksRef.current[taskId]
+      if (!current) return
+      const next = toggleDone(current, date)
+      // 先に画面を進める。保存を待ってから進めると、待っているあいだの押下が
+      // 消える。失敗したときは同じ日をもう一度切り替えて戻す（あいだに押された
+      // 別の日はそのまま残る）。
+      dailyTasksRef.current = { ...dailyTasksRef.current, [taskId]: next }
+      setDailyTasks(dailyTasksRef.current)
+      try {
+        await saveDailyTask(taskId, next.intervalDays, next.done)
+      } catch (error) {
+        const reverted = dailyTasksRef.current[taskId]
+        if (reverted) {
+          dailyTasksRef.current = {
+            ...dailyTasksRef.current,
+            [taskId]: toggleDone(reverted, date),
+          }
+          setDailyTasks(dailyTasksRef.current)
+        }
+        // GitHub 呼び出しではないので GitHubError には包まない。
+        // Rust 側は { kind, message } を reject するため、message だけ拾う。
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        logAppend({ level: "error", message: "日課の記録を保存できませんでした", hint: detail })
+      }
+    },
+    // dailyTasks は依存に入れない。読むのは常に控え（dailyTasksRef）の方で、
+    // ここに入れると点を 1 つ押すたびにハンドラが作り直され、盤面の全行が
+    // 描き直される。
+    [logAppend],
+  )
+
+  /**
+   * 日課にする / 間隔を変える / やめる（間隔 0）。
+   *
+   * 実行した日は間隔を変えても引き継ぐ。間隔の打ち間違いを直しただけで
+   * これまでの記録が消えるのでは、直す気にならない。
+   */
+  const changeDaily = useCallback(
+    async (taskId: string, intervalDays: number) => {
+      const done = dailyTasks[taskId]?.done ?? []
+      try {
+        await saveDailyTask(taskId, intervalDays, done)
+        setDailyTasks((prev) => {
+          const next = { ...prev }
+          // 0 は「日課をやめる」。設定側も項目ごと消えるので、手元も消す。
+          if (intervalDays === 0) delete next[taskId]
+          else next[taskId] = { intervalDays, done }
+          return next
+        })
+      } catch (error) {
+        const detail =
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { message: unknown }).message)
+            : String(error)
+        logAppend({ level: "error", message: "日課の設定を保存できませんでした", hint: detail })
+      }
+    },
+    [dailyTasks, logAppend],
   )
 
   /**
@@ -1617,6 +1730,11 @@ function Workspace({
         parentLabels={parentLabels}
         milestones={allMilestones}
         onMilestoneOpen={setOpenMilestoneId}
+        dailyTasks={dailyTasks}
+        // 点はここでは常に押せる。実行した記録の行き先はアプリの設定だけで、
+        // GitHub にも Project のフィールドにも何も送らないため。
+        // 押せないのは読み取り専用ビュー（apps/web）— あちらはこの props を渡さない。
+        onToggleDailyDone={toggleDailyDone}
         theme={ganttTheme}
         onTaskDatesChange={changeTaskDates}
         readOnly={!editable}
@@ -1751,6 +1869,8 @@ function Workspace({
           onSaveContent={saveContent}
           onSetState={changeIssueState}
           onDelete={deleteTask}
+          daily={dailyTasks[openTask.id] ?? null}
+          onChangeDaily={changeDaily}
           initialEditing={openTaskEditing}
           onClose={() => setOpenTaskId(null)}
         />

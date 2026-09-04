@@ -81,6 +81,21 @@ impl WindowSettings {
     }
 }
 
+/// 日課（繰り返し）の設定。
+///
+/// 日付はここに持たない。最初の実行日は Issue の Start Date、最後の実行日は
+/// Target Date（空なら無期限）をそのまま使う。設定側にも日付を持つと、横軸の
+/// 範囲や絞り込みが見ている GitHub 側の日付と二重管理になって食い違う。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTask {
+    /// 何日ごとに繰り返すか。1 なら毎日
+    pub interval_days: u32,
+    /// 実行した日（YYYY-MM-DD）。順序は問わない
+    #[serde(default)]
+    pub done: Vec<String>,
+}
+
 /// アプリ内だけの設定。GitHub には一切書き戻さない。
 ///
 /// ラベル名の意味は Project ごとに違う（同じ「Certification」でも、別の Project では
@@ -111,6 +126,13 @@ pub struct AppSettings {
     /// 意匠が増えるたびに Rust を直さずに済ませる。
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// task id -> 日課の設定。
+    ///
+    /// Project ではなくタスクに属する設定なので、milestone_categories と同じく
+    /// project id で括らない。BTreeMap なのも同じ理由で、保存のたびに JSON の
+    /// キー順が入れ替わって差分が読めなくなるのを避けるため。
+    #[serde(default)]
+    pub daily_tasks: BTreeMap<String, DailyTask>,
 }
 
 fn default_true() -> bool {
@@ -131,6 +153,7 @@ impl Default for AppSettings {
             window: WindowSettings::default(),
             auto_reschedule: default_true(),
             theme: default_theme(),
+            daily_tasks: BTreeMap::new(),
         }
     }
 }
@@ -258,6 +281,42 @@ pub async fn set_milestone_category(
     Ok(settings)
 }
 
+/// 日課の項目を入れ替える。0 なら消す。
+///
+/// コマンド本体から切り出しているのは、AppHandle 無しで確かめられるようにするため。
+/// normalize と同じ扱いで、判断そのものはテストから直接呼ぶ。
+fn put_daily_task(
+    settings: &mut AppSettings,
+    task_id: String,
+    interval_days: u32,
+    done: Vec<String>,
+) {
+    if interval_days == 0 {
+        settings.daily_tasks.remove(&task_id);
+    } else {
+        settings
+            .daily_tasks
+            .insert(task_id, DailyTask { interval_days, done });
+    }
+}
+
+/// タスクを日課にする、または日課の内容（間隔・実行した日）を置き換える。
+///
+/// interval_days が 0 なら項目ごと消す ＝ 日課をやめる。set_parent_labels と
+/// 同じ流儀で、「やめた」印としての 0 がファイルに溜まらないようにするため。
+#[tauri::command]
+pub async fn set_daily_task(
+    app: tauri::AppHandle,
+    task_id: String,
+    interval_days: u32,
+    done: Vec<String>,
+) -> Result<AppSettings, AppError> {
+    let mut settings = read(&app);
+    put_daily_task(&mut settings, task_id, interval_days, done);
+    write(&app, &settings)?;
+    Ok(settings)
+}
+
 /// 自動の日程調整を切り替える。
 ///
 /// Project に依らない設定なので、窓の見せ方と同じくキーを持たない。
@@ -366,6 +425,21 @@ mod tests {
         assert_eq!(settings.theme, "default");
         assert!(settings.parent_labels.is_empty());
         assert!(settings.milestone_categories.is_empty());
+        // 何も設定していないうちは日課も無い。既定で 1 件でも入っていると、
+        // 覚えのないタスクが点で描かれる。
+        assert!(settings.daily_tasks.is_empty());
+    }
+
+    #[test]
+    fn a_zero_interval_removes_the_daily_task() {
+        let mut settings = AppSettings::default();
+        put_daily_task(&mut settings, "t1".to_owned(), 3, vec!["2026-09-01".to_owned()]);
+        assert_eq!(settings.daily_tasks["t1"].interval_days, 3);
+        assert_eq!(settings.daily_tasks["t1"].done, vec!["2026-09-01".to_owned()]);
+
+        // 「やめた」印としての 0 を残すと、日課でないタスクの項目がファイルに溜まる。
+        put_daily_task(&mut settings, "t1".to_owned(), 0, Vec::new());
+        assert!(settings.daily_tasks.is_empty());
     }
 
     #[test]
