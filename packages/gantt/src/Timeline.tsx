@@ -810,8 +810,9 @@ function DailyDots({
 
         // blue-system は 3 通りの見た目を分ける（Default は今までどおり
         // 実行済み／未実行の 2 通りのまま、Status 色で塗るだけ）。
-        //   - 実行済み: 中身 #bfc0f2・発光 #1b1ef2 で強く光らせる（中身と発光を
-        //     入れ替えた。中心が白っぽく浮くほうが「済んだ」と分かりやすい）。
+        //   - 実行済み: 中身は白、発光は白い芯 + シアン系のネオンを 4 段重ねる
+        //     （色そのものを theme.css 側に固定で書くので、ここでは色変数を
+        //     渡さない。fill だけ白にする）。
         //   - まだ来ていない日（透明・白寄りの枠・青い発光 #242457）。
         //   - 過ぎたのにやっていない日（透明・青い枠 #242457・ごく薄い白の発光）。
         let className: string
@@ -824,8 +825,7 @@ function DailyDots({
           style = done ? ({ "--bar-glow": glowVar(statusIndex) } as CSSProperties) : undefined
         } else if (done) {
           className = "zk-daily-dot zk-daily-dot--done"
-          fill = "#bfc0f2"
-          style = { "--bar-glow": "#1b1ef2" } as CSSProperties
+          fill = "#fff"
         } else if (date >= now) {
           className = "zk-daily-dot zk-daily-dot--upcoming"
           fill = "none"
