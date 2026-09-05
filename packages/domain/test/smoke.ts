@@ -547,10 +547,17 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
 
   // GitHub の Milestone は release/phase の大まかな括りで、ほぼ全 Issue に付き得る
   // （実際のモックデータで再現した不具合）。同じ Milestone を持つ 2 つのタスクが
-  // 直に依存し合っているときは、待たれている側（i2）だけが距離 0 になる——
-  // 「Milestone が付いている」だけでは距離 0 にしない。
-  eq("when two same-milestone tasks depend on each other, only the one nothing waits on is 0",
-     depths([dep(1, [2], true), dep(2, [], true)]), [["i1", 0], ["i2", 1]])
+  // 直に依存し合っているときは、依存元（i1、blocked-by で i2 を挙げた側）では
+  // なく依存先（i2）が距離 0 になる——依存元は既に矢印で i2 を経由することが
+  // 読めるので、近さは依存先に譲る。「Milestone が付いている」だけでは
+  // 距離 0 にしない。
+  //
+  // これは「依存元に Milestone を設定すると色の流れが逆になる」として報告された
+  // 不具合の回帰テストでもある: i1 は i2 に依存している以上、i1 自身に Milestone
+  // が付くかどうかに関わらず、ずっと依存先（i2）に近さを譲り続けなければならない
+  // （途中で i1 に Milestone を後付けしても、既に距離 0 だった i2 の色を奪わない）。
+  eq("when two same-milestone tasks depend on each other, the dependency target stays 0",
+     depths([dep(1, [2], true), dep(2, [], true)]), [["i1", 1], ["i2", 0]])
 
   // i2 は i1（別の Milestone "ms-2"）から待たれているが、i1 と i2 は Milestone が
   // 違うので、その依存は i2 の「自分の Milestone の中での近さ」を損なわない。

@@ -12,13 +12,21 @@ import type { ScheduleTask } from "./schedule"
  * 色が一切変わらない。
  *
  * 距離 0（「そのマイルストーンに最も近い」）は、代わりに次で決める:
- * マイルストーンが付いていて、かつ「同じマイルストーンを持つ他のタスクから
- * 待たれていない」タスク——言い換えると、同じマイルストーンの中で見て、
- * 自分より後に来るタスクが（宣言されている依存の範囲で）見当たらないもの。
+ * マイルストーンが付いていて、かつ「同じマイルストーンを持つ他のタスクに
+ * 自分から依存していない」タスク——言い換えると、同じマイルストーンの中で見て、
+ * 自分より先に片付ける必要がある相手が（宣言されている依存の範囲で）見当たらないもの。
  * 判定は同じマイルストーン同士の辺だけで行う。別のマイルストーンのタスクに
- * 待たれているというだけでは、自分のマイルストーンに対する近さは変わらない
- * （フェーズを跨いだ依存はよくあるが、それは前のフェーズの終盤という意味であって、
- * 自分のフェーズの終盤でなくなるわけではない）。
+ * 依存しているというだけでは、自分のマイルストーンに対する近さは変わらない
+ * （フェーズを跨いだ依存はよくあるが、それは前のフェーズが先に終わるという意味であって、
+ * 自分のフェーズの近さを損なうものではない）。
+ *
+ * 依存元（blocked-by で相手を挙げた側）ではなく依存先（挙げられた側）を残すのは、
+ * milestoneLinkSources が依存元からはマイルストーンへの線を引かないのと同じ理由。
+ * 依存元は既に依存の矢印で「その相手を経由して Milestone に向かっている」ことが
+ * 読めるので、依存元自身がマイルストーンの直近だと主張する必要がない——挙げた
+ * 相手（依存先）に近さを譲ってよい。逆にすると、既に距離 0 として見えているタスクへ、
+ * 依存元にも同じ Milestone を後から設定しただけで色が入れ替わってしまう
+ * （依存元に Milestone を設定すると色の流れが逆になる、として報告された不具合）。
  *
  * 距離 0 が決まったら、そこからの展開は同じマイルストーン縛りを外し、かつ
  * 依存している／されているの向きも問わない——依存元→依存先（自分が blocked-by
@@ -45,9 +53,10 @@ export function milestoneDepths(
   // 両方向に積む——依存元→依存先だけでなく、依存先→依存元も辿れるようにする。
   const next = new Map<string, string[]>()
   const link = (a: string, b: string) => next.set(a, [...(next.get(a) ?? []), b])
-  // 起点判定用。「同じマイルストーンの他のタスクから待たれている回数」。
-  // 1 つでもあれば、そのマイルストーンの中では最後ではない。
-  const sameMilestoneWaitedOn = new Map<string, number>()
+  // 起点判定用。「同じマイルストーンの相手に自分から依存している回数」。
+  // 1 つでもあれば、そのマイルストーンの中では自分より先に片付く相手がいる
+  // ということなので、距離 0（最も近い）を名乗らない。
+  const sameMilestoneDependsOnOther = new Map<string, number>()
 
   for (const dep of dependencies) {
     if (cyclicEdges.has(edgeKey(dep.fromTaskId, dep.toTaskId))) continue
@@ -57,7 +66,10 @@ export function milestoneDepths(
     const from = byId.get(dep.fromTaskId)
     const to = byId.get(dep.toTaskId)
     if (from?.milestone && to?.milestone && from.milestone.id === to.milestone.id) {
-      sameMilestoneWaitedOn.set(dep.toTaskId, (sameMilestoneWaitedOn.get(dep.toTaskId) ?? 0) + 1)
+      sameMilestoneDependsOnOther.set(
+        dep.fromTaskId,
+        (sameMilestoneDependsOnOther.get(dep.fromTaskId) ?? 0) + 1,
+      )
     }
   }
 
@@ -65,7 +77,7 @@ export function milestoneDepths(
   const queue: string[] = []
   for (const task of tasks) {
     if (task.milestone === null) continue
-    if ((sameMilestoneWaitedOn.get(task.id) ?? 0) > 0) continue
+    if ((sameMilestoneDependsOnOther.get(task.id) ?? 0) > 0) continue
     if (depths.has(task.id)) continue
     depths.set(task.id, 0)
     queue.push(task.id)
