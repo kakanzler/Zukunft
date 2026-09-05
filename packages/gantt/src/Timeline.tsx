@@ -1016,8 +1016,10 @@ export function buildMilestoneLinks(
     // バーを跨いで生えたように見え、どこから出た線なのかが読めない。
     const x1 = scale.toX(task.startDate) + barWidth(task, scale)
     const y1 = placement.index * rowHeight + rowHeight / 2
-    // 菱形と同じ式。ずれると線が隣の期日を指してしまう。
-    const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2
+    // 菱形の中心は菱形と同じ式（ずれると線が隣の期日を指してしまう）。
+    // 線の着地点はそこから左頂点ぶん（DIAMOND_HALF_WIDTH）手前にする——
+    // 中心まで刺さずに、菱形の左の頂点で止める。
+    const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2 - DIAMOND_HALF_WIDTH
 
     // 手前に着く線も左から差したいので、行き先の制御点は常に左側へ置く。
     // 終点は帯の直下（本体の座標ではスクロール量）。0 に固定すると、下へ辿るほど

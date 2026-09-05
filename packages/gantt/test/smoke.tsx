@@ -701,8 +701,9 @@ const count = (haystack: string, pattern: RegExp): number =>
      count(one, /class="zk-ms-link"/g), 1)
   // 線の上端は本体の上端（y = 0）。菱形は貼り付く別の帯にあり、またげない。
   // 曲線なので終点は 3 次ベジエの最後の座標として出る。
-  eq("the line stops at the top of the board",
-     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2} 0"`), true)
+  // 終点は菱形の中心ではなく左頂点（中心から DIAMOND_HALF_WIDTH = 6 手前）。
+  eq("the line stops at the top of the board, at the diamond's left vertex",
+     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2 - 6} 0"`), true)
   // 依存の矢印と同じで、出るのはバーの右端。中央から真上に伸ばすと、バーを跨いで
   // 生えたように見えてどこから出た線か読めない。
   // a は 09-01..09-03 の 3 日ぶん。day ズームは 1 日 32px なので右端は原点 + 96。
