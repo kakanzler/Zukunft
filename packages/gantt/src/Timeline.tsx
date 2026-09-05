@@ -935,7 +935,9 @@ export function buildLinks(
     // 横だけでなく縦の距離も見るのは、2 行が横には近く縦に大きく離れている
     // ときに bend が小さいままだと、水平に見える区間がほぼ無いまま急に
     // 曲がってしまうため（手前でしっかり水平に伸びてから曲がるようにする）。
-    const bend = Math.max(18, Math.min(64, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2)))
+    // 下限を 18 から 28 に上げたのは、Issue 同士が近接して角度が鋭くなる
+    // ケースでも水平部分が小さすぎないようにするため。
+    const bend = Math.max(28, Math.min(64, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2)))
 
     links.push({
       id: `${uid}-dep-${i}`,
@@ -1024,7 +1026,9 @@ export function buildMilestoneLinks(
     // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
     // 縦の距離も見るのは buildLinks と同じ理由——横は近いが縦に大きく離れた
     // 行からだと、bend が小さいままでは菱形の手前で水平に見える区間がほぼ無い。
-    const bend = Math.max(24, Math.min(90, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y1 - y2) / 2)))
+    // 下限を 24 から 36 に上げたのは、タスクと期日が近接して角度が鋭くなる
+    // ケースでも水平部分が小さすぎないようにするため。
+    const bend = Math.max(36, Math.min(90, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y1 - y2) / 2)))
     // 第 2 制御点は終点と同じ高さ（y2）に置く——これで着地の接線も出発点と
     // 同じく水平になり、菱形へ真横から刺さる。以前は 2 点の中間（rise）を
     // 使っていたが、両端をそれぞれ自分の高さに揃えても、ベジエ曲線は 4 つの
