@@ -931,7 +931,11 @@ export function buildLinks(
     const x2 = backwards ? tx + tw : tx
     const out1 = backwards ? -1 : 1
     const out2 = backwards ? 1 : -1
-    const bend = Math.max(18, Math.min(64, Math.abs(x2 - x1) / 2))
+    // 制御点は両端とも自分の高さ（y1/y2）に置くので、接線は既に両端とも水平。
+    // 横だけでなく縦の距離も見るのは、2 行が横には近く縦に大きく離れている
+    // ときに bend が小さいままだと、水平に見える区間がほぼ無いまま急に
+    // 曲がってしまうため（手前でしっかり水平に伸びてから曲がるようにする）。
+    const bend = Math.max(18, Math.min(64, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2)))
 
     links.push({
       id: `${uid}-dep-${i}`,
@@ -1012,21 +1016,25 @@ export function buildMilestoneLinks(
     // 菱形と同じ式。ずれると線が隣の期日を指してしまう。
     const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2
 
-    // 出るときは右へ、着くときは左から。制御点を左右に振ることで、
-    // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
-    const bend = Math.max(24, Math.min(90, Math.abs(x2 - x1) / 2))
     // 手前に着く線も左から差したいので、行き先の制御点は常に左側へ置く。
     // 終点は帯の直下（本体の座標ではスクロール量）。0 に固定すると、下へ辿るほど
     // 線の先が菱形から離れて宙に浮く。
     const y2 = scrollTop
-    // 制御点は 2 点の中ほど。y1 と y2 のどちらが上でも間に入るので、行が視野より
-    // 上にあるときに曲線が終点より下へ垂れることがない。
-    const rise = (y1 + y2) / 2
+    // 出るときは右へ、着くときは左から。制御点を左右に振ることで、
+    // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
+    // 縦の距離も見るのは buildLinks と同じ理由——横は近いが縦に大きく離れた
+    // 行からだと、bend が小さいままでは菱形の手前で水平に見える区間がほぼ無い。
+    const bend = Math.max(24, Math.min(90, Math.max(Math.abs(x2 - x1) / 2, Math.abs(y1 - y2) / 2)))
+    // 第 2 制御点は終点と同じ高さ（y2）に置く——これで着地の接線も出発点と
+    // 同じく水平になり、菱形へ真横から刺さる。以前は 2 点の中間（rise）を
+    // 使っていたが、両端をそれぞれ自分の高さに揃えても、ベジエ曲線は 4 つの
+    // 制御点の y の範囲（凸包）を超えないので、依存元の行が視野より上に
+    // あっても曲線が終点より下へ垂れる心配はない。
 
     paths.push({
       key: `${link.taskId}>${link.milestoneId}`,
       path:
-        `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${rise}, ${x2} ${y2}`,
+        `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
       // 色が無ければ菱形と同じ変数を読む（Default は紫、blue-system は橙）。
       color: mark.color ?? "var(--zk-milestone-color)",
     })
