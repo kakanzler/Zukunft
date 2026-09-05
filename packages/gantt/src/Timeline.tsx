@@ -236,8 +236,12 @@ export function Timeline({
     () =>
       buildMilestoneLinks(
         milestoneLinks, placed, milestones, scale, rowHeight, visible, drag, scrollTop,
+        milestoneHeight,
       ),
-    [milestoneLinks, placed, milestones, scale, rowHeight, visible, drag, scrollTop],
+    [
+      milestoneLinks, placed, milestones, scale, rowHeight, visible, drag, scrollTop,
+      milestoneHeight,
+    ],
   )
 
   return (
@@ -263,6 +267,17 @@ export function Timeline({
           帯が 1 行のままだと、送った先が帯の外にはみ出して行に重なる。 */}
       <div className="zk-milestone-row" style={{ width: scale.width, height: milestoneHeight }}>
         <svg width={scale.width} height={milestoneHeight} style={{ display: "block" }}>
+          {/* マイルストーンへの線の続き。本体の SVG では終点が帯の高さぶん上
+              （負の向き）に置いてあるため、帯の裏に隠れるか本体側の余白で切れて
+              見えなくなる。同じパスをここでも帯の高さぶん下へ平行移動して描き
+              直すと、帯からはみ出た大部分（バーの行がある側）は SVG の既定で
+              切り取られ、菱形のすぐ手前の区間だけが残る——本体側の続きとして
+              菱形まで繋がって見える。 */}
+          <g transform={`translate(0, ${milestoneHeight - scrollTop})`}>
+            {msLinks.map((link) => (
+              <path key={link.key} className="zk-ms-link" d={link.path} stroke={link.color} />
+            ))}
+          </g>
           {/* 軸の外は段を数える前（GanttChart）で落としてある。ここで落とすと、
               帯の高さは落とす前の段数のままになり、空の段が残る。 */}
           {milestones.map(({ mark, lane }) => {
@@ -970,8 +985,11 @@ export type MilestoneLinkPath = {
  * マイルストーンへ向かう線を座標に変換する。
  *
  * 菱形は本体の SVG ではなく、貼り付く別の帯（.zk-milestone-row）に描かれている。
- * 別の要素をまたぐ 1 本のパスは引けないので、線は本体側の上端（y = 0）で切る。
- * 先頭まで戻っていれば帯の菱形と繋がって見え、下へ辿れば線の上端が帯の裏に入る。
+ * 別の要素をまたぐ 1 本のパスは引けないので、ここで作るパスは本体側の座標系で
+ * 終点（菱形の本当の高さ）を計算するところまでにする。呼び出し側（Timeline
+ * 本体）が、同じパスをもう一度、帯の高さぶん平行移動した <g> で帯自身の SVG にも
+ * 描き直す——本体側は途中で切れて（あるいは帯の裏に隠れて）見えなくなるが、
+ * 帯側の SVG がその続きを菱形まで描くことで、1 本の線に繋がって見える。
  *
  * 依存の矢印とは別に組み立てる。あちらは「どちらが先か」を向きで読ませる矢印で、
  * こちらは「どの期日へ向かっているか」を示す線。先端も回り込みも付けない。
@@ -992,9 +1010,15 @@ export function buildMilestoneLinks(
    * 「画面の一番上」は常にスクロール量そのものなので、そこで切ると帯の直下に着く。
    */
   scrollTop: number,
+  /**
+   * 帯の高さ（段数 × 行の高さ）。終点を菱形の本当の高さ（段 × 行の高さ +
+   * 行の高さ / 2）に合わせるのに要る——帯の直下ではなく帯の中の菱形そのものへ
+   * 着かせたいので、帯の高さぶん引く必要がある。
+   */
+  milestoneHeight: number,
 ): MilestoneLinkPath[] {
   if (links.length === 0) return []
-  const marks = new Map(milestones.map((m) => [m.mark.id, m.mark]))
+  const marks = new Map(milestones.map((m) => [m.mark.id, m]))
 
   const paths: MilestoneLinkPath[] = []
   for (const link of links) {
@@ -1004,9 +1028,10 @@ export function buildMilestoneLinks(
     // 可視範囲の外の行は矢印と同じ扱いで落とす。行き先（y = 0）は常に上端なので、
     // 行が見えていないなら盤面に掛かる部分も無い。
     if (placement.index < visible.start || placement.index >= visible.end) continue
-    const mark = marks.get(link.milestoneId)
+    const placedMark = marks.get(link.milestoneId)
     // 軸の外の期日は菱形自体が描かれていない。向かう先の無い線は引かない。
-    if (!mark) continue
+    if (!placedMark) continue
+    const mark = placedMark.mark
 
     // ドラッグ中は仮の日付で描く。確定するまで線が元の位置に残ると、
     // 期日に寄せながら日程を動かすことができない。
@@ -1022,9 +1047,14 @@ export function buildMilestoneLinks(
     const x2 = scale.toX(mark.dueOn) + scale.pxPerDay / 2 - DIAMOND_HALF_WIDTH
 
     // 手前に着く線も左から差したいので、行き先の制御点は常に左側へ置く。
-    // 終点は帯の直下（本体の座標ではスクロール量）。0 に固定すると、下へ辿るほど
-    // 線の先が菱形から離れて宙に浮く。
-    const y2 = scrollTop
+    // 終点は菱形そのものの高さ（段 lane × 行の高さ + 行の高さ / 2）——ただし
+    // 帯は本体とは別の要素で、本体の y = 0 は「帯の直下」にしか当たらない。
+    // 帯の中の菱形へ届かせるには、帯の高さぶんだけ本体側では上（負の向き）に
+    // 置く必要がある。本体の SVG では見えなくなる（帯の裏に入る／切れる）が、
+    // 同じパスを帯自身の SVG でも帯の高さぶん下へ平行移動して描き直すことで、
+    // 帯の中に入ってからの続きが菱形まで見えるようにする。
+    const cy = placedMark.lane * rowHeight + rowHeight / 2
+    const y2 = scrollTop - milestoneHeight + cy
     // 出るときは右へ、着くときは左から。制御点を左右に振ることで、
     // 立ち上がりが真上を向かず、菱形へ横から回り込んで入る。
     // 縦の距離も見るのは buildLinks と同じ理由——横は近いが縦に大きく離れた

@@ -697,13 +697,16 @@ const count = (haystack: string, pattern: RegExp): number =>
 
   // 親を持たない a からだけ引く（b は a の子、という想定で渡さない）。
   const one = board([{ taskId: "a", milestoneId: "m1" }])
-  eq("a milestone link is drawn for the task it is given",
-     count(one, /class="zk-ms-link"/g), 1)
-  // 線の上端は本体の上端（y = 0）。菱形は貼り付く別の帯にあり、またげない。
-  // 曲線なので終点は 3 次ベジエの最後の座標として出る。
-  // 終点は菱形の中心ではなく左頂点（中心から DIAMOND_HALF_WIDTH = 6 手前）。
-  eq("the line stops at the top of the board, at the diamond's left vertex",
-     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2 - 6} 0"`), true)
+  // 本体の SVG と、帯の SVG（帯の高さぶん平行移動した <g> の中）の 2 か所に
+  // 同じパスをもう一度描き直すので、リンク 1 本につき <path> は 2 つになる。
+  eq("a milestone link is drawn for the task it is given (once in the body, once in the band)",
+     count(one, /class="zk-ms-link"/g), 2)
+  // 曲線なので終点は 3 次ベジエの最後の座標として出る。終点は菱形の中心では
+  // なく左頂点（中心から DIAMOND_HALF_WIDTH = 6 手前）。高さは菱形そのものの
+  // 高さ（lane 0 × rowHeight 32 + rowHeight/2 = 16）を、帯の高さ（32）ぶん
+  // 本体側の座標へ引き戻したもの（scrollTop 0 - milestoneHeight 32 + cy 16 = -16）。
+  eq("the line stops at the diamond's left vertex, at the diamond's true height",
+     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2 - 6} -16"`), true)
   // 依存の矢印と同じで、出るのはバーの右端。中央から真上に伸ばすと、バーを跨いで
   // 生えたように見えてどこから出た線か読めない。
   // a は 09-01..09-03 の 3 日ぶん。day ズームは 1 日 32px なので右端は原点 + 96。
@@ -718,9 +721,9 @@ const count = (haystack: string, pattern: RegExp): number =>
 
   // 親を持つタスクの分は milestoneLinkSources が落とすので、ここへは来ない。
   // 来た分だけを引くことを、両方渡した場合の本数で確かめる。
-  eq("every link it is given is drawn",
+  eq("every link it is given is drawn (2 paths per link: body + band)",
      count(board([{ taskId: "a", milestoneId: "m1" }, { taskId: "b", milestoneId: "m1" }]),
-           /class="zk-ms-link"/g), 2)
+           /class="zk-ms-link"/g), 4)
 
   // 渡さない読み取り専用ビュー（apps/web）では 1 本も引かない。
   eq("a board with no links draws none", count(board(undefined), /class="zk-ms-link"/g), 0)
