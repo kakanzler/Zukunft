@@ -1,6 +1,6 @@
 {
   "name": "@zukunft/web",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
@@ -8,9 +8,9 @@
     "start": "next start"
   },
   "dependencies": {
-    "@zukunft/domain": "0.1.14",
-    "@zukunft/gantt": "0.1.14",
-    "@zukunft/github": "0.1.14",
+    "@zukunft/domain": "0.1.15",
+    "@zukunft/gantt": "0.1.15",
+    "@zukunft/github": "0.1.15",
     "next": "^14.2.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
