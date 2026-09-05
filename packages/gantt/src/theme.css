@@ -174,9 +174,13 @@
 /* 線幅の階層。縦線はすべて整数 x に載るので、嘘のない太さは 1px（x+0.5 に描く）と
    2px（x に描く）だけ。1.25 や 1.5 の縦線は常にぼやけ、階層ではなく粗に見える。
    1px を超える重さは、1px の線に半透明の帯を添えて出す。小数の太さは曲線と斜線
-   （依存の矢印・マイルストーンの縁）にだけ使う。 */
+   （依存の矢印・マイルストーンの縁）にだけ使う。
+   Week 毎の目盛りは実測で指定された青 #1009e0 の点線にする（day/week ズームで
+   使う細かい目盛り。month ズームの --month 修飾は下でさらに上書きするので、
+   月表示の色そのものは変わらない——点線だけそちらにも及ぶ）。 */
 [data-gantt-theme="blue-system"] .zk-grid-line {
-  stroke: var(--zk-grid-tick);
+  stroke: #1009e0;
+  stroke-dasharray: 2 3;
 }
 [data-gantt-theme="blue-system"] .zk-grid-line--month {
   stroke: rgba(140, 160, 200, 0.22);
@@ -247,11 +251,14 @@
 }
 
 /* 題名も菱形と同じ色で、同じように光らせる。菱形だけ光って題が沈むと、
-   何の期日なのかが読めないまま光だけが目に付く。 */
+   何の期日なのかが読めないまま光だけが目に付く。
+   色・滲みは実測で指定された固定値（#f78e6a / #ed460e）に揃える——
+   カテゴリ色を割り当てた菱形でも題名の色文字は変えない。 */
 [data-gantt-theme="blue-system"] .zk-milestone-label {
+  fill: #f78e6a;
   text-shadow:
-    0 0 2px var(--zk-milestone-color),
-    0 0 7px var(--zk-ms-glow, rgba(255, 90, 48, 0.55));
+    0 0 2px #ed460e,
+    0 0 7px #ed460e;
 }
 
 /* 上に載る面を半透明にする（BlueSystem のみ）。地は .zk-root の --bg-base
@@ -294,18 +301,31 @@
   background: rgba(0, 4, 54, 0.7);
 }
 
+/* ヘッダの各ボタン（Project 選択・day/week/month・New Issue・New Milestone・
+   カテゴリ設定）。.zk-header の外（モーダルの保存・閉じるボタンなど）は
+   対象にしない——ここは常に視野に入る「上部の帯」だけの見た目の話。 */
+[data-gantt-theme="blue-system"] .zk-header .zk-button,
+[data-gantt-theme="blue-system"] .zk-header .zk-segmented-item {
+  opacity: 0.85;
+}
+/* 選択中の day/week/month（例: week）だけ、青い光暈で押されていることを
+   強める。背景色（--status 系ではない rgba(45,107,255,.22)）は既定のまま、
+   box-shadow だけ足す。 */
+[data-gantt-theme="blue-system"] .zk-header .zk-segmented-item[aria-pressed="true"] {
+  box-shadow:
+    0 0 8px #1b26c2,
+    0 0 16px #1b26c2;
+}
+
 /* MILESTONE の見出し。菱形と同じ橙の系統で、滲ませるのは box-shadow ではなく
-   text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。 */
+   text-shadow —— box-shadow は箱の縁に付くだけで、文字はぼけない。
+   色・滲みは .zk-milestone-label と同じ固定値（#f78e6a / #ed460e）に揃える。 */
 [data-gantt-theme="blue-system"] .zk-pane-milestone {
-  /* 菱形（--zk-accent-red）と同じ橙の系統。見出しと印を同じ色にして、
-     どの帯の話かを色で結ぶ。 */
-  color: #ffcbb0;
-  /* 滲みも橙そのもので出す。白を混ぜると光ではなくぼやけた文字に見える。
-     近い滲みから広い滲みへ 3 段。 */
+  color: #f78e6a;
   text-shadow:
-    0 0 4px rgba(255, 160, 110, 0.95),
-    0 0 12px rgba(255, 90, 48, 0.9),
-    0 0 26px rgba(214, 66, 26, 0.7);
+    0 0 4px #ed460e,
+    0 0 12px #ed460e,
+    0 0 26px #ed460e;
 }
 
 /* サイドバー。Default は --bg-surface の単色のまま（.zk-sidebar 本体は触らない）。
@@ -320,18 +340,42 @@
   );
 }
 
-/* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し・
-   マイルストーン行の見出し — どれも「読む」より先に「位置を掴む」ための字で、
-   滲んでも意味が落ちない。
-   本文（行のタイトル、バーのラベル）には掛けない。1 文字ずつ読む字を滲ませると
-   遅くなるだけで、.zk-bar-label は 1efa13d で白い滲みと暗い縁の二重掛けを
-   解いたばかりでもある。 */
+/* 光らせる文字は見出しに絞る。ブランド・ビューの名前・グループ見出し —
+   どれも「読む」より先に「位置を掴む」ための字で、滲んでも意味が落ちない。 */
 [data-gantt-theme="blue-system"] .zk-sidebar-brand,
 [data-gantt-theme="blue-system"]
   .zk-sidebar-item[aria-pressed="true"]
-  .zk-sidebar-label,
-[data-gantt-theme="blue-system"] .zk-row--group {
+  .zk-sidebar-label {
   text-shadow: var(--zk-glow-text);
+}
+
+/* Issue の本文（行のタイトル・番号・バーのラベル）にも青系の滲みを掛ける
+   （実測で指定された固定値）。番号（#N）はタイトルよりわずかに水色寄りの
+   青にして、同じ行の中でも役割の違いが色で分かるようにする。
+   バーのラベルは既定で text-shadow: none + drop-shadow の暗い縁を使って
+   いるが（.zk-bar-label 本体）、ここで青い滲みを別レイヤーとして重ねる分には
+   縁取りと衝突しない。 */
+[data-gantt-theme="blue-system"] .zk-row-title {
+  text-shadow: 0 0 4px #0e46ed;
+}
+[data-gantt-theme="blue-system"] .zk-row-number,
+[data-gantt-theme="blue-system"] .zk-bar-label {
+  text-shadow: 0 0 4px #0e89ed;
+}
+
+/* グループ見出し（Progress ビューの Status 名・Category ビューのラベル名）。
+   Issue 本文と同じ帯に並ぶと紛れるので、Issue より一段大きい滲みで
+   はっきり見出しだと分かるようにする（色も別系統の青 #0958e0）。
+   .zk-row-title/.zk-row-number 直上より詳しいセレクタ（クラス2つ）にして、
+   上の Issue 向けの規則より確実に勝たせる。 */
+[data-gantt-theme="blue-system"] .zk-row--group {
+  background: rgba(1, 7, 27, 0.15);
+}
+[data-gantt-theme="blue-system"] .zk-row--group .zk-row-title,
+[data-gantt-theme="blue-system"] .zk-row--group .zk-row-number {
+  text-shadow:
+    0 0 8px #0958e0,
+    0 0 16px #0958e0;
 }
 
 /* 背景に層を敷くと、半透明の帯は下地の明るさに引きずられて横スクロールで色が
