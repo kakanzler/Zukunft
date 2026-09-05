@@ -12,7 +12,9 @@ import { buildRows, visibleRange, type Row } from "../src/rows"
 import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
 import { glowVar, milestoneDepthColors, statusSlot, statusVar } from "../src/colors"
 import { isGanttTheme } from "../src/theme"
-import { MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, type Placement } from "../src/Timeline"
+import {
+  MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, dailyDotRadius, type Placement,
+} from "../src/Timeline"
 import { KpiBar, StatusLegend } from "../src/KpiBar"
 import { TaskPane } from "../src/TaskPane"
 import { Timeline } from "../src/Timeline"
@@ -574,9 +576,15 @@ const count = (haystack: string, pattern: RegExp): number =>
      [count(html, /zk-daily-dot--done/g), count(html, /zk-daily-dot--todo/g)], [1, 2])
   // 発光色は Status ごと。バーと同じ変数で載せる。
   eq("a done dot carries the status glow colour", html.includes(`--bar-glow:${glowVar(0)}`), true)
-  // 点は日の中央。マイルストーンの菱形と同じ置き方で、同じ日のものが縦に揃う。
-  eq("a dot sits at the centre of its day",
-     html.includes(`cx="${scale.toX("2026-09-01") + scale.pxPerDay / 2}"`), true)
+  // 丸（<circle>）ではなく横長の角丸長方形（<rect>）で描く。
+  eq("a daily mark is a rect, not a circle", html.includes("<circle"), false)
+  // 印は日の中央に来る。マイルストーンの菱形と同じ置き方で、同じ日のものが縦に揃う
+  // （x は長方形の左端なので、中心 - 半幅で出す）。
+  const dotR = dailyDotRadius(scale.pxPerDay)
+  const dotW = dotR * 2.6
+  const centreX = scale.toX("2026-09-01") + scale.pxPerDay / 2
+  eq("a mark sits at the centre of its day",
+     html.includes(`x="${centreX - dotW / 2}"`) && html.includes(`width="${dotW}"`), true)
 
   // Target Date が空でも点は並ぶ。ここで isScheduled に落ちると、
   // 終わりを決めていない日課が盤面から消える。

@@ -87,7 +87,7 @@ const BAR_RISER = 2
  * 隣の日の点と重なって 1 本の帯に見えてしまう。行の高さにも収まる大きさで頭を打つ。
  */
 const DAILY_DOT_RADIUS = 4
-function dailyDotRadius(pxPerDay: number): number {
+export function dailyDotRadius(pxPerDay: number): number {
   return Math.max(1.5, Math.min(DAILY_DOT_RADIUS, pxPerDay / 2 - 0.5))
 }
 
@@ -481,6 +481,7 @@ export function Timeline({
                 scale={scale}
                 rowHeight={rowHeight}
                 statusIndex={row.statusIndex}
+                blue={blue}
                 onToggle={onToggleDailyDone}
               />
             )
@@ -757,32 +758,45 @@ type DailyDotsProps = {
   scale: TimeScale
   rowHeight: number
   statusIndex: number
+  /** blue-system かどうか。実行済みの色・発光を固定の青系にするのはこちらだけ。 */
+  blue: boolean
   onToggle?: (taskId: string, date: ISODate) => void
 }
 
 /**
- * 日課の実行日を点で並べる。
+ * 日課の実行日を印で並べる。
  *
  * 日課は「いつからいつまで」ではなく「その日にやったかどうか」の列なので、
- * バーを引かずに点を置く。Start Date が最初の実行日、Target Date が最後の実行日
+ * バーを引かずに印を置く。Start Date が最初の実行日、Target Date が最後の実行日
  * （空なら開始日から 1 年。横軸の右端が手前ならそこまで）。日付は Issue 側のものを
  * そのまま読むので、
  * 依存関係も絞り込みも日課でこれまでどおり効く。
  *
- * 点はドラッグの対象にしない。幅が数 px しかなく、バーの左右端を掴み分ける
+ * 印はドラッグの対象にしない。幅が数 px しかなく、バーの左右端を掴み分ける
  * hitTest が意味を持たないため、読み取り専用の分岐と同じく onClick だけを受ける。
+ *
+ * 丸（●）ではなく横長の角丸長方形にする——バーの並びの中に置いたとき、丸は
+ * 「点」にしか見えず日課の列だと気づきにくい。横に長くすることで、隣の日と
+ * 連続した「行」の一部だと分かる。
  */
 function DailyDots({
-  task, recurrence, y, scale, rowHeight, statusIndex, onToggle,
+  task, recurrence, y, scale, rowHeight, statusIndex, blue, onToggle,
 }: DailyDotsProps) {
-  // 起点が無ければ点を置けない。日課の指定だけが残っている Issue でも落とさない。
+  // 起点が無ければ印を置けない。日課の指定だけが残っている Issue でも落とさない。
   if (task.startDate === null) return null
   const cy = y + rowHeight / 2
   const r = dailyDotRadius(scale.pxPerDay)
-  const color = statusVar(statusIndex)
-  const glow = { "--bar-glow": glowVar(statusIndex) } as CSSProperties
+  // blue-system の実行済みは固定の青系（中心 #1b1ef2 / 発光 #bfc0f2）で強く光らせる。
+  // Status ごとの色分けより「やったかどうか」の一目での分かりやすさを優先する。
+  const color = blue ? "#1b1ef2" : statusVar(statusIndex)
+  const glow = { "--bar-glow": blue ? "#bfc0f2" : glowVar(statusIndex) } as CSSProperties
+  // 横長の角丸長方形。丸の半径 r を元に、幅は縦の倍以上、角は少しだけ丸める
+  // （長方形と分かる程度に留め、両端が丸まった錠剤形にはしない）。
+  const w = r * 2.6
+  const h = r * 1.6
+  const rx = Math.min(2, h / 3)
   // occurrences が見るのは右端（fallbackEnd）だけなので、左端より手前はここで落とす。
-  // 軸の外に点を置くと、負の x で盤面の左に貼り付いた列ができる。
+  // 軸の外に印を置くと、負の x で盤面の左に貼り付いた列ができる。
   const dates = occurrences(
     task.startDate,
     task.endDate,
@@ -794,17 +808,19 @@ function DailyDots({
     <g className="zk-daily" style={onToggle ? { cursor: "pointer" } : undefined}>
       {dates.map((date) => {
         const done = isDone(recurrence, date)
+        /* 日の中央。マイルストーンの菱形と同じ置き方にして、同じ日のものを縦に揃える。 */
+        const cx = scale.toX(date) + scale.pxPerDay / 2
         return (
-          <circle
+          <rect
             key={date}
             className={done ? "zk-daily-dot zk-daily-dot--done" : "zk-daily-dot zk-daily-dot--todo"}
-            /* 日の中央。マイルストーンの菱形と同じ置き方にして、同じ日のものを縦に揃える。 */
-            cx={scale.toX(date) + scale.pxPerDay / 2}
-            cy={cy}
-            r={r}
+            x={cx - w / 2}
+            y={cy - h / 2}
+            width={w}
+            height={h}
+            rx={rx}
             fill={color}
-            /* 発光色は Status ごと。バーと同じで、塗りと同じ系統の色で滲ませないと
-               Status の色分けが光に埋もれる。未実行には載せない（光らせないため）。 */
+            /* 発光色は実行済みだけに載せる（未実行は光らせず薄いままにする）。 */
             style={done ? glow : undefined}
             onClick={onToggle ? () => onToggle(task.id, date) : undefined}
           />

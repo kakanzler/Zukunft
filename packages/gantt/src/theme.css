@@ -851,6 +851,14 @@
 [data-gantt-theme="blue-system"] .zk-daily-dot--todo {
   fill-opacity: 0.4;
 }
+/* 実行済み（中心 #1b1ef2 / 発光 #bfc0f2、Timeline.tsx が載せる）を、既定の
+   2 段より一段多い 3 段の滲みで強く光らせる。「d で完了にした」ことがひと目で
+   分かるようにするための強調で、Default の 2 段（.zk-daily-dot--done）はそのまま。 */
+[data-gantt-theme="blue-system"] .zk-daily-dot--done {
+  filter: drop-shadow(0 0 3px var(--bar-glow))
+    drop-shadow(0 0 8px var(--bar-glow))
+    drop-shadow(0 0 16px var(--bar-glow));
+}
 
 .zk-bar-label {
   fill: var(--text-primary);

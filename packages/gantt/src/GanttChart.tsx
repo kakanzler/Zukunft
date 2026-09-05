@@ -300,11 +300,17 @@ export function GanttChart({
       } else if (e.code === "Enter" || e.code === "NumpadEnter") {
         e.preventDefault()
         onTaskOpen?.(selectedTaskId)
+      } else if (e.code === "KeyD") {
+        // 日課（繰り返すタスク）だけが対象。日課でない Issue を選んでいるときは
+        // 「今日を完了にする」がそもそも意味を持たないので、何もしない。
+        if (!dailyTasks[selectedTaskId]) return
+        e.preventDefault()
+        onToggleDailyDone?.(selectedTaskId, today())
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [keyboardEnabled, moveSelection, selectedTaskId, onTaskEdit, onTaskOpen])
+  }, [keyboardEnabled, moveSelection, selectedTaskId, onTaskEdit, onTaskOpen, dailyTasks, onToggleDailyDone])
 
   /** クリックで開いた行も選択に合わせる。次の j / k がそこから続く。 */
   const openTask = useCallback(
