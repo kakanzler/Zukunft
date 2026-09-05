@@ -810,10 +810,13 @@ function DailyDots({
 
         // blue-system は 3 通りの見た目を分ける（Default は今までどおり
         // 実行済み／未実行の 2 通りのまま、Status 色で塗るだけ）。
-        //   - 実行済み: 中身は白、発光は白い芯 + シアン系のネオンを 4 段重ねる
-        //     （色そのものを theme.css 側に固定で書くので、ここでは色変数を
-        //     渡さない。fill だけ白にする）。
-        //   - まだ来ていない日（透明・白寄りの枠・青い発光 #242457）。
+        //   - 実行済み: 中身は薄い青寄りの白 #cfe6ff、発光はその芯の色 + シアン系の
+        //     ネオンを重ねる（真っ白だと浮きすぎるという指摘を受け、芯を白から
+        //     青寄りに寄せた。色は theme.css 側に固定で書くので、ここでは
+        //     色変数を渡さない）。
+        //   - まだ来ていない日（透明・青い枠 #6ab0ff・濃い青の発光）。枠が
+        //     白すぎるという指摘を受け、芯（枠線）自体も青にする——
+        //     「芯だけ明るく周りは光る」を、白ではなく青の中の明暗で作る。
         //   - 過ぎたのにやっていない日（透明・青い枠 #242457・ごく薄い白の発光）。
         let className: string
         let fill: string
@@ -825,12 +828,11 @@ function DailyDots({
           style = done ? ({ "--bar-glow": glowVar(statusIndex) } as CSSProperties) : undefined
         } else if (done) {
           className = "zk-daily-dot zk-daily-dot--done"
-          fill = "#fff"
+          fill = "#cfe6ff"
         } else if (date >= now) {
           className = "zk-daily-dot zk-daily-dot--upcoming"
           fill = "none"
-          stroke = "#f0f3ff"
-          style = { "--bar-glow": "#242457" } as CSSProperties
+          stroke = "#6ab0ff"
         } else {
           className = "zk-daily-dot zk-daily-dot--missed"
           fill = "none"

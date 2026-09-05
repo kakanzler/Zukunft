@@ -864,22 +864,26 @@
     drop-shadow(0 0 6px var(--bar-glow));
 }
 /* BlueSystem は日課の印を 3 通りに分ける（Timeline.tsx の DailyDots が
-   fill/stroke/--bar-glow を載せ、ここでは光り方の強さだけを決める）。
-   実行済み（中身は白）は、色を変数にせずここで固定する——白い芯（5px）に
-   シアン系のネオン（#00f3ff）を 15/30/50px の 3 段で重ね、遠くまで薄く
-   広がる「ネオン管」らしい光り方にする。「d で完了にした」ことがひと目で
-   分かるようにするための強調で、Default の 2 段（.zk-daily-dot--done）は
-   そのまま Status 色で変えていない。 */
+   fill/stroke を載せ、ここでは色の参考画像（appearnace_bar_and_others.jpg）に
+   合わせて光り方を固定で決める。同画像の一番明るい画素を実測しても純白ではなく
+   常に青みが残っていたため、芯を真っ白にはしない）。
+   実行済み（中身 #cfe6ff、青みを残した白）は、その芯の色 + シアン系のネオン
+   （#00f3ff）を 15/30/50px の 3 段で重ね、遠くまで薄く広がる「ネオン管」らしい
+   光り方にする。「d で完了にした」ことがひと目で分かるようにするための強調で、
+   Default の 2 段（.zk-daily-dot--done）はそのまま Status 色で変えていない。 */
 [data-gantt-theme="blue-system"] .zk-daily-dot--done {
-  filter: drop-shadow(0 0 5px #fff)
+  filter: drop-shadow(0 0 5px #cfe6ff)
     drop-shadow(0 0 15px #00f3ff)
     drop-shadow(0 0 30px #00f3ff)
     drop-shadow(0 0 50px #00f3ff);
 }
-/* まだ来ていない日（枠 #f0f3ff・発光 #242457）。普通の強さで光らせる。 */
+/* まだ来ていない日。枠線そのもの（芯）を白ではなく青 #6ab0ff にし、そこから
+   濃い青 #143ca0 の発光を 2 段広げる——「芯だけ明るく、周りは光る」を、
+   白と青の対比ではなく青の中の明暗だけで作る。 */
 [data-gantt-theme="blue-system"] .zk-daily-dot--upcoming {
-  filter: drop-shadow(0 0 3px var(--bar-glow))
-    drop-shadow(0 0 8px var(--bar-glow));
+  filter: drop-shadow(0 0 2px #6ab0ff)
+    drop-shadow(0 0 8px #143ca0)
+    drop-shadow(0 0 18px #143ca0);
 }
 /* 過ぎたのにやっていない日（枠 #242457・発光 #f0f3ff）。「少しだけ」の指定どおり、
    他の 2 状態より控えめな 1 段だけにする。 */
