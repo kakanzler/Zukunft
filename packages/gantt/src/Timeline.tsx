@@ -786,15 +786,12 @@ function DailyDots({
   if (task.startDate === null) return null
   const cy = y + rowHeight / 2
   const r = dailyDotRadius(scale.pxPerDay)
-  // blue-system の実行済みは固定の青系（中心 #1b1ef2 / 発光 #bfc0f2）で強く光らせる。
-  // Status ごとの色分けより「やったかどうか」の一目での分かりやすさを優先する。
-  const color = blue ? "#1b1ef2" : statusVar(statusIndex)
-  const glow = { "--bar-glow": blue ? "#bfc0f2" : glowVar(statusIndex) } as CSSProperties
   // 横長の角丸長方形。丸の半径 r を元に、幅は縦の倍以上、角は少しだけ丸める
   // （長方形と分かる程度に留め、両端が丸まった錠剤形にはしない）。
   const w = r * 2.6
   const h = r * 1.6
   const rx = Math.min(2, h / 3)
+  const now = today()
   // occurrences が見るのは右端（fallbackEnd）だけなので、左端より手前はここで落とす。
   // 軸の外に印を置くと、負の x で盤面の左に貼り付いた列ができる。
   const dates = occurrences(
@@ -810,18 +807,50 @@ function DailyDots({
         const done = isDone(recurrence, date)
         /* 日の中央。マイルストーンの菱形と同じ置き方にして、同じ日のものを縦に揃える。 */
         const cx = scale.toX(date) + scale.pxPerDay / 2
+
+        // blue-system は 3 通りの見た目を分ける（Default は今までどおり
+        // 実行済み／未実行の 2 通りのまま、Status 色で塗るだけ）。
+        //   - 実行済み: 中身 #bfc0f2・発光 #1b1ef2 で強く光らせる（中身と発光を
+        //     入れ替えた。中心が白っぽく浮くほうが「済んだ」と分かりやすい）。
+        //   - まだ来ていない日（透明・白寄りの枠・青い発光 #242457）。
+        //   - 過ぎたのにやっていない日（透明・青い枠 #242457・ごく薄い白の発光）。
+        let className: string
+        let fill: string
+        let stroke: string | undefined
+        let style: CSSProperties | undefined
+        if (!blue) {
+          className = done ? "zk-daily-dot zk-daily-dot--done" : "zk-daily-dot zk-daily-dot--todo"
+          fill = statusVar(statusIndex)
+          style = done ? ({ "--bar-glow": glowVar(statusIndex) } as CSSProperties) : undefined
+        } else if (done) {
+          className = "zk-daily-dot zk-daily-dot--done"
+          fill = "#bfc0f2"
+          style = { "--bar-glow": "#1b1ef2" } as CSSProperties
+        } else if (date >= now) {
+          className = "zk-daily-dot zk-daily-dot--upcoming"
+          fill = "none"
+          stroke = "#f0f3ff"
+          style = { "--bar-glow": "#242457" } as CSSProperties
+        } else {
+          className = "zk-daily-dot zk-daily-dot--missed"
+          fill = "none"
+          stroke = "#242457"
+          style = { "--bar-glow": "#f0f3ff" } as CSSProperties
+        }
+
         return (
           <rect
             key={date}
-            className={done ? "zk-daily-dot zk-daily-dot--done" : "zk-daily-dot zk-daily-dot--todo"}
+            className={className}
             x={cx - w / 2}
             y={cy - h / 2}
             width={w}
             height={h}
             rx={rx}
-            fill={color}
-            /* 発光色は実行済みだけに載せる（未実行は光らせず薄いままにする）。 */
-            style={done ? glow : undefined}
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={stroke ? 1.25 : undefined}
+            style={style}
             onClick={onToggle ? () => onToggle(task.id, date) : undefined}
           />
         )
