@@ -104,7 +104,6 @@
      スクロールバーの溝、モーダルの幕、バーラベルの縁取りにも写しがある。 */
   --zk-wash-blue: rgba(45, 107, 255, 0.16);
   --zk-wash-red: rgba(255, 90, 48, 0.055);
-  --zk-hairline: rgba(150, 178, 235, 0.045);
 
   --zk-grid-tick: rgba(140, 165, 215, 0.11);
   --zk-grid-month: rgba(150, 180, 235, 0.3);
@@ -153,7 +152,12 @@
    下地が無かったため——明るい背景画像を選ぶと、盤面のうちバー・グリッドが
    並ぶこの主要な面だけ元の画像の明るさがそのまま透けてしまっていた
    （左ペイン・ヘッダは既に不透明度を持つので影響が小さかった）。
-   .zk-pane と同じ #01071B / 0.82 を敷き、環境光はその上から重ねる。 */
+   .zk-pane と同じ #01071B / 0.82 を敷き、環境光はその上から重ねる。
+
+   以前はここに 16px 間隔の repeating-linear-gradient（横線のヘアライン）も
+   重ねていたが、バーが並ぶ面に横線が入ると読みにくいという指摘を受けて外した。
+   行の区切りが要る場所（Progress/Category のグループ見出し）は左ペインの
+   .zk-row--group の border-bottom だけで足りる。 */
 [data-gantt-theme="blue-system"] .zk-timeline {
   background-color: rgba(1, 7, 27, 0.82);
   background-image:
@@ -162,13 +166,8 @@
       var(--zk-wash-blue) 0%,
       transparent 62%
     ),
-    radial-gradient(95% 85% at 97% 94%, var(--zk-wash-red) 0%, transparent 58%),
-    repeating-linear-gradient(
-      180deg,
-      var(--zk-hairline) 0 1px,
-      transparent 1px 16px
-    );
-  background-repeat: no-repeat, no-repeat, repeat;
+    radial-gradient(95% 85% at 97% 94%, var(--zk-wash-red) 0%, transparent 58%);
+  background-repeat: no-repeat, no-repeat;
 }
 
 /* 線幅の階層。縦線はすべて整数 x に載るので、嘘のない太さは 1px（x+0.5 に描く）と
