@@ -310,6 +310,14 @@ export function NewTaskModal({
                   // 日課に切り替えた時点では終わりを決めていない。既定（期日なし）に
                   // 合わせて Target Date を空に戻す。
                   if (e.target.checked && endless) setEnd("")
+                  // 日課は一度きりの完了に向かうものではなく繰り返すものなので、
+                  // Planning→…→Complete の一本道とは別の Status で見分けたい。
+                  // 該当する選択肢が無いプロジェクトでは何もしない——作れるのは
+                  // GitHub 側のプロジェクト設定だけなので、ここでは選ぶだけ。
+                  if (e.target.checked) {
+                    const iteration = statusOptions.find((o) => o.name === "Iteration")
+                    if (iteration) setStatusOptionId(iteration.id)
+                  }
                 }}
               />
               決まった間隔で繰り返す

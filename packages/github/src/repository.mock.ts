@@ -54,7 +54,7 @@ export type MockOptions = {
 
 const PROJECT_ID = "mock-project"
 
-const STATUSES = ["Planning", "In Progress", "Review", "Complete"]
+const STATUSES = ["Planning", "In Progress", "Review", "Complete", "Iteration"]
 
 /** Priority の選択肢。getProjectSchema が配る id と、値を戻すときの対応表を兼ねる。 */
 const PRIORITIES = ["High", "Medium", "Low"]
