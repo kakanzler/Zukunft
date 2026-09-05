@@ -158,6 +158,24 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
      milestoneLinkSources([noMilestone], { gh4: null }), [])
   eq("a task without dates draws nothing",
      milestoneLinkSources([undated], { gh5: null }), [])
+
+  // 依存元（他のタスクを blocked-by で挙げているタスク）からは引かない。
+  // 依存の矢印が既に出ているので、そこへ重ねると線が煩雑になる。
+  eq("a task that depends on another does not link to the milestone",
+     milestoneLinkSources(linked, { gh1: null, gh2: null, gh3: null },
+       [{ fromTaskId: "i1", toTaskId: "i2" }]).map((l) => l.taskId),
+     ["i2", "i3"])
+  // 依存されている側（toTaskId）は対象外にしない。矢印が刺さるだけで、
+  // そこから出る矢印ではないので、マイルストーンへの線とは重ならない。
+  eq("being depended on (the target of the arrow) still links to the milestone",
+     milestoneLinkSources(linked, { gh1: null, gh2: null, gh3: null },
+       [{ fromTaskId: "i2", toTaskId: "i1" }]).map((l) => l.taskId),
+     ["i1", "i3"])
+  // dependencies を省いたときは今までどおり全員が対象——既存の呼び出し元
+  // （引数を渡していないコード）を壊さない。
+  eq("omitting dependencies keeps every parentless task as a source",
+     milestoneLinkSources(linked, { gh1: null, gh2: null, gh3: null }).map((l) => l.taskId),
+     ["i1", "i2", "i3"])
 }
 
 // --- Category 表示（ラベルの組み合わせでのグループ化） ---

@@ -200,7 +200,9 @@ export function GanttChart({
     [tasks, dependencies, cyclicEdges],
   )
   /**
-   * マイルストーンへ引く線。親を持たないタスクからだけ引く（milestoneLinkSources）。
+   * マイルストーンへ引く線。親を持たず、他のタスクに依存してもいないタスク
+   * からだけ引く（milestoneLinkSources）。依存元は依存の矢印が既に出ているので、
+   * 重ねて引くと煩雑になる。
    *
    * id を差し替えているのは、mergeMilestones が同じ題のマイルストーンを 1 つに
    * 畳み、id は先に見た方だけを残すため。畳まれた側の id のまま渡すと、菱形が
@@ -211,11 +213,11 @@ export function GanttChart({
     const titleById = new Map(
       tasks.flatMap((t) => (t.milestone ? [[t.milestone.id, t.milestone.title] as const] : [])),
     )
-    return milestoneLinkSources(tasks, parentByIssueId).map((link) => {
+    return milestoneLinkSources(tasks, parentByIssueId, dependencies).map((link) => {
       const kept = keptIdByTitle.get(titleById.get(link.milestoneId) ?? "")
       return kept && kept !== link.milestoneId ? { ...link, milestoneId: kept } : link
     })
-  }, [tasks, parentByIssueId, milestones])
+  }, [tasks, parentByIssueId, milestones, dependencies])
 
   const visible = useMemo(
     () => visibleRange(scrollTop, viewportHeight, ROW_HEIGHT, rows.length),
