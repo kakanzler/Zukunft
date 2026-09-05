@@ -301,12 +301,17 @@
   background: rgba(0, 4, 54, 0.7);
 }
 
-/* ヘッダの各ボタン（Project 選択・day/week/month・New Issue・New Milestone・
-   カテゴリ設定）。.zk-header の外（モーダルの保存・閉じるボタンなど）は
-   対象にしない——ここは常に視野に入る「上部の帯」だけの見た目の話。 */
+/* ヘッダの各ボタンと入力欄（Project 選択・day/week/month・New Issue・
+   New Milestone・カテゴリ設定・表示終了日）、フィルタ行の入力欄
+   （「番号かタイトルで絞り込む」）。.zk-header/.zk-filter の外
+   （モーダルの保存・閉じるボタンや本文の入力欄など）は対象にしない——
+   ここは常に視野に入る「上部の帯」だけの見た目の話。
+   0.85 → 0.7 まで下げ、他の上部の帯（0.7）と透け具合を揃える。 */
 [data-gantt-theme="blue-system"] .zk-header .zk-button,
-[data-gantt-theme="blue-system"] .zk-header .zk-segmented-item {
-  opacity: 0.85;
+[data-gantt-theme="blue-system"] .zk-header .zk-segmented-item,
+[data-gantt-theme="blue-system"] .zk-header .zk-input,
+[data-gantt-theme="blue-system"] .zk-filter .zk-input {
+  opacity: 0.7;
 }
 /* 選択中の day/week/month（例: week）だけ、青い光暈で押されていることを
    強める。背景色（--status 系ではない rgba(45,107,255,.22)）は既定のまま、
@@ -366,6 +371,8 @@
 /* グループ見出し（Progress ビューの Status 名・Category ビューのラベル名）。
    Issue 本文と同じ帯に並ぶと紛れるので、Issue より一段大きい滲みで
    はっきり見出しだと分かるようにする（色も別系統の青 #0958e0）。
+   文字そのものも Issue より大きくし、色を #5e85c4 に固定する
+   （既定の 10px / 11px、および var(--accent-cyan) を上書き）。
    .zk-row-title/.zk-row-number 直上より詳しいセレクタ（クラス2つ）にして、
    上の Issue 向けの規則より確実に勝たせる。 */
 [data-gantt-theme="blue-system"] .zk-row--group {
@@ -373,6 +380,8 @@
 }
 [data-gantt-theme="blue-system"] .zk-row--group .zk-row-title,
 [data-gantt-theme="blue-system"] .zk-row--group .zk-row-number {
+  font-size: 13px;
+  color: #5e85c4;
   text-shadow:
     0 0 8px #0958e0,
     0 0 16px #0958e0;
