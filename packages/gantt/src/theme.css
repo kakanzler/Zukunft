@@ -270,10 +270,18 @@
 [data-gantt-theme="blue-system"] .zk-pane {
   background: rgba(1, 7, 27, 0.82);
 }
+/* 月週ヘッダ・マイルストーン帯（左右とも）は position: sticky で、下から
+   スクロールで上がってくるバー・行と同じ .zk-timeline / .zk-pane の上に載る。
+   そちらも同じ色で 0.82 を掛けているので、ここも 0.82 のまま重ねると
+   1 - (1-0.82)^2 ≈ 0.97 まで濃くなり、他の帯だけ透けて見えて自分たちだけ
+   不透明に見えてしまう（実機で報告された不具合）。ここは 0.15 だけ足す
+   ——地の 0.82 と合わさって見た目はおよそ 0.85 になり、他の帯と揃う。
+   0 にしない（スクロールで重なるバーを完全に隠さないよりは、多少なりとも
+   鈍らせておきたい）。 */
 [data-gantt-theme="blue-system"] .zk-thead,
 [data-gantt-theme="blue-system"] .zk-milestone-row,
 [data-gantt-theme="blue-system"] .zk-pane-milestone {
-  background: rgba(1, 7, 27, 0.82);
+  background: rgba(1, 7, 27, 0.15);
 }
 [data-gantt-theme="blue-system"] .zk-log {
   background: rgba(1, 7, 27, 0.7);
