@@ -571,6 +571,23 @@ export function TaskModal({
           </button>
         </div>
 
+        <div className="zk-task-actions">
+          {/* 「close」はモーダルを閉じる×と紛らわしいので、active / inactive の
+              トグルに置き換えてここへ移した。チェックが active（OPEN）。 */}
+          <label className="zk-task-state">
+            <input
+              type="checkbox"
+              checked={!closed}
+              disabled={busy}
+              onChange={toggleState}
+            />
+            {savingState ? "変更中…" : closed ? "inactive" : "active"}
+          </label>
+          <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
+            to GitHub
+          </button>
+        </div>
+
         <div className="zk-task-meta">
           <label className="zk-field">
             <span className="zk-field-label">start date</span>
@@ -889,7 +906,7 @@ export function TaskModal({
                 この Issue を削除します。取り消せません
               </span>
               <button
-                className="zk-button zk-button--danger"
+                className="zk-button zk-button--danger zk-task-delete"
                 disabled={busy}
                 onClick={async () => {
                   // 確認は送信が終わるまで出したままにする。押した直後に元の列へ戻ると
@@ -918,11 +935,8 @@ export function TaskModal({
                   onChange={onChangeParentIssue}
                 />
               ) : null}
-              <button className="zk-button" onClick={openOnGitHub} disabled={!task.url}>
-                to GitHub
-              </button>
               <button
-                className="zk-button"
+                className="zk-button zk-task-update"
                 aria-pressed={canUpdate}
                 disabled={!canUpdate}
                 onClick={update}
@@ -935,7 +949,7 @@ export function TaskModal({
                 </button>
               ) : (
                 <button
-                  className="zk-button"
+                  className="zk-button zk-task-edit"
                   disabled={busy}
                   onClick={() => {
                     setEditingBase(task.updatedAt)
@@ -945,11 +959,8 @@ export function TaskModal({
                   edit
                 </button>
               )}
-              <button className="zk-button" onClick={toggleState} disabled={busy}>
-                {savingState ? "変更中…" : closed ? "reopen" : "close"}
-              </button>
               <button
-                className="zk-button zk-button--danger"
+                className="zk-button zk-button--danger zk-task-delete"
                 onClick={() => setConfirmingDelete(true)}
                 disabled={busy}
               >

@@ -13,6 +13,8 @@
   --accent-cyan: #22d3ee;
   --danger: #f43f5e;
   --warning: #f59e0b;
+  --edit-background-color: #44ee26;
+  --close-x-button-background-color: #f31049;
 
   /* 発光。文字は「にじんで読めない」手前で止め、見出しとバーだけ強く光らせる。 */
   --glow-text: 0 0 10px rgba(232, 238, 255, 0.28);
@@ -560,6 +562,67 @@
 .zk-button--danger:hover:not(:disabled) {
   border-color: var(--danger);
   box-shadow: 0 0 12px rgba(244, 63, 94, 0.35);
+}
+
+/* モーダルの操作ボタン。編集は緑地、update は青地、削除と×は赤地で、
+   押す前に色で役割が分かるようにする。 */
+.zk-task-edit {
+  background: var(--edit-background-color);
+  border-color: var(--edit-background-color);
+  color: #0a1a06;
+}
+.zk-task-edit:hover:not(:disabled) {
+  border-color: var(--edit-background-color);
+  box-shadow: 0 0 12px rgba(68, 238, 38, 0.4);
+}
+.zk-task-update {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.zk-task-update:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
+.zk-task-delete,
+.zk-task-close,
+.zk-modal-close {
+  background: var(--close-x-button-background-color);
+  border-color: var(--close-x-button-background-color);
+  color: #fff;
+}
+.zk-task-delete:hover:not(:disabled),
+.zk-task-close:hover:not(:disabled),
+.zk-modal-close:hover:not(:disabled) {
+  border-color: var(--close-x-button-background-color);
+  box-shadow: 0 0 12px rgba(243, 16, 73, 0.45);
+}
+.zk-task-edit:disabled,
+.zk-task-update:disabled,
+.zk-task-delete:disabled,
+.zk-task-close:disabled,
+.zk-modal-close:disabled {
+  opacity: 0.45;
+}
+
+/* Issue の active / inactive 切り替えと「to GitHub」をモーダル上部に置く帯。 */
+.zk-task-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space) * 3);
+}
+.zk-task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space) * 2);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.zk-task-state input {
+  cursor: pointer;
 }
 
 .zk-card {

@@ -673,6 +673,28 @@ pub async fn exit_fullscreen(app: tauri::AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// フルスクリーンを切り替える（Alt+Shift+F）。
+///
+/// exit_fullscreen と対。今フルスクリーンなら保存済みの幅・高さへ戻し、
+/// そうでなければフルスクリーンにする。設定は書き換えない。
+#[tauri::command]
+pub async fn toggle_fullscreen(app: tauri::AppHandle) -> Result<(), AppError> {
+    let settings = read(&app).window.normalized();
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let is_fullscreen = window.is_fullscreen().unwrap_or(false);
+    if is_fullscreen {
+        let _ = window.set_fullscreen(false);
+        let _ = window.unmaximize();
+        let _ = window.set_size(tauri::LogicalSize::new(settings.width, settings.height));
+        let _ = window.center();
+    } else {
+        let _ = window.set_fullscreen(true);
+    }
+    Ok(())
+}
+
 /// 窓の見せ方を保存し、その場で反映する。
 ///
 /// 保存だけして次の起動を待たせない。設定を変えた結果がその場で見えないと、

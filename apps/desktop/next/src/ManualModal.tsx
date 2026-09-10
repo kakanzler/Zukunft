@@ -28,12 +28,14 @@ const HOTKEYS: [string, string][] = [
   ["Alt+A", "新規 Issue を起票する（Project 選択中のみ）"],
   ["Alt+\\", "スキーマとタスクを読み直す（Project 選択中のみ）"],
   ["Alt+↑ / Alt+↓", "サイドバーの表示を上下に切り替える"],
-  ["Ctrl++ / Ctrl+-", "Gantt の横軸を拡大 / 縮小する"],
-  ["Alt+Shift+← / →", "ズームを day / week / month の間で移す（Ctrl++/- と同じ）"],
+  ["Ctrl++ / Ctrl+- / Ctrl+ホイール", "画面全体を拡大 / 縮小する（文字とグラフごと）"],
+  ["Alt+Shift+← / → , Alt+Shift+H / L", "盤面の粒度を day / week / month の間で移す"],
   ["j / k", "Issue の選択を下 / 上に動かす"],
   ["Enter", "選択中の Issue の詳細を開く"],
   ["e", "選択中の Issue を編集モードで開く。詳細を開いた画面でも編集に入る"],
   ["Alt+L", "ログだけの表示と Gantt を切り替える"],
+  ["Alt+Shift+F", "フルスクリーンの出入りを切り替える"],
+  ["Alt+I", "閉じた Issue を隠す / 表示する（hide inactive issues）"],
   ["Ctrl+Z", "日付の変更を元に戻す"],
   ["Ctrl+Shift+Z / Ctrl+Y", "元に戻した変更をやり直す"],
   ["Esc", "モーダルを閉じる。開いていなければフルスクリーンを抜ける"],
@@ -72,7 +74,7 @@ export function ManualModal({ statuses, onClose }: Props) {
       <div className="zk-modal zk-modal--manual">
         <div className="zk-modal-head">
           <div className="zk-modal-title" style={{ flex: 1 }}>マニュアル</div>
-          <button className="zk-button" onClick={onClose} aria-label="閉じる">✕</button>
+          <button className="zk-button zk-modal-close" onClick={onClose} aria-label="閉じる">✕</button>
         </div>
 
         <div className="zk-manual">
@@ -191,6 +193,7 @@ function HotkeySection() {
         <p className="zk-manual-text">
           Esc でフルスクリーンを抜けても設定は変わりません。次の起動は Settings で
           選んだ見せ方に戻ります。
+          Alt+Shift+F はフルスクリーンの出入りなので、モーダルを開いている間でも効きます。
         </p>
       </Block>
     </>

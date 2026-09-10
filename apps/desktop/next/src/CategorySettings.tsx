@@ -53,7 +53,7 @@ export function CategorySettings({ candidates, selected, busy, onSave, onClose }
       <div className="zk-modal">
         <div className="zk-modal-head">
           <div className="zk-modal-title" style={{ flex: 1 }}>カテゴリ設定</div>
-          <button className="zk-button" onClick={onClose} disabled={busy} aria-label="閉じる">✕</button>
+          <button className="zk-button zk-modal-close" onClick={onClose} disabled={busy} aria-label="閉じる">✕</button>
         </div>
 
         <div className="zk-modal-body">

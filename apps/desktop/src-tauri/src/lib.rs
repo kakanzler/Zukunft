@@ -815,6 +815,7 @@ pub fn run() {
             settings::clear_background_image,
             settings::get_background_image,
             settings::exit_fullscreen,
+            settings::toggle_fullscreen,
         ])
         // 保存されている窓の見せ方は、画面が出る前に当てる。
         // 起動後に当てると、既定の大きさで一度描いてから跳ねるのが見えてしまう。

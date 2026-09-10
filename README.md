@@ -187,20 +187,22 @@ Tauri の外で開くとモックデータで動く。同期まわりの表示�
 | キー | 動作 |
 |---|---|
 | Ctrl+Z / Ctrl+Shift+Z・Ctrl+Y | Undo / Redo（日付の変更のみ。企画書 §6.3.4） |
-| Ctrl++ / Ctrl+- | Gantt の横軸を拡大 / 縮小 |
-| Alt+Shift+← / → | ズームを day / week / month の間で移す |
+| Ctrl++ / Ctrl+- / Ctrl+ホイール | 画面全体を拡大 / 縮小（文字とグラフごと） |
+| Alt+Shift+← / → , Alt+Shift+H / L | 盤面の粒度を day / week / month の間で移す |
 | Alt+↑ / Alt+↓ | サイドバーの表示を切り替える |
 | Alt+A | 新規 Issue を起票する |
-| Alt+R | スキーマとタスクを読み直す |
+| Alt+\ | スキーマとタスクを読み直す |
 | Alt+M | マニュアルを開く / 閉じる |
 | Alt+L | ログだけを表示 / Gantt に戻す |
+| Alt+Shift+F | フルスクリーンの出入り |
+| Alt+I | 閉じた Issue を隠す / 表示する（hide inactive issues） |
 | j / k | Issue の選択を下 / 上に動かす |
 | Enter | 選択中の Issue の詳細を開く |
 | e | 選択中の Issue を編集モードで開く |
 | / | 絞り込みの入力欄へ移る |
 | Esc | モーダルを閉じる。ドラッグ中は操作を破棄する |
 
-文字を入力している最中と、モーダルを開いている間は効かない（Alt+M を除く）。
+文字を入力している最中と、モーダルを開いている間は効かない（Alt+M と Alt+Shift+F を除く）。
 本文欄の Ctrl+Z はテキストの取り消しとして働く。
 
 ### デスクトップアプリとして動かす

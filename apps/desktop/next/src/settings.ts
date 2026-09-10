@@ -420,3 +420,17 @@ export async function exitFullscreen(): Promise<void> {
     // 抜けられなくてもアプリは使える。失敗をログに出しても打つ手が無い。
   }
 }
+
+/**
+ * フルスクリーンを切り替える（Alt+Shift+F）。exitFullscreen と対で、
+ * こちらは今の状態を見て入る／出るを反転する。設定は書き換えない。
+ * Tauri の外では窓が無いので何もしない。
+ */
+export async function toggleFullscreen(): Promise<void> {
+  if (!isTauri()) return
+  try {
+    await invokeCommand<void>("toggle_fullscreen", {})
+  } catch {
+    // 切り替えられなくてもアプリは使える。
+  }
+}

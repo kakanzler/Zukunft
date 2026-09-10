@@ -66,7 +66,7 @@ export function FilterBar({ filter, choices, shown, total, onChange }: Props) {
             checked={!filter.includeClosed}
             onChange={(e) => onChange({ ...filter, includeClosed: !e.target.checked })}
           />
-          閉じた Issue を隠す
+          hide inactive issues
         </label>
         {/* 絞られていることが分かる状態を、畳んでいても画面に残す。 */}
         <span className="zk-filter-count">

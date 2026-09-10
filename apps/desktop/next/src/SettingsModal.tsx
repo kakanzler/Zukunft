@@ -486,7 +486,7 @@ export function SettingsModal({
       <div className="zk-modal zk-modal--settings">
         <div className="zk-modal-head">
           <div className="zk-modal-title" style={{ flex: 1 }}>設定</div>
-          <button className="zk-button" onClick={onClose} disabled={busy} aria-label="閉じる">✕</button>
+          <button className="zk-button zk-modal-close" onClick={onClose} disabled={busy} aria-label="閉じる">✕</button>
         </div>
 
         <div className="zk-set-search">

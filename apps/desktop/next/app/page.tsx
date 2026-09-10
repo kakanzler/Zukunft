@@ -71,6 +71,7 @@ import {
   saveTheme,
   saveParentLabels,
   saveWindowSettings,
+  toggleFullscreen,
 } from "@/settings"
 import { useSchedule } from "@/useSchedule"
 
@@ -1531,7 +1532,7 @@ function Workspace({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
-      // 文字を打っている最中は取り消しも拡大も渡さない。本文欄で Ctrl+Z を
+      // 文字を打っている最中は取り消しを渡さない。本文欄で Ctrl+Z を
       // 押したときに、テキストではなく盤面の日付が戻っていた。
       if (isTyping()) return
       // モーダルを開いている間も裏の盤面を動かさない。閉じたときにどこを
@@ -1543,19 +1544,14 @@ function Workspace({
       } else if ((e.code === "KeyZ" && e.shiftKey) || e.code === "KeyY") {
         e.preventDefault()
         redo()
-      } else if (e.code === "Equal" || e.code === "NumpadAdd") {
-        // 拡大は粒度を細かくする向き（month → week → day）。
-        // preventDefault は必須で、外すと WebView 自身の画面拡大に取られる。
-        e.preventDefault()
-        stepZoom(-1)
-      } else if (e.code === "Minus" || e.code === "NumpadSubtract") {
-        e.preventDefault()
-        stepZoom(1)
       }
+      // Ctrl++ / Ctrl+- / Ctrl+0 は WebView 自身の画面拡大に渡す。文字も
+      // グラフも一緒に拡縮できる方が、盤面の粒度を変えるより目的に合う。
+      // 盤面の粒度は Alt+Shift+←/→（H/L）で移す。
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [undo, redo, stepZoom, anyModalOpen])
+  }, [undo, redo, anyModalOpen])
 
   /**
    * 再読み込み（Alt+\）。スキーマとタスクを取り直し、そのときの同期状況をログに出す。
@@ -1777,16 +1773,24 @@ function Workspace({
       if (isTyping()) return
       // モーダルを開いている間は、マニュアルの開閉だけ通す。起票や再読み込みを
       // 通すと、開いているモーダルの上にもう 1 枚重なる。
-      if (anyModalOpen && e.code !== "KeyM") return
-      if (e.code === "KeyL") {
+      // Alt+Shift+F だけは例外。フルスクリーン切替はウィンドウ側の操作で、
+      // 開いているモーダルの中身には触らないため、モーダル中も通す。
+      if (anyModalOpen && e.code !== "KeyM" && !(e.code === "KeyF" && e.shiftKey)) return
+      if (e.code === "KeyL" && !e.shiftKey) {
         e.preventDefault()
         setLogFull((v) => !v)
-      } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+      } else if (
+        e.code === "ArrowLeft" ||
+        e.code === "ArrowRight" ||
+        ((e.code === "KeyH" || e.code === "KeyL") && e.shiftKey)
+      ) {
         // Alt+Shift+←/→ でズームの粒度を移す。サイドバーの移動（Shift なし）と
         // 押し分けられるよう、Shift が無いときは何もしない。
+        // Alt+Shift+H / L も同じ向きに割り当てる（h/l の左右と揃える）。
         if (!e.shiftKey) return
         e.preventDefault()
-        stepZoom(e.code === "ArrowRight" ? 1 : -1)
+        const toMonth = e.code === "ArrowRight" || e.code === "KeyL"
+        stepZoom(toMonth ? 1 : -1)
       } else if (e.code === "ArrowUp" || e.code === "ArrowDown") {
         if (e.shiftKey) return
         // サイドバーの項目を上下に移動する。端では折り返さない。
@@ -1809,6 +1813,14 @@ function Workspace({
         if (!projectId) return
         e.preventDefault()
         setCreatingOpen(true)
+      } else if (e.code === "KeyF" && e.shiftKey) {
+        // フルスクリーンの出入り。Esc は抜けるだけなので、戻る手段を対で置く。
+        e.preventDefault()
+        void toggleFullscreen()
+      } else if (e.code === "KeyI" && !e.shiftKey) {
+        // 閉じた Issue の表示 / 非表示を切り替える（hide inactive issues）。
+        e.preventDefault()
+        setFilter((f) => ({ ...f, includeClosed: !f.includeClosed }))
       }
     }
     window.addEventListener("keydown", onKeyDown)

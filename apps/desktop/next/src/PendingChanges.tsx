@@ -95,7 +95,7 @@ export function PendingChanges({ queue, tasks, onRollback, onClose }: Props) {
       <div className="zk-modal zk-modal--pending">
         <div className="zk-modal-head">
           <div className="zk-modal-title" style={{ flex: 1 }}>保留中の変更</div>
-          <button className="zk-button" onClick={onClose} aria-label="閉じる">✕</button>
+          <button className="zk-button zk-modal-close" onClick={onClose} aria-label="閉じる">✕</button>
         </div>
 
         <div className="zk-modal-body">
