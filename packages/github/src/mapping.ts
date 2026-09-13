@@ -54,7 +54,7 @@ type RawItem = {
       pageInfo?: RawPageInfo
     } | null
     repository?: { id?: string } | null
-    milestone?: { id?: string; title: string; dueOn: string | null } | null
+    milestone?: { id?: string; number?: number; title: string; dueOn: string | null } | null
   } | null
 }
 
@@ -190,7 +190,12 @@ export function mapTask(item: RawItem): ScheduleTask | null {
     assignees,
     labels,
     milestone: milestone
-      ? { id: milestone.id ?? "", title: milestone.title, dueOn: readDate(milestone.dueOn) }
+      ? {
+          id: milestone.id ?? "",
+          number: milestone.number ?? 0,
+          title: milestone.title,
+          dueOn: readDate(milestone.dueOn),
+        }
       : null,
     progress: typeof progressRaw === "number" ? progressRaw : null,
     updatedAt: content.updatedAt ?? "",
@@ -223,7 +228,9 @@ export function mapMilestones(
   const page = (raw as {
     node?: {
       milestones?: {
-        nodes?: ({ id?: string; title?: string; dueOn?: string | null } | null)[] | null
+        nodes?: (
+          { id?: string; number?: number; title?: string; dueOn?: string | null } | null
+        )[] | null
         pageInfo?: RawPageInfo
       } | null
     } | null
@@ -231,7 +238,12 @@ export function mapMilestones(
   const milestones: Milestone[] = []
   for (const node of page?.nodes ?? []) {
     if (!node?.id || !node.title) continue
-    milestones.push({ id: node.id, title: node.title, dueOn: readDate(node.dueOn) })
+    milestones.push({
+      id: node.id,
+      number: node.number ?? 0,
+      title: node.title,
+      dueOn: readDate(node.dueOn),
+    })
   }
   return { milestones, endCursor: nextCursor(page?.pageInfo) }
 }

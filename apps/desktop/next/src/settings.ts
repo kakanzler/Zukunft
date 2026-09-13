@@ -156,6 +156,18 @@ export async function saveMilestoneCategory(milestoneId: string, label: string):
 }
 
 /**
+ * 割り当てごと項目を落とす。マイルストーンを GitHub から削除したときに呼ぶ。
+ *
+ * 空文字の saveMilestoneCategory と行き先は同じ（Rust 側も空文字なら項目ごと
+ * 消す）だが、呼ぶ側の意図が違う——あちらは「カテゴリを外す」、こちらは
+ * 「そのマイルストーンがもう無い」。名前を分けておかないと、削除の後始末を
+ * 探すときに「カテゴリを空にする処理」としてしか読めない。
+ */
+export async function clearMilestoneCategory(milestoneId: string): Promise<void> {
+  await saveMilestoneCategory(milestoneId, "")
+}
+
+/**
  * 保存されている 1 件の日課を読む。読めなければ null（呼び出し側がその項目を捨てる）。
  *
  * 古い形（`intervalDays` を直に持つ）も混ざりうるので、`rule` の形だけを認める。

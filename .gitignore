@@ -8,4 +8,5 @@
 dist/
 node_modules/
 out/
+**/public/milestone/
 target/

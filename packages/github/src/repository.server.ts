@@ -1,6 +1,7 @@
 import type {
   Assignee,
   DateChange,
+  ISODate,
   IssueState,
   Label,
   Milestone,
@@ -264,6 +265,22 @@ export class ServerScheduleRepository implements GitHubScheduleRepository {
   createMilestone(_nameWithOwner: string, _input: NewMilestoneInput): Promise<Milestone> {
     return Promise.reject(
       new GitHubError("unsupported", "Web 版は読み取り専用です。マイルストーンの作成はデスクトップアプリから行ってください"),
+    )
+  }
+
+  deleteMilestone(_nameWithOwner: string, _number: number): Promise<void> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。マイルストーンの削除はデスクトップアプリから行ってください"),
+    )
+  }
+
+  updateMilestoneDueOn(
+    _nameWithOwner: string,
+    _number: number,
+    _dueOn: ISODate,
+  ): Promise<Milestone> {
+    return Promise.reject(
+      new GitHubError("unsupported", "Web 版は読み取り専用です。マイルストーンの期日の変更はデスクトップアプリから行ってください"),
     )
   }
 

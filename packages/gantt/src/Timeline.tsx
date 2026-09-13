@@ -20,11 +20,12 @@ import {
   subTicks,
   today,
 } from "@zukunft/domain"
-import { glowVar, milestoneDepthColors, statusSlot, statusVar } from "./colors"
+import { glowVar, milestoneDepthColors, nearestMilestoneColor, statusSlot, statusVar } from "./colors"
 import { estimateLabelWidth } from "./milestones"
 import type { GanttTheme } from "./theme"
 import type { Row } from "./rows"
 import { type DragState, useBarDrag } from "./useBarDrag"
+import { useMilestoneDrag } from "./useMilestoneDrag"
 
 const BAR_INSET = 5
 /** 矢印の先端の大きさ（px）。行の高さ 32 に対して主張しすぎない程度。 */
@@ -38,33 +39,48 @@ const ARROW = 8
  * いないものが段を分けたり、重なったものが同じ段に並んだりする。
  */
 export const MILESTONE_FONT_SIZE = 10
-/** 菱形の中心から左右への半幅。milestones.ts の DIAMOND_HALF_WIDTH と同じ値。 */
-const DIAMOND_HALF_WIDTH = 6
-/** 菱形の中心から題名の開始位置まで。milestones.ts の LABEL_OFFSET と同じ値。 */
-const LABEL_OFFSET = 10
+/**
+ * 菱形の中心から左右への半幅。milestones.ts の DIAMOND_HALF_WIDTH と同じ値。
+ *
+ * 単色の <path> だったころは 6（12px 角）だったが、菱形が「外側のリング +
+ * 内側の小さい菱形」の 2 枚重ねの絵になったので 9（18px 角）へ広げた。
+ * 元の 12px に詰めると、外側のリングの線が 1px を割り込んで内側と混ざり、
+ * 二層であることが読めない単なる点になる（絵は 256px 角で、リングの太さは
+ * その 1/6 ほど）。行の高さ 32 に対しては上下に 7px ずつ残る。
+ */
+const DIAMOND_HALF_WIDTH = 9
+/** アイコンの一辺（px）。中心から半幅ぶん左上に置いて描く。 */
+const MILESTONE_ICON_SIZE = DIAMOND_HALF_WIDTH * 2
+/**
+ * 菱形の中心から題名の開始位置まで。milestones.ts の LABEL_OFFSET と同じ値。
+ * 半幅 + 4px の隙間（半幅 6 / offset 10 だったころと同じ空き方）。
+ */
+const LABEL_OFFSET = 13
+/**
+ * 二層アイコンの置き場所。両アプリの public/ へは scripts/copy-milestone-assets.mjs
+ * が asset/milestone/ からコピーする（正本はリポジトリ直下の asset/milestone/）。
+ */
+const MILESTONE_ICON_DIR = "/milestone"
+/** 色の割り当てが無い菱形の内側。外側と同じオレンジで、二層が一体に見える。 */
+const MILESTONE_DEFAULT_COLOR = "#FF4000"
 
 /** 段の決まったマイルストーン 1 件。段は GanttChart が packMilestones で詰める。 */
 export type PlacedMilestone = { mark: MilestoneMark; lane: number }
 
 /**
- * 割り当てられたカテゴリ色を菱形に載せる。
+ * 割り当てられたカテゴリ色を題名に載せる。
  *
- * 輪郭をその色にし、内部は同じ色を薄くして塗る — blue-system の
- * --zk-accent-red（輪郭）と --zk-milestone-fill（不透明度 0.18 の塗り）の
- * 関係をそのまま移したもの。発光まで色に従わせたいが、光らせるかどうかは
- * 意匠ごとに違うので、filter はここで書かず、色だけを変数で渡して
- * theme.css の blue-system に読ませる。
+ * 菱形そのものは 2 枚の <image>（外側の固定オレンジ + 内側の 10 色）になり、
+ * CSS からは再着色できない — 内側の色はファイル名で選ぶ（nearestMilestoneColor）。
+ * そのため、この変数を読むのは .zk-milestone-label だけになった。菱形の塗り・
+ * 輪郭・発光に渡していた --zk-ms-* は読み手が居なくなったので置かない
+ * （置いたままにすると、効いていない色を後から誰かが追いかけることになる）。
+ *
+ * 変数は題名の <text> に直に置く。以前は菱形と題名の両方に効かせるため包む <g> に
+ * 置いていたが、いまは読むのが題名だけなので、読む要素に置く方が辿りやすい。
  */
 function milestoneTint(color: string): CSSProperties {
-  return {
-    // 変数は菱形ではなく包む <g> に置く。菱形に置くと題名から読めず、
-    // カテゴリ色を当てたときに片方だけが変わってしまう。
-    "--zk-milestone-color": color,
-    // 0.6 ≒ 0x99 / 0xff。--zk-milestone-fill と揃える（実測で 0.18 は薄すぎた）。
-    "--zk-ms-fill": `${color}99`,
-    "--zk-ms-color": color,
-    "--zk-ms-glow": `${color}8c`,
-  } as CSSProperties
+  return { "--zk-milestone-color": color } as CSSProperties
 }
 
 /**
@@ -114,6 +130,17 @@ type Props = {
    * （当たり判定もカーソルも足さない）。
    */
   onMilestoneOpen?: (milestoneId: string) => void
+  /**
+   * 菱形をドラッグして期日を動かし終えたとき。GitHub のマイルストーンの
+   * due_on を書き換える用途。
+   *
+   * 押せるかどうかと同じく、readOnly ではなくこの props の有無でゲートする
+   * （onMilestoneOpen / onToggleDailyDone と同じ慣習）。readOnly は Project に
+   * Start / Target Date のフィールドがあるかどうかの話で、マイルストーンの
+   * REST 書き込みとは関係がない。readOnly でゲートすると、日付フィールドを
+   * 作っていないだけの Project でマイルストーンまで動かせなくなる。
+   */
+  onMilestoneDragCommit?: (milestoneId: string, dueOn: ISODate) => void
   /** Issue 間の依存関係。両端が描かれている行のときだけ矢印にする */
   dependencies?: Dependency[]
   /**
@@ -162,6 +189,13 @@ const EMPTY_EDGES: ReadonlySet<string> = new Set()
 const EMPTY_MILESTONE_DEPTHS: ReadonlyMap<string, number> = new Map()
 const EMPTY_DAILY_TASKS: Record<string, Recurrence> = {}
 
+/**
+ * onMilestoneDragCommit を渡さないビューのための置き。フックは条件付きで呼べない
+ * ので、ドラッグを使わないときも useMilestoneDrag 自体は呼ぶ必要がある。その場合は
+ * そもそもポインタのハンドラを付けないので、ここへは到達しない。
+ */
+const NO_MILESTONE_COMMIT = () => {}
+
 export function Timeline({
   rows, scale, rowHeight, visible, milestones, milestoneHeight,
   dependencies = EMPTY_DEPENDENCIES,
@@ -169,12 +203,22 @@ export function Timeline({
   cyclicEdges = EMPTY_EDGES, milestoneDepths = EMPTY_MILESTONE_DEPTHS,
   theme = "default", onTaskDatesChange, readOnly = false,
   onTaskOpen, onScroll, selectedTaskId = null, scrollRef, onMilestoneOpen,
+  onMilestoneDragCommit,
   dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone, scrollTop = 0,
 }: Props) {
   const { drag, begin, move, end, cancel } = useBarDrag({
     scale,
     onCommit: onTaskDatesChange,
     onClick: onTaskOpen,
+  })
+  // 菱形のドラッグ。クリック（カテゴリを開く）との切り分けはフックの中で
+  // CLICK_SLOP_PX で行うので、ドラッグを付けたときは onClick を別に配らない。
+  const {
+    drag: msDrag, begin: msBegin, move: msMove, end: msEnd, cancel: msCancel,
+  } = useMilestoneDrag({
+    scale,
+    onCommit: onMilestoneDragCommit ?? NO_MILESTONE_COMMIT,
+    onClick: onMilestoneOpen,
   })
   const months = useMemo(() => monthTicks(scale), [scale])
   const subs = useMemo(() => subTicks(scale), [scale])
@@ -281,18 +325,39 @@ export function Timeline({
           {/* 軸の外は段を数える前（GanttChart）で落としてある。ここで落とすと、
               帯の高さは落とす前の段数のままになり、空の段が残る。 */}
           {milestones.map(({ mark, lane }) => {
-            const x = scale.toX(mark.dueOn) + scale.pxPerDay / 2
+            // ドラッグ中は仮の期日で描く。確定するまで元の位置に残ると、
+            // どこへ動かしているのかが見えないまま離すことになる（バーの
+            // drag.preview と同じ扱い）。
+            const dragging = msDrag?.milestoneId === mark.id
+            const dueOn = dragging ? msDrag.preview.dueOn : mark.dueOn
+            const x = scale.toX(dueOn) + scale.pxPerDay / 2
             const top = lane * rowHeight
             // 段の中では今までどおり中央。段が増えても菱形と題名の関係は変えない。
             const cy = top + rowHeight / 2
-            // 色が無ければテーマ既定のまま（Default は紫、blue-system は橙）。
-            // 割り当てがあるときだけ、その色で輪郭と薄い塗りを作る。
+            // 色が無ければ既定のオレンジ（外側と同色）。割り当てがあるときは、
+            // 10 枚の絵のうちいちばん近いものを内側に敷く。
             const tint = mark.color
+            const inside = nearestMilestoneColor(tint ?? MILESTONE_DEFAULT_COLOR)
             const open = onMilestoneOpen
+            const draggable = onMilestoneDragCommit !== undefined
             return (
               <g
                 key={mark.id}
-                onClick={open ? () => open(mark.id) : undefined}
+                // ドラッグを受けるビューではクリックを別に配らない。フックが
+                // CLICK_SLOP_PX 以下の解放を onClick（= onMilestoneOpen）に回す。
+                {...(draggable
+                  ? {
+                      onPointerDown: (e: React.PointerEvent<SVGGElement>) => msBegin(e, mark),
+                      onPointerMove: msMove,
+                      onPointerUp: msEnd,
+                      // 捕捉が外れたら操作ごと捨てる。掴んだままの状態が残ると、
+                      // ボタンを離しているのに菱形が指について回る（バーと同じ）。
+                      onPointerCancel: msCancel,
+                      onLostPointerCapture: msCancel,
+                    }
+                  : open
+                    ? { onClick: () => open(mark.id) }
+                    : undefined)}
                 onKeyDown={
                   open
                     ? (e) => {
@@ -302,12 +367,9 @@ export function Timeline({
                 }
                 role={open ? "button" : undefined}
                 tabIndex={open ? 0 : undefined}
-                style={{
-                  ...(open ? { cursor: "pointer" } : undefined),
-                  ...(tint ? milestoneTint(tint) : undefined),
-                }}
+                style={open || draggable ? { cursor: "pointer" } : undefined}
               >
-                {/* 菱形は 12px 角しかなく、狙って押させるには小さすぎる。
+                {/* 菱形は 18px 角しかなく、狙って押させるには小さすぎる。
                     題名まで含めた矩形を透明で敷いて当たり判定を広げる。
                     押せないビューには敷かない — 押せない場所に反応する見た目
                     （カーソルの変化）だけが残ってしまう。 */}
@@ -323,14 +385,35 @@ export function Timeline({
                     height={rowHeight - 4}
                   />
                 )}
-                <path
-                  className={tint ? "zk-milestone zk-milestone--tinted" : "zk-milestone"}
-                  d={
-                    `M ${x} ${cy - DIAMOND_HALF_WIDTH} L ${x + DIAMOND_HALF_WIDTH} ${cy}` +
-                    ` L ${x} ${cy + DIAMOND_HALF_WIDTH} L ${x - DIAMOND_HALF_WIDTH} ${cy} Z`
-                  }
+                {/* 外側（固定オレンジのリング）→ 内側（カテゴリ色に最も近い 1 枚）の
+                    順に重ねる。どちらも同じ 256px 角の絵で、内側は絵の中央 57% に
+                    描かれているので、同じ矩形に置くだけで中心が揃う。
+                    crispEdges はドット絵を縮めてもぼやけさせないため — 属性ではなく
+                    style で書くのは、React が shapeRendering を style から
+                    shape-rendering として出せるのに対し、<image> の属性としては
+                    型に無いため。 */}
+                <image
+                  href={`${MILESTONE_ICON_DIR}/milestone_outside.svg`}
+                  x={x - DIAMOND_HALF_WIDTH}
+                  y={cy - DIAMOND_HALF_WIDTH}
+                  width={MILESTONE_ICON_SIZE}
+                  height={MILESTONE_ICON_SIZE}
+                  style={{ shapeRendering: "crispEdges" }}
                 />
-                <text className="zk-milestone-label" x={x + LABEL_OFFSET} y={cy}>
+                <image
+                  href={`${MILESTONE_ICON_DIR}/milestone_intside_${inside}.svg`}
+                  x={x - DIAMOND_HALF_WIDTH}
+                  y={cy - DIAMOND_HALF_WIDTH}
+                  width={MILESTONE_ICON_SIZE}
+                  height={MILESTONE_ICON_SIZE}
+                  style={{ shapeRendering: "crispEdges" }}
+                />
+                <text
+                  className="zk-milestone-label"
+                  x={x + LABEL_OFFSET}
+                  y={cy}
+                  style={tint ? milestoneTint(tint) : undefined}
+                >
                   {mark.title}
                 </text>
               </g>

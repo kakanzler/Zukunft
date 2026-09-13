@@ -26,9 +26,14 @@ type Props = {
 /**
  * 新しいマイルストーンを作る。
  *
- * GitHub の Web を開いて作ってから戻ってくる往復を畳むのが目的。作成だけを扱い、
- * 編集・クローズ・削除は置かない — そちらは GitHub 側で完結する操作で、
- * ここに置くと「盤面から消した」のか「GitHub から消した」のかが曖昧になる。
+ * GitHub の Web を開いて作ってから戻ってくる往復を畳むのが目的。このモーダルが
+ * 扱うのは作成だけで、編集・クローズはここには置かない。
+ *
+ * 削除は別の場所（MilestoneCategoryModal — 盤面の菱形から開く方）にある。
+ * 「盤面から消した」のか「GitHub から消した」のかが曖昧になるという理由で
+ * 以前は削除自体を置いていなかったが、いまは曖昧さを残さない形で置いてある：
+ * あちらの削除は REST の DELETE を送り、GitHub 上のマイルストーンそのものを
+ * 消す（取り消せない）。盤面から隠すだけの操作はどこにも無い。
  */
 export function NewMilestoneModal({
   repositories, repositoryId, onChangeRepository, candidates, busy, onCreate, onClose,

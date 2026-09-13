@@ -10,7 +10,7 @@ query RepositoryMilestones($repositoryId: ID!, $after: String) {
         orderBy: { field: DUE_DATE, direction: ASC }
       ) {
         pageInfo { hasNextPage endCursor }
-        nodes { id title dueOn }
+        nodes { id number title dueOn }
       }
     }
   }

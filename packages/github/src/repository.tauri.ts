@@ -3,6 +3,7 @@ import type {
   Assignee,
   ParentIssue,
   DateChange,
+  ISODate,
   IssueState,
   Label,
   Milestone,
@@ -151,6 +152,19 @@ export class TauriScheduleRepository implements GitHubScheduleRepository {
       dueOn: input.dueOn,
       description: input.description,
     })
+  }
+
+  /** 引数が node id ではなく `owner/repo` + 連番なのは createMilestone と同じ理由。 */
+  deleteMilestone(nameWithOwner: string, number: number): Promise<void> {
+    return call<void>("delete_milestone", { nameWithOwner, number })
+  }
+
+  updateMilestoneDueOn(
+    nameWithOwner: string,
+    number: number,
+    dueOn: ISODate,
+  ): Promise<Milestone> {
+    return call<Milestone>("update_milestone_due_on", { nameWithOwner, number, dueOn })
   }
 
   createLabel(repositoryId: string, name: string, color: string): Promise<Label> {

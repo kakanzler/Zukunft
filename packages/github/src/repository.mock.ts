@@ -1,6 +1,7 @@
 import {
   type Assignee,
   type DateChange,
+  type ISODate,
   type IssueState,
   type Label,
   type Milestone,
@@ -78,13 +79,16 @@ const SEED: [string, number, number, number, number, number | null][] = [
   ["Post Launch Review", 3, 3, 62, 5, null],
 ]
 
-/** Milestone の候補。id は Issue への設定・解除に使う。 */
-const MILESTONES: { id: string; title: string }[] = [
+/**
+ * Milestone の候補。id は Issue への設定・解除に、number は削除・期日更新に使う。
+ * number は実物と同じく 1 始まりの連番にしておく（0 は GitHub には存在しない）。
+ */
+const MILESTONES: { id: string; number: number; title: string }[] = [
   "Kickoff",
   "Design Review",
   "Integration Complete",
   "Go Live",
-].map((title, i) => ({ id: `ms-${i}`, title }))
+].map((title, i) => ({ id: `ms-${i}`, number: i + 1, title }))
 
 /** 一覧用の候補。期日は 3 週間おきに置いて、並び順の確認ができるようにする。 */
 function buildMilestones(origin: string): Milestone[] {
@@ -170,6 +174,7 @@ blocked-by: #${100 + i}
           : [LABELS[i % LABELS.length]!],
     milestone: {
       id: MILESTONES[milestoneIndex]?.id ?? "ms-0",
+      number: MILESTONES[milestoneIndex]?.number ?? 1,
       title: MILESTONES[milestoneIndex]?.title ?? "v1",
       dueOn: addDays(origin, offset + duration + 2),
     },
@@ -320,11 +325,52 @@ export class MockScheduleRepository implements GitHubScheduleRepository {
     }
     const created: Milestone = {
       id: `ms-${title}-${Date.now()}`,
+      // 実物と同じく、リポジトリ内で使われていない次の番号が振られる
+      number: this.#milestones.reduce((max, m) => Math.max(max, m.number), 0) + 1,
       title,
       dueOn: input.dueOn,
     }
     this.#milestones = [...this.#milestones, created]
     return { ...created }
+  }
+
+  /**
+   * マイルストーンを消す。実物と同じく一覧から消えるだけでなく、
+   * 既にそれが付いている Issue からも外れる。
+   */
+  async deleteMilestone(_nameWithOwner: string, number: number): Promise<void> {
+    await this.#delay()
+    const target = this.#milestones.find((m) => m.number === number)
+    if (!target) {
+      throw new GitHubError("not-found", "マイルストーンが見つかりません")
+    }
+    this.#milestones = this.#milestones.filter((m) => m.id !== target.id)
+    this.#tasks = this.#tasks.map((task) =>
+      task.milestone?.id === target.id ? { ...task, milestone: null } : task,
+    )
+  }
+
+  /** 期日だけを書き換える。盤面のドラッグ移動に対応する。 */
+  async updateMilestoneDueOn(
+    _nameWithOwner: string,
+    number: number,
+    dueOn: ISODate,
+  ): Promise<Milestone> {
+    await this.#delay()
+    const target = this.#milestones.find((m) => m.number === number)
+    if (!target) {
+      throw new GitHubError("not-found", "マイルストーンが見つかりません")
+    }
+    const updated: Milestone = { ...target, dueOn }
+    this.#milestones = this.#milestones.map((m) => (m.number === number ? updated : m))
+    // Issue に埋まっている方も動かす。盤面はこちらを見て線を引くので、
+    // 揃えないと同じマイルストーンが 2 箇所で別の期日に見える。
+    this.#tasks = this.#tasks.map((task) =>
+      task.milestone?.id === target.id
+        ? { ...task, milestone: { ...task.milestone, dueOn } }
+        : task,
+    )
+    return { ...updated }
   }
 
   async createLabel(_repositoryId: string, name: string, color: string): Promise<Label> {

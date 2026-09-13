@@ -81,7 +81,7 @@ eq("diffDates start only", diffDates(
 // --- stats ---
 const mk = (n: number, s: string, start: string, end: string, prog: number | null): ScheduleTask => ({
   id: `i${n}`, issueId: `gh${n}`, repositoryId: "repo", issueNumber: n, title: `T${n}`, body: "", url: "", issueState: "OPEN", startDate: start, endDate: end,
-  status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30" },
+  status: s, priority: null, assignees: [], labels: [], milestone: { id: "ms-1", number: 1, title: "v1", dueOn: "2026-09-30" },
   progress: prog, updatedAt: "2026-08-01T00:00:00Z", syncState: "synced",
   labelsComplete: true, assigneesComplete: true, fieldsComplete: true,
 })
@@ -97,7 +97,7 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
   // 同名が複数の Issue から来ても、先に見た方の id を採る（期日と同じ約束）。
   const dupTasks: ScheduleTask[] = [
     mk(1, "Planning", "2026-09-01", "2026-09-07", 100),
-    { ...mk(2, "Review", "2026-09-08", "2026-09-21", 0), milestone: { id: "ms-2", title: "v1", dueOn: "2026-09-30" } },
+    { ...mk(2, "Review", "2026-09-08", "2026-09-21", 0), milestone: { id: "ms-2", number: 2, title: "v1", dueOn: "2026-09-30" } },
   ]
   eq("same-title milestones keep the first-seen id",
      collectMilestones(dupTasks), [{ id: "ms-1", title: "v1", dueOn: "2026-09-30" }])
@@ -108,21 +108,21 @@ eq("groupByStatus order", groupByStatus(tasks, ["Planning", "In Progress", "Revi
   // Issue が 1 件も付いていないマイルストーンも盤面に出す。出さないと、
   // 作った直後は何も起きなかったように見える。
   eq("a repository milestone with no issues still shows up",
-     mergeMilestones([], [{ id: "m1", title: "v2", dueOn: "2026-10-31" }]),
+     mergeMilestones([], [{ id: "m1", number: 1, title: "v2", dueOn: "2026-10-31" }]),
      [{ id: "m1", title: "v2", dueOn: "2026-10-31" }])
   // 同じ題が両方から来ても菱形は 1 つ。二重に描くと期日がずれて見える。
   eq("the same title from both sides collapses into one",
      mergeMilestones([{ id: "t1", title: "v1", dueOn: "2026-09-30" }],
-                     [{ id: "m1", title: "v1", dueOn: "2026-09-30" },
-                      { id: "m2", title: "v2", dueOn: "2026-10-31" }]),
+                     [{ id: "m1", number: 1, title: "v1", dueOn: "2026-09-30" },
+                      { id: "m2", number: 2, title: "v2", dueOn: "2026-10-31" }]),
      [{ id: "t1", title: "v1", dueOn: "2026-09-30" }, { id: "m2", title: "v2", dueOn: "2026-10-31" }])
   // 期日の無いマイルストーンは横軸のどこにも置けない。
   eq("a milestone without a due date is dropped",
-     mergeMilestones([], [{ id: "m3", title: "backlog", dueOn: null }]), [])
+     mergeMilestones([], [{ id: "m3", number: 3, title: "backlog", dueOn: null }]), [])
   // 並びは collectMilestones と同じ期日順。混ぜた側が後ろに固まってはいけない。
   eq("the merged list stays in due-date order",
      mergeMilestones([{ id: "t2", title: "late", dueOn: "2026-12-01" }],
-                     [{ id: "m4", title: "early", dueOn: "2026-09-01" }]).map((m) => m.title),
+                     [{ id: "m4", number: 4, title: "early", dueOn: "2026-09-01" }]).map((m) => m.title),
      ["early", "late"])
   // Issue 側だけのときは collectMilestones をそのまま通す。
   eq("with no repository list the task-side result is untouched",
@@ -507,7 +507,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
     milestone:
       milestone === false
         ? null
-        : { id: milestone === true ? "ms-1" : milestone, title: "v1", dueOn: "2026-09-30" },
+        : { id: milestone === true ? "ms-1" : milestone, number: 1, title: "v1", dueOn: "2026-09-30" },
   })
   const depths = (tasks: ScheduleTask[]) => {
     const dependencies = resolveDependencies(tasks)
@@ -797,7 +797,7 @@ eq("wrong type blocks editing", canEditDates(wrongType), false)
     t(2, { title: "UI/UX Design", status: "In Progress", labels: [{ id: "l1", name: "design", color: "" }] }),
     t(3, { title: "Backend", status: "In Progress", issueState: "CLOSED",
            assignees: [{ id: "u1", login: "dev1", avatarUrl: "" }] }),
-    t(4, { title: "Go Live", status: "Complete", milestone: { id: "m", title: "v2", dueOn: "2026-10-01" } }),
+    t(4, { title: "Go Live", status: "Complete", milestone: { id: "m", number: 2, title: "v2", dueOn: "2026-10-01" } }),
   ]
   const f = (over: Partial<TaskFilter> = {}): TaskFilter => ({ ...EMPTY_FILTER, ...over })
   const nums = (list: ScheduleTask[]) => list.map((x) => x.issueNumber)

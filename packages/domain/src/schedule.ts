@@ -33,6 +33,11 @@ export type IssueState = "OPEN" | "CLOSED"
 export type Milestone = {
   /** マイルストーンの node id。Issue への設定・解除に使う */
   id: string
+  /**
+   * リポジトリ内の連番。削除・期日の更新に使う REST の
+   * `/repos/{owner}/{repo}/milestones/{number}` は node id では引けない
+   */
+  number: number
   title: string
   dueOn: ISODate | null
 }

@@ -10,7 +10,10 @@ import {
 } from "@zukunft/domain"
 import { buildRows, visibleRange, type Row } from "../src/rows"
 import { estimateLabelWidth, onAxisMilestones, packMilestones } from "../src/milestones"
-import { glowVar, milestoneDepthColors, statusSlot, statusVar } from "../src/colors"
+import {
+  MILESTONE_INSIDE_COLORS, glowVar, milestoneDepthColors, nearestMilestoneColor, statusSlot,
+  statusVar,
+} from "../src/colors"
 import { isGanttTheme } from "../src/theme"
 import {
   MILESTONE_FONT_SIZE, barPath, barWidth, buildLinks, dailyDotRadius, type Placement,
@@ -19,7 +22,9 @@ import { KpiBar, StatusLegend } from "../src/KpiBar"
 import { TaskPane } from "../src/TaskPane"
 import { Timeline } from "../src/Timeline"
 import { isTyping } from "../src/keyboard"
-import type { DragState } from "../src/useBarDrag"
+import type { PointerEvent as ReactPointerEvent } from "react"
+import { CLICK_SLOP_PX, type DragState } from "../src/useBarDrag"
+import { useMilestoneDrag } from "../src/useMilestoneDrag"
 
 /**
  * 盤面の組み立てのテスト。
@@ -186,6 +191,120 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a negative status index still lands on a real slot", statusSlot(-1), 3)
   eq("legend dots read the fill colour variable", statusVar(5), "var(--status-1-to)")
   eq("bar glow reads the glow variable of the same slot", glowVar(2), "var(--status-2-glow)")
+}
+
+// --- colors: 菱形の内側に使う絵の選び方 ---
+{
+  // 表に載っている色そのものは、必ず自分自身の絵に落ちる。ここが 1 つでも
+  // ずれると、カテゴリに割り当てた色と菱形の色が食い違う。
+  eq(
+    "every palette colour maps back to its own picture",
+    Object.entries(MILESTONE_INSIDE_COLORS).map(([name, hex]) => nearestMilestoneColor(hex) === name),
+    Object.keys(MILESTONE_INSIDE_COLORS).map(() => true),
+  )
+
+  // 任意の色は、いちばん近いものへ寄せる（GitHub のラベル色は何色でもありうる）。
+  eq("a near-black red lands on red", nearestMilestoneColor("#F01010"), "red")
+  eq("a washed-out blue still lands on blue", nearestMilestoneColor("#1040E0"), "blue")
+  eq("a bright yellow-green lands on lime", nearestMilestoneColor("#A0F020"), "lime")
+  // 緑と黄緑のような近い 2 色でも、距離の小さい方を選ぶ。
+  eq("a pure green lands on green, not lime", nearestMilestoneColor("#22FF22"), "green")
+
+  // 読めない値は既定（外側と同じオレンジ）。ここで落ちると菱形の内側が
+  // 404 になって消える。
+  eq(
+    "an unreadable colour falls back to the default instead of breaking the file name",
+    [nearestMilestoneColor(""), nearestMilestoneColor("#abc"), nearestMilestoneColor("red")],
+    ["orange", "orange", "orange"],
+  )
+}
+
+/*
+ * --- useMilestoneDrag: クリックとドラッグの切り分け ---
+ *
+ * フックなので、react-dom/server で 1 回だけ描いて返り値を掴み、そのあとに
+ * begin / move / end を直に呼ぶ。描画が終わったあとの setState はサーバ側では
+ * 何もしない（drag の値は見られない）が、確かめたいのは「離したときに何が
+ * 呼ばれるか」なので、それで足りる。
+ *
+ * PointerEvent は本物を作れないので、フックが触るところ（button / clientX /
+ * pointerId / ポインタ捕捉）だけを持つ偽物を渡す。
+ */
+{
+  const scale = createTimeScale("2026-09-01", "2026-09-30", "day") // 1 日 = 32px
+  const mark: MilestoneMark = { id: "m1", title: "v1", dueOn: "2026-09-10" }
+
+  const commits: string[] = []
+  const clicks: string[] = []
+  const captured: ReturnType<typeof useMilestoneDrag>[] = []
+  function Probe() {
+    captured.push(
+      useMilestoneDrag({
+        scale,
+        onCommit: (id, dueOn) => { commits.push(`${id}:${dueOn}`) },
+        onClick: (id) => { clicks.push(id) },
+      }),
+    )
+    return null
+  }
+  renderToStaticMarkup(<Probe />)
+  const drag = captured[0]!
+
+  // ポインタ捕捉は本物の要素にしか無いので、掴んだ id を覚えるだけの偽物を置く。
+  const captures = new Set<number>()
+  const currentTarget = {
+    setPointerCapture: (id: number) => { captures.add(id) },
+    hasPointerCapture: (id: number) => captures.has(id),
+    releasePointerCapture: (id: number) => { captures.delete(id) },
+  }
+  const at = (clientX: number, button = 0) =>
+    ({
+      button, clientX, clientY: 0, pointerId: 1, currentTarget, preventDefault: () => {},
+    }) as unknown as ReactPointerEvent<SVGGElement>
+
+  // ほとんど動かさずに離した → クリック（カテゴリの割り当てを開く）。
+  drag.begin(at(100), mark)
+  drag.end(at(100 + CLICK_SLOP_PX))
+  eq("releasing without moving opens the milestone instead of committing",
+     [clicks, commits], [["m1"], []])
+  eq("the pointer capture is handed back when the drag ends", captures.size, 0)
+
+  // はっきり動かした → 期日の確定。日へのスナップは TimeScale.toDays が行う
+  // ので、3 日ぶん（96px）動かせば 3 日先になる。
+  clicks.length = 0
+  drag.begin(at(100), mark)
+  drag.move(at(100 + 96))
+  drag.end(at(100 + 96))
+  eq("dragging three days commits the snapped due date",
+     [clicks, commits], [[], ["m1:2026-09-13"]])
+
+  // 左へも同じだけ動く。片方向だけ効いていても例外にはならない。
+  commits.length = 0
+  drag.begin(at(100), mark)
+  drag.end(at(100 - 64))
+  eq("dragging left commits an earlier due date", commits, ["m1:2026-09-08"])
+
+  // slop は超えたが、丸めた先が元と同じ日。GitHub への書き込みなので送らない。
+  commits.length = 0
+  clicks.length = 0
+  drag.begin(at(100), mark)
+  drag.end(at(100 + CLICK_SLOP_PX + 1))
+  eq("moving past the slop but landing on the same day sends nothing",
+     [clicks, commits], [[], []])
+
+  // Esc（cancel）で捨てたあとの pointerup は確定しない。
+  commits.length = 0
+  drag.begin(at(100), mark)
+  drag.cancel()
+  drag.end(at(100 + 96))
+  eq("a cancelled drag commits nothing", commits, [])
+
+  // 左ボタン以外では始めない。始まっていなければ離しても何も起きない。
+  commits.length = 0
+  clicks.length = 0
+  drag.begin(at(100, 2), mark)
+  drag.end(at(100))
+  eq("a right-click never starts a drag", [clicks, commits], [[], []])
 }
 
 // --- theme: 保存値の検証 ---
@@ -365,9 +484,9 @@ const count = (haystack: string, pattern: RegExp): number =>
 {
   const tasks = [
     task({ id: "a", issueNumber: 1, startDate: "2026-09-01", endDate: "2026-09-03", progress: 100,
-           milestone: { id: "m1", title: "v1", dueOn: "2026-09-30" } }),
+           milestone: { id: "m1", number: 1, title: "v1", dueOn: "2026-09-30" } }),
     task({ id: "b", issueNumber: 2, startDate: "2026-09-04", endDate: "2026-09-20", progress: 50,
-           milestone: { id: "m1", title: "v1", dueOn: "2026-09-30" } }),
+           milestone: { id: "m1", number: 1, title: "v1", dueOn: "2026-09-30" } }),
     task({ id: "c", issueNumber: 3 }),
   ]
   const stats = computeStats(tasks)
@@ -477,7 +596,9 @@ const count = (haystack: string, pattern: RegExp): number =>
   // Timeline は渡されたものをそのまま描く。軸の外を落とすのは段を数える前
   // （GanttChart の onAxisMilestones）— ここで落とすと、帯の高さだけが
   // 落とす前の段数のまま残って空の段ができる。
-  eq("the board draws every milestone it is given", count(html, /class="zk-milestone"/g), 2)
+  // 菱形は 1 件につき 2 枚の絵（外側の固定オレンジのリング + 内側の色）。
+  eq("the board draws every milestone it is given",
+     count(html, /href="\/milestone\/milestone_outside\.svg"/g), 2)
   // 菱形は本体の外の、貼り付く帯に描く。本体に描くと下へ辿った先で消える。
   eq("the milestone lives in its own pinned row", count(html, /class="zk-milestone-row"/g), 1)
   // ハンドラを渡さない読み取り専用ビューでは押せないままにする。
@@ -495,22 +616,43 @@ const count = (haystack: string, pattern: RegExp): number =>
   )
   eq("a board with a handler gets a wide hit area",
      count(clickable, /class="zk-milestone-hit"/g), 1)
+  // 掴めるかどうかは readOnly ではなく props の有無で決める。readOnly は
+  // Project に日付フィールドがあるかどうかの話で、マイルストーンの REST
+  // 書き込みとは関係がない（渡しても掴める側は変わらないこと）。
+  const readOnlyDraggable = renderToStaticMarkup(
+    <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
+              milestones={[{ mark: inRange, lane: 0 }]} milestoneHeight={32}
+              readOnly onMilestoneOpen={() => {}} onMilestoneDragCommit={() => {}}
+              onTaskDatesChange={() => {}} />,
+  )
+  eq("readOnly does not take the milestone drag away",
+     count(readOnlyDraggable, /class="zk-milestone-hit"/g), 1)
 
-  // カテゴリの色は菱形と題名を包む <g> に変数として乗せる。菱形だけに乗せると
-  // 題名から読めず、色を当てたときに片方だけが変わる。
+  // 色の割り当てが無い菱形の内側は既定のオレンジ（外側と同色）。
+  eq("a milestone with no category colour gets the default inner picture",
+     count(html, /href="\/milestone\/milestone_intside_orange\.svg"/g), 2)
+  // ドット絵なので、縮めてもぼかさない。属性が落ちると輪郭が滲んで
+  // 二層であることが読めなくなる。
+  eq("the icons are drawn without antialiasing",
+     count(html, /shape-rendering:crispEdges/g), 4)
+
+  // カテゴリの色は絵では再着色できないので、10 枚のうち最も近いものを
+  // ファイル名で選ぶ。題名の文字色だけは今までどおり CSS 変数で当てる。
   const tinted = renderToStaticMarkup(
     <Timeline rows={rows} scale={scale} rowHeight={32} visible={{ start: 0, end: rows.length }}
               milestones={[{ mark: { ...inRange, color: "#ff8800" }, lane: 0 }]}
               milestoneHeight={32} onTaskDatesChange={() => {}} />,
   )
-  eq("a milestone with a category colour puts it on the group both shapes read",
-     [tinted.includes("zk-milestone--tinted"),
-      tinted.includes("--zk-milestone-color:#ff8800"),
-      tinted.includes("--zk-ms-color:#ff8800")],
-     [true, true, true])
-  // 変数は菱形ではなく <g> 側。ここが菱形に戻ると題名が色に付いてこない。
-  eq("the tint is not pinned to the diamond alone",
-     /<path class="zk-milestone zk-milestone--tinted"[^>]*style=/.test(tinted), false)
+  eq("a category colour picks the nearest inner picture, over a fixed outer ring",
+     [count(tinted, /href="\/milestone\/milestone_outside\.svg"/g),
+      count(tinted, new RegExp(`href="/milestone/milestone_intside_${nearestMilestoneColor("#ff8800")}\\.svg"`, "g"))],
+     [1, 1])
+  // 絵は CSS で着色できないので、変数を読むのは題名だけになった。
+  // <g> に置いたままだと、効かない色を後から追いかけることになる。
+  eq("the tint is carried by the label, which is the only thing that reads it",
+     /<text class="zk-milestone-label"[^>]*--zk-milestone-color:#ff8800/.test(tinted), true)
+  eq("the old single-colour diamond is gone",
+     [tinted.includes("zk-milestone--tinted"), tinted.includes("--zk-ms-color")], [false, false])
 
   // 2 段になったら帯も 2 段ぶん高くなる。1 段のままだと、下の段の菱形が
   // 帯の外へはみ出して、下から上がってくる行に重なる。
@@ -681,10 +823,10 @@ const count = (haystack: string, pattern: RegExp): number =>
   const linked = [
     task({ id: "a", issueId: "gh-a", issueNumber: 41, status: "Todo",
            startDate: "2026-09-01", endDate: "2026-09-03",
-           milestone: { id: "m1", title: "v1", dueOn: "2026-09-20" } }),
+           milestone: { id: "m1", number: 1, title: "v1", dueOn: "2026-09-20" } }),
     task({ id: "b", issueId: "gh-b", issueNumber: 42, status: "Todo",
            startDate: "2026-09-05", endDate: "2026-09-07",
-           milestone: { id: "m1", title: "v1", dueOn: "2026-09-20" } }),
+           milestone: { id: "m1", number: 1, title: "v1", dueOn: "2026-09-20" } }),
   ]
   const rows = buildRows(linked, STATUS_ORDER, new Set())
   const mark: MilestoneMark = { id: "m1", title: "v1", dueOn: "2026-09-20" }
@@ -702,11 +844,11 @@ const count = (haystack: string, pattern: RegExp): number =>
   eq("a milestone link is drawn for the task it is given (once in the body, once in the band)",
      count(one, /class="zk-ms-link"/g), 2)
   // 曲線なので終点は 3 次ベジエの最後の座標として出る。終点は菱形の中心では
-  // なく左頂点（中心から DIAMOND_HALF_WIDTH = 6 手前）。高さは菱形そのものの
+  // なく左頂点（中心から DIAMOND_HALF_WIDTH = 9 手前）。高さは菱形そのものの
   // 高さ（lane 0 × rowHeight 32 + rowHeight/2 = 16）を、帯の高さ（32）ぶん
   // 本体側の座標へ引き戻したもの（scrollTop 0 - milestoneHeight 32 + cy 16 = -16）。
   eq("the line stops at the diamond's left vertex, at the diamond's true height",
-     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2 - 6} -16"`), true)
+     one.includes(`, ${scale.toX("2026-09-20") + scale.pxPerDay / 2 - 9} -16"`), true)
   // 依存の矢印と同じで、出るのはバーの右端。中央から真上に伸ばすと、バーを跨いで
   // 生えたように見えてどこから出た線か読めない。
   // a は 09-01..09-03 の 3 日ぶん。day ズームは 1 日 32px なので右端は原点 + 96。

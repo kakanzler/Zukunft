@@ -1,9 +1,9 @@
 import type { ISODate, MilestoneMark } from "@zukunft/domain"
 
-/** 菱形の中心から左右への半幅。Timeline.tsx の SVG パスと同じ値を使う。 */
-const DIAMOND_HALF_WIDTH = 6
-/** ラベルの開始位置（菱形の中心から）。Timeline.tsx の <text x={x + 10}> と揃える。 */
-const LABEL_OFFSET = 10
+/** 菱形の中心から左右への半幅。Timeline.tsx の二層アイコンの半幅と同じ値を使う。 */
+const DIAMOND_HALF_WIDTH = 9
+/** ラベルの開始位置（菱形の中心から）。Timeline.tsx の <text x={x + 13}> と揃える。 */
+const LABEL_OFFSET = 13
 /** 次のマイルストーンとの最小の隙間。詰まって見えるより、少し空く方を選ぶ。 */
 const MIN_GAP = 8
 

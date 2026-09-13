@@ -28,6 +28,9 @@ pub struct Label {
 pub struct Milestone {
     /// マイルストーンの node id。Issue への設定・解除に使う
     pub id: String,
+    /// リポジトリ内の連番。削除・期日の更新に使う REST の
+    /// `/repos/{owner}/{repo}/milestones/{number}` は node id では引けない
+    pub number: i64,
     pub title: String,
     pub due_on: Option<String>,
 }

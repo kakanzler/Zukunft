@@ -5,6 +5,7 @@ import {
   mapTasks,
   statusOrder,
 } from "../src/mapping"
+import { MockScheduleRepository } from "../src/repository.mock"
 
 /**
  * GraphQL 応答 → Domain Model の変換のテスト。
@@ -47,7 +48,7 @@ const item = (over: Record<string, unknown> = {}) => ({
     assignees: { pageInfo: { hasNextPage: false }, nodes: [{ id: "u1", login: "dev1", avatarUrl: "" }] },
     labels: { pageInfo: { hasNextPage: false }, nodes: [{ id: "l1", name: "design", color: "a855f7" }] },
     repository: { id: "repo-1" },
-    milestone: { id: "ms-1", title: "v1", dueOn: "2026-09-30T00:00:00Z" },
+    milestone: { id: "ms-1", number: 7, title: "v1", dueOn: "2026-09-30T00:00:00Z" },
   },
   ...over,
 })
@@ -66,6 +67,8 @@ const item = (over: Record<string, unknown> = {}) => ({
   eq("maps assignees", task.assignees, [{ id: "u1", login: "dev1", avatarUrl: "" }])
   // dueOn は日時で返るが、扱いは日付に揃える
   eq("milestone dueOn is a date", task.milestone!.dueOn, "2026-09-30")
+  // Issue に埋まっている側からも number を拾う。盤面からの削除・移動はここが出所。
+  eq("milestone number is mapped", task.milestone!.number, 7)
   eq("complete by default",
      [task.labelsComplete, task.assigneesComplete, task.fieldsComplete], [true, true, true])
 }
@@ -185,7 +188,7 @@ const item = (over: Record<string, unknown> = {}) => ({
       milestones: {
         pageInfo: { hasNextPage, endCursor: "m1" },
         nodes: [
-          { id: "ms-1", title: "v1", dueOn: "2026-09-30T00:00:00Z" },
+          { id: "ms-1", number: 7, title: "v1", dueOn: "2026-09-30T00:00:00Z" },
           { id: "ms-2", title: "期日なし", dueOn: null },
           // id が無い Milestone は Issue に設定できない
           { title: "壊れた定義" },
@@ -197,9 +200,45 @@ const item = (over: Record<string, unknown> = {}) => ({
   eq("drops milestones without id", milestones.map((m) => m.id), ["ms-1", "ms-2"])
   eq("dueOn becomes a date", milestones[0]!.dueOn, "2026-09-30")
   eq("null dueOn stays null", milestones[1]!.dueOn, null)
+  // number は REST の削除・期日更新のパスに使う。読み落とすとその 2 つが引けない。
+  eq("number is carried over", milestones[0]!.number, 7)
+  // 古い応答（number を選んでいない）でも読み込み自体は通す。
+  eq("a missing number falls back to 0", milestones[1]!.number, 0)
   eq("milestone last page has no cursor", endCursor, null)
   eq("milestone more pages return the cursor", mapMilestones(raw(true)).endCursor, "m1")
 }
 
-console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)
-process.exit(failures === 0 ? 0 : 1)
+// --- MockScheduleRepository: マイルストーンの削除と期日の更新 ---
+//
+// モックだけが通って実機で失敗する経路を作らないため、番号で引けること・
+// 引けなかったら失敗することをここで押さえる。非同期なので、まとめを出す前に待つ。
+async function mockMilestoneChecks() {
+  const repo = new MockScheduleRepository({ latencyMs: 0 })
+  const [first, second] = await repo.listMilestones("repo-1")
+
+  const moved = await repo.updateMilestoneDueOn("o/r", first!.number, "2030-01-01")
+  eq("updateMilestoneDueOn returns the new due date", moved.dueOn, "2030-01-01")
+  eq("updateMilestoneDueOn keeps the identity", [moved.id, moved.number], [first!.id, first!.number])
+  const afterMove = await repo.listMilestones("repo-1")
+  eq("the moved due date stays in the list", afterMove[0]!.dueOn, "2030-01-01")
+
+  await repo.deleteMilestone("o/r", second!.number)
+  const afterDelete = await repo.listMilestones("repo-1")
+  eq("the deleted milestone is gone",
+     afterDelete.some((m) => m.id === second!.id), false)
+  eq("the others are untouched", afterDelete.length, afterMove.length - 1)
+
+  // 無い番号を消せたことにすると、UI 側が消えたつもりで表示だけ消す。
+  let rejected = false
+  try {
+    await repo.deleteMilestone("o/r", 9999)
+  } catch {
+    rejected = true
+  }
+  eq("deleting an unknown milestone fails", rejected, true)
+}
+
+mockMilestoneChecks().then(() => {
+  console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`)
+  process.exit(failures === 0 ? 0 : 1)
+})

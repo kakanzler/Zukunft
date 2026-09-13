@@ -55,6 +55,7 @@ import type { WindowSettings } from "@/settings"
 import {
   DEFAULT_WINDOW_SETTINGS,
   clearBackgroundImage,
+  clearMilestoneCategory,
   exitFullscreen,
   loadAutoReschedule,
   loadBackgroundImage,
@@ -330,6 +331,8 @@ function Workspace({
   // マイルストーンの作成は useSchedule のキューを通さない。Projects v2 の
   // フィールドでも Issue でもないので、取り消しや競合の対象にならない。
   const [creatingMilestone, setCreatingMilestone] = useState(false)
+  // 削除の送信中。作成と同じくキューを通さないので、ここで自前に持つ。
+  const [deletingMilestone, setDeletingMilestone] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
   // カテゴリを割り当てるために開いているマイルストーンの node id。
   // 題名ではなく id で持つのは、GitHub 上で題名を変えても割り当てが外れないため。
@@ -1603,10 +1606,172 @@ function Workspace({
     })
   }, [milestonesByRepo, schedule.tasks, labelCandidates, milestoneCategories])
 
+  /**
+   * マイルストーンの node id -> それが属するリポジトリの id。
+   *
+   * 削除と期日の更新は REST でしか行えず、REST は node id ではなく
+   * owner/repo + リポジトリ内の連番で引く。マイルストーン自身は owner/repo を
+   * 持っていないので、どこから拾ったかをここで覚えておく — リポジトリごとの
+   * 一覧はその鍵が、Issue から拾った分は task.repositoryId が、それぞれ答える。
+   *
+   * allMilestones と同じ材料から同じ順で組むので、あちらに出るものはここにも
+   * 必ず載る（載らないと、盤面に見えているのに動かせないマイルストーンができる）。
+   */
+  const milestoneRepositoryId = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const [repositoryId, list] of Object.entries(milestonesByRepo)) {
+      for (const m of list) map[m.id] = repositoryId
+    }
+    for (const task of schedule.tasks) {
+      if (task.milestone) map[task.milestone.id] = task.repositoryId
+    }
+    return map
+  }, [milestonesByRepo, schedule.tasks])
+
   /** カテゴリを割り当てるために開いているマイルストーン。題名を画面に出すために引く。 */
   const openMilestone = useMemo(
     () => allMilestones.find((m) => m.id === openMilestoneId) ?? null,
     [allMilestones, openMilestoneId],
+  )
+
+  /**
+   * REST で 1 件のマイルストーンを指すのに要るもの（owner/repo + 連番）を揃える。
+   *
+   * 削除も期日の更新も同じ引き方をするので、失敗したときの言い分け（どこまで
+   * 分かって、何が分からなかったのか）も 1 か所にまとめる。
+   */
+  const resolveMilestoneTarget = useCallback(
+    (milestoneId: string) => {
+      const repositoryId = milestoneRepositoryId[milestoneId]
+      const repo = repositoryId ? repositories.find((r) => r.id === repositoryId) : undefined
+      const milestone = allMilestones.find((m) => m.id === milestoneId)
+      if (!repo || !milestone) return null
+      return { repositoryId: repo.id, nameWithOwner: repo.nameWithOwner, milestone }
+    },
+    [milestoneRepositoryId, repositories, allMilestones],
+  )
+
+  /**
+   * マイルストーンを GitHub から削除する。
+   *
+   * 楽観的更新はしない。作成（createMilestone）と同じく、GitHub が受け取ってから
+   * 手元を動かす — 日付の編集と違ってキュー（取り消し・競合解決）に載らないので、
+   * 先に消しておいて失敗したときに戻す道が無い。
+   *
+   * 消えたマイルストーンは、付いていた Issue すべてから外れる。手元のタスクは
+   * それを持ったままなので、取り直さないと盤面に菱形が残り続ける
+   * （deleteLabel が reload するのと同じ理由）。
+   */
+  const deleteMilestone = useCallback(
+    async (milestoneId: string) => {
+      const target = resolveMilestoneTarget(milestoneId)
+      if (!target) {
+        logAppend({
+          level: "error",
+          message: "マイルストーンを削除できませんでした",
+          hint: "どのリポジトリのものか分かりません。再読み込みしてください。",
+        })
+        return
+      }
+      setDeletingMilestone(true)
+      try {
+        await repository.deleteMilestone(target.nameWithOwner, target.milestone.number)
+        setMilestonesByRepo((prev) => ({
+          ...prev,
+          [target.repositoryId]: (prev[target.repositoryId] ?? []).filter(
+            (m) => m.id !== milestoneId,
+          ),
+        }))
+        // 割り当ての鍵は node id。消えた id は二度と引かれないので、残しておくと
+        // 設定ファイルに死んだ項目が積み上がるだけになる。ここが失敗しても
+        // 削除そのものは済んでいるので、削除の失敗としては扱わない。
+        try {
+          await clearMilestoneCategory(milestoneId)
+        } catch {
+          logAppend({
+            level: "warn",
+            message: `マイルストーン「${target.milestone.title}」のカテゴリ設定を消せませんでした`,
+            hint: "画面には影響しません。次回の起動時に消えていなければ設定を開き直してください。",
+          })
+        }
+        setMilestoneCategories((prev) => {
+          const next = { ...prev }
+          delete next[milestoneId]
+          return next
+        })
+        setOpenMilestoneId(null)
+        logAppend({
+          level: "info",
+          message: `マイルストーン「${target.milestone.title}」を削除しました`,
+        })
+        reload()
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        logAppend({
+          level: "error",
+          message: "マイルストーンを削除できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      } finally {
+        setDeletingMilestone(false)
+      }
+    },
+    [repository, resolveMilestoneTarget, logAppend, reload],
+  )
+
+  /**
+   * 盤面で菱形をドラッグし終えたときの期日の確定。
+   *
+   * 削除と同じく、GitHub が受け取ってから手元を動かす。バーの日付
+   * （changeTaskDates → changeDates）は先に画面を進めてからキューで送るが、
+   * あちらには取り消し・競合解決の仕組みが付いていて、失敗しても戻せる。
+   * マイルストーンはその仕組みに載っていないので、同じ順序にすると失敗した
+   * ときに盤面だけが動いたまま残る。
+   *
+   * 手元の一覧を差し替えたうえで取り直すのは、盤面が読む期日が Issue 側
+   * （task.milestone）の写しだから。一覧だけ直しても、その期日が付いた Issue が
+   * 1 件でもあれば菱形は元の位置に戻ってしまう。
+   */
+  const moveMilestone = useCallback(
+    async (milestoneId: string, dueOn: ISODate) => {
+      const target = resolveMilestoneTarget(milestoneId)
+      if (!target) {
+        logAppend({
+          level: "error",
+          message: "マイルストーンの期日を変更できませんでした",
+          hint: "どのリポジトリのものか分かりません。再読み込みしてください。",
+        })
+        return
+      }
+      try {
+        const updated = await repository.updateMilestoneDueOn(
+          target.nameWithOwner,
+          target.milestone.number,
+          dueOn,
+        )
+        setMilestonesByRepo((prev) => ({
+          ...prev,
+          [target.repositoryId]: (prev[target.repositoryId] ?? []).map((m) =>
+            m.id === milestoneId ? updated : m,
+          ),
+        }))
+        logAppend({
+          level: "info",
+          message: `マイルストーン「${updated.title}」の期日を ${updated.dueOn ?? "—"} にしました`,
+        })
+        reload()
+      } catch (error) {
+        const err = error instanceof GitHubError ? error : new GitHubError("unknown", String(error))
+        const info = describeError(err)
+        logAppend({
+          level: "error",
+          message: "マイルストーンの期日を変更できませんでした",
+          hint: `${err.message}　${info.hint}`,
+        })
+      }
+    },
+    [repository, resolveMilestoneTarget, logAppend, reload],
   )
 
   /**
@@ -1917,6 +2082,10 @@ function Workspace({
         // ここに載らず、そのぶんは引かれない（読み取り専用ビューは渡さない）。
         parentByIssueId={parentsLoaded ? parentByIssueId : undefined}
         onMilestoneOpen={setOpenMilestoneId}
+        // 菱形は掴んで動かせる。期日は GitHub のマイルストーンそのものの
+        // due_on なので、確定は REST での書き込みになる。
+        // 掴めないのは読み取り専用ビュー（apps/web）— あちらはこの props を渡さない。
+        onMilestoneDragCommit={moveMilestone}
         dailyTasks={dailyTasks}
         // 点はここでは常に押せる。実行した記録の行き先はアプリの設定だけで、
         // GitHub にも Project のフィールドにも何も送らないため。
@@ -1985,11 +2154,14 @@ function Workspace({
           マイルストーンが引けたことだけを条件にする。 */}
       {openMilestone && (
         <MilestoneCategoryModal
+          milestoneId={openMilestone.id}
           title={openMilestone.title}
           candidates={labelCandidates}
           selected={milestoneCategories[openMilestone.id] ?? null}
           busy={savingMilestoneCategory}
           onSelect={(label) => void assignMilestoneCategory(openMilestone.id, label)}
+          onDelete={deleteMilestone}
+          deleting={deletingMilestone}
           onClose={() => setOpenMilestoneId(null)}
         />
       )}

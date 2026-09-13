@@ -25,8 +25,14 @@ type Options = {
   onClick?: (taskId: string) => void
 }
 
-/** これ以下の移動量ならクリック扱いにする (px)。 */
-const CLICK_SLOP_PX = 3
+/**
+ * これ以下の移動量ならクリック扱いにする (px)。
+ *
+ * useMilestoneDrag も同じ値で判定する（export しているのはそのため）。掴んで
+ * 離すという同じ操作なのに、バーと菱形で「動かした」の境目が違うと、指が
+ * どれだけ揺れてよいかを場所ごとに覚え直すことになる。
+ */
+export const CLICK_SLOP_PX = 3
 
 /**
  * バーのドラッグ / リサイズ（企画書 §6.3.3）。

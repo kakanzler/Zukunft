@@ -561,23 +561,76 @@ impl GitHubClient {
         }
 
         let created: Value = response.json().await?;
-        // id ではなく node_id を採る。REST の id はリポジトリ内の連番で、
-        // Issue への設定に使う GraphQL の node id とは別物。
-        let id = created
-            .get("node_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorKind::Unknown,
-                    "作成したマイルストーンの識別子を読めませんでした",
-                )
-            })?
-            .to_owned();
-        Ok(Milestone {
-            id,
-            title: created.get("title").and_then(Value::as_str).unwrap_or(title).to_owned(),
-            due_on: read_date(created.get("due_on").and_then(Value::as_str)),
-        })
+        read_rest_milestone(&created, title)
+    }
+
+    /// マイルストーンを消す。作成と同じく REST（GraphQL に mutation が無い）。
+    ///
+    /// 引くのは node id ではなくリポジトリ内の連番 `number`。REST の
+    /// `/repos/{owner}/{repo}/milestones/{number}` は node id を受け付けない。
+    ///
+    /// Issue から外すのと違い、そのマイルストーンが付いていたすべての Issue から
+    /// 外れ、取り消しはできない。呼ぶ前に UI 側で確認を取る。
+    pub async fn delete_milestone(&self, owner: &str, repo: &str, number: i64) -> AppResult<()> {
+        let response = self
+            .http
+            .delete(format!(
+                "{REST_ENDPOINT}/repos/{owner}/{repo}/milestones/{number}"
+            ))
+            .bearer_auth(&self.token)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", REST_ACCEPT)
+            .send()
+            .await?;
+
+        if let Some(error) = http_status_error(
+            &response,
+            "このマイルストーンを削除する権限がありません",
+            "マイルストーンが見つかりません",
+        ) {
+            return Err(error);
+        }
+
+        // 成功は 204 No Content。読む本文が無いので、ここで終わり。
+        Ok(())
+    }
+
+    /// マイルストーンの期日だけを書き換える（盤面でのドラッグ移動）。
+    ///
+    /// 作成と同じく REST。引くのは node id ではなく連番 `number`。
+    ///
+    /// `due_on` は真夜中（`T00:00:00Z`）で送る。作成 (`create_milestone`) が正午に
+    /// 伸ばしているのは POST だけの話で、PATCH は真夜中でも日付がずれない
+    /// — 実 API で確かめた記録は create_milestone の中のコメントにある。
+    pub async fn update_milestone_due_on(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: i64,
+        due_on: &str,
+    ) -> AppResult<Milestone> {
+        let response = self
+            .http
+            .patch(format!(
+                "{REST_ENDPOINT}/repos/{owner}/{repo}/milestones/{number}"
+            ))
+            .bearer_auth(&self.token)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", REST_ACCEPT)
+            .json(&json!({ "due_on": format!("{due_on}T00:00:00Z") }))
+            .send()
+            .await?;
+
+        if let Some(error) = http_status_error(
+            &response,
+            "このマイルストーンを変更する権限がありません",
+            "マイルストーンが見つかりません",
+        ) {
+            return Err(error);
+        }
+
+        let updated: Value = response.json().await?;
+        read_rest_milestone(&updated, "")
     }
 
     /// この Issue の親（sub-issue 関係）。設定が無ければ None。
@@ -993,8 +1046,44 @@ fn read_assignee(value: &Value) -> Option<Assignee> {
 fn read_milestone(value: &Value) -> Option<Milestone> {
     Some(Milestone {
         id: value.get("id")?.as_str()?.to_owned(),
+        number: value.get("number").and_then(Value::as_i64).unwrap_or(0),
         title: value.get("title")?.as_str()?.to_owned(),
         due_on: read_date(value.get("dueOn").and_then(Value::as_str)),
+    })
+}
+
+/// REST が返したマイルストーン 1 件を読む。作成 (POST) と期日の更新 (PATCH) で
+/// 応答の形が同じなので、読み方はここに 1 つだけ置く。
+///
+/// id は REST の `id` ではなく `node_id` を採る。REST の `id` は GitHub 全体で
+/// 一意な別の数値で、Issue への設定に使う GraphQL の node id とは別物。
+///
+/// `number` はリポジトリ内の連番で、以後の削除・期日更新に使う REST のパスがこれを要る。
+/// どちらも欠けたら黙って 0 や空で埋めない — その値のまま UI に渡すと、
+/// 後の操作が別のマイルストーンに当たるか、理由の分からない 404 になる。
+///
+/// `fallback_title` は応答に題が無かったときの控え。呼び出し側が題を持っていない
+/// 更新系では空文字を渡す（GitHub は必ず題を返すので実際には使われない）。
+fn read_rest_milestone(value: &Value, fallback_title: &str) -> AppResult<Milestone> {
+    let id = value
+        .get("node_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            AppError::new(ErrorKind::Unknown, "マイルストーンの識別子を読めませんでした")
+        })?
+        .to_owned();
+    let number = value.get("number").and_then(Value::as_i64).ok_or_else(|| {
+        AppError::new(ErrorKind::Unknown, "マイルストーンの番号を読めませんでした")
+    })?;
+    Ok(Milestone {
+        id,
+        number,
+        title: value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or(fallback_title)
+            .to_owned(),
+        due_on: read_date(value.get("due_on").and_then(Value::as_str)),
     })
 }
 
@@ -1066,6 +1155,7 @@ fn map_task(item: &Value) -> Option<ScheduleTask> {
 
     let milestone = content.get("milestone").filter(|m| !m.is_null()).map(|m| Milestone {
         id: m.get("id").and_then(Value::as_str).unwrap_or("").to_owned(),
+        number: m.get("number").and_then(Value::as_i64).unwrap_or(0),
         title: m.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
         due_on: read_date(m.get("dueOn").and_then(Value::as_str)),
     });

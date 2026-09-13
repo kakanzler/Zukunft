@@ -1,6 +1,7 @@
 import type {
   Assignee,
   DateChange,
+  ISODate,
   IssueState,
   Label,
   Milestone,
@@ -153,6 +154,25 @@ export interface GitHubScheduleRepository {
    * REST は owner/repo でリポジトリを引くもので、node id では引けない。
    */
   createMilestone(nameWithOwner: string, input: NewMilestoneInput): Promise<Milestone>
+
+  /**
+   * マイルストーンの定義自体を消す。Issue から外すのと違い、そのマイルストーンが
+   * 付いていたすべての Issue から外れ、取り消しはできない。呼ぶ前に UI 側で確認を取る。
+   *
+   * 作成と同じく REST でしか行えないため `nameWithOwner` を取る。合わせて node id では
+   * なくリポジトリ内の連番 `number` を取る（REST のパスが node id では引けない）。
+   */
+  deleteMilestone(nameWithOwner: string, number: number): Promise<void>
+
+  /**
+   * マイルストーンの期日だけを書き換える（盤面でのドラッグ移動）。
+   * 引数が `nameWithOwner` + `number` なのは削除と同じ理由。
+   */
+  updateMilestoneDueOn(
+    nameWithOwner: string,
+    number: number,
+    dueOn: ISODate,
+  ): Promise<Milestone>
 
   /** ラベルを新規作成する。作成しただけでは Issue には付かない */
   createLabel(repositoryId: string, name: string, color: string): Promise<Label>

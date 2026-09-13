@@ -5,7 +5,11 @@ export { TaskPane } from "./TaskPane"
 export { Timeline } from "./Timeline"
 export { buildRows, visibleRange, type Row } from "./rows"
 export { estimateLabelWidth, onAxisMilestones, packMilestones } from "./milestones"
-export { glowVar, statusSlot, statusVar, STATUS_COLOR_COUNT } from "./colors"
+export {
+  glowVar, statusSlot, statusVar, STATUS_COLOR_COUNT,
+  MILESTONE_INSIDE_COLORS, nearestMilestoneColor,
+} from "./colors"
 export { GANTT_THEMES, isGanttTheme, type GanttTheme } from "./theme"
-export { useBarDrag, type DragState } from "./useBarDrag"
+export { useBarDrag, type DragState, CLICK_SLOP_PX } from "./useBarDrag"
+export { useMilestoneDrag, type MilestoneDragState } from "./useMilestoneDrag"
 export { isTyping } from "./keyboard"

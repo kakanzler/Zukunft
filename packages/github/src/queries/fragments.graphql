@@ -48,5 +48,5 @@ fragment IssueContent on Issue {
     nodes { id name color }
   }
   repository { id }
-  milestone { id title dueOn }
+  milestone { id number title dueOn }
 }

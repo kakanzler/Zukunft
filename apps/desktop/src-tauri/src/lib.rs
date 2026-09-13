@@ -309,32 +309,12 @@ async fn create_milestone(
         return Err(AppError::new(ErrorKind::Unknown, "マイルストーンの題を入力してください"));
     }
 
-    // owner と repo に割れない値は、そのまま送っても GitHub 側で 404 になるだけで
-    // 「どこに作ろうとしたのか」が分からない。ここで理由の分かる形で弾く。
-    let (owner, repo) = name_with_owner.split_once('/').ok_or_else(|| {
-        AppError::new(
-            ErrorKind::NotFound,
-            format!("リポジトリの指定が owner/repo の形ではありません（{name_with_owner}）"),
-        )
-    })?;
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return Err(AppError::new(
-            ErrorKind::NotFound,
-            format!("リポジトリの指定が owner/repo の形ではありません（{name_with_owner}）"),
-        ));
-    }
+    let (owner, repo) = split_name_with_owner(&name_with_owner)?;
 
     // 期日は任意。空文字は「未指定」として扱う — UI の日付欄は未入力を空文字で返す。
     let due_on = due_on.as_deref().map(str::trim).filter(|value| !value.is_empty());
     if let Some(due) = due_on {
-        // 形を確かめてから送る。崩れた値でも GitHub は 422 を返すが、
-        // どの項目が悪いのかは応答から読み取れない。
-        let shaped = due.len() == 10
-            && due.as_bytes().iter().enumerate().all(|(i, byte)| match i {
-                4 | 7 => *byte == b'-',
-                _ => byte.is_ascii_digit(),
-            });
-        if !shaped {
+        if !is_shaped_date(due) {
             return Err(AppError::new(
                 ErrorKind::Unknown,
                 "期日は YYYY-MM-DD の形で指定してください",
@@ -344,6 +324,72 @@ async fn create_milestone(
     let description = description.as_deref().map(str::trim).filter(|value| !value.is_empty());
 
     state.client()?.create_milestone(owner, repo, title, due_on, description).await
+}
+
+/// `owner/repo` を割る。
+///
+/// owner と repo に割れない値は、そのまま送っても GitHub 側で 404 になるだけで
+/// 「どこを指したのか」が分からない。ここで理由の分かる形で弾く。
+fn split_name_with_owner(name_with_owner: &str) -> Result<(&str, &str), AppError> {
+    let malformed = || {
+        AppError::new(
+            ErrorKind::NotFound,
+            format!("リポジトリの指定が owner/repo の形ではありません（{name_with_owner}）"),
+        )
+    };
+    let (owner, repo) = name_with_owner.split_once('/').ok_or_else(malformed)?;
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return Err(malformed());
+    }
+    Ok((owner, repo))
+}
+
+/// `YYYY-MM-DD` の形か。
+///
+/// 形を確かめてから送る。崩れた値でも GitHub は 422 を返すが、
+/// どの項目が悪いのかは応答から読み取れない。
+fn is_shaped_date(value: &str) -> bool {
+    value.len() == 10
+        && value.as_bytes().iter().enumerate().all(|(i, byte)| match i {
+            4 | 7 => *byte == b'-',
+            _ => byte.is_ascii_digit(),
+        })
+}
+
+/// マイルストーンを消す。GitHub 上のマイルストーンそのものが消え、付いていた
+/// すべての Issue から外れる。取り消しはできないので、確認は UI 側で取る。
+///
+/// 引数が node id ではなく `owner/repo` + 連番 `number` なのは、create_milestone と
+/// 同じく REST しか口が無いため（github.rs の delete_milestone）。
+#[tauri::command]
+async fn delete_milestone(
+    state: State<'_>,
+    name_with_owner: String,
+    number: i64,
+) -> Result<(), AppError> {
+    let (owner, repo) = split_name_with_owner(&name_with_owner)?;
+    state.client()?.delete_milestone(owner, repo, number).await
+}
+
+/// マイルストーンの期日を書き換える（盤面でのドラッグ移動）。
+///
+/// 引数が node id ではなく `owner/repo` + 連番 `number` なのは削除と同じ理由。
+#[tauri::command]
+async fn update_milestone_due_on(
+    state: State<'_>,
+    name_with_owner: String,
+    number: i64,
+    due_on: String,
+) -> Result<Milestone, AppError> {
+    let (owner, repo) = split_name_with_owner(&name_with_owner)?;
+    let due_on = due_on.trim();
+    if !is_shaped_date(due_on) {
+        return Err(AppError::new(
+            ErrorKind::Unknown,
+            "期日は YYYY-MM-DD の形で指定してください",
+        ));
+    }
+    state.client()?.update_milestone_due_on(owner, repo, number, due_on).await
 }
 
 /// ラベルを新規作成する。作成しただけでは Issue には付かないので、
@@ -795,6 +841,8 @@ pub fn run() {
             list_assignable_users,
             list_milestones,
             create_milestone,
+            delete_milestone,
+            update_milestone_due_on,
             create_label,
             delete_label,
             update_task_dates,

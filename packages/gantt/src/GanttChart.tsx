@@ -97,6 +97,13 @@ export type GanttChartProps = {
    */
   onMilestoneOpen?: (milestoneId: string) => void
   /**
+   * 盤面のマイルストーンをドラッグして期日を動かし終えたとき。
+   * GitHub のマイルストーンの due_on を書き換える用途。
+   * 渡さない読み取り専用ビューでは掴めないままにする（readOnly ではなく
+   * この props の有無でゲートするのは onMilestoneOpen と同じ）。
+   */
+  onMilestoneDragCommit?: (milestoneId: string, dueOn: ISODate) => void
+  /**
    * 日課の設定（task id -> 間隔と実行した日）。ここにあるタスクは
    * バーではなく実行日の点で描く。日付そのものは Issue の Start / Target Date。
    */
@@ -117,7 +124,8 @@ export function GanttChart({
   tasks, statusOrder, zoom, groupBy = "status", parentLabels = EMPTY_PARENTS,
   theme = "default", onTaskDatesChange, readOnly = false, onTaskOpen, onTaskEdit, keyboardEnabled = true,
   milestones: repositoryMilestones = EMPTY_MILESTONES, emptyMessage, toolbar, subHeader,
-  onMilestoneOpen, dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
+  onMilestoneOpen, onMilestoneDragCommit,
+  dailyTasks = EMPTY_DAILY_TASKS, onToggleDailyDone,
   parentByIssueId = EMPTY_PARENT_BY_ISSUE,
 }: GanttChartProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
@@ -398,6 +406,7 @@ export function GanttChart({
           milestoneHeight={milestoneHeight}
           scrollTop={scrollTop}
           onMilestoneOpen={onMilestoneOpen}
+          onMilestoneDragCommit={onMilestoneDragCommit}
           dependencies={dependencies}
           milestoneLinks={milestoneLinks}
           cyclicEdges={cyclicEdges}
